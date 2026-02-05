@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}{{ child.name }} - Stats{% endblock %}
+
+{% block content %}
+<a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none;">&larr; Back</a>
+<h1 style="margin-top: 10px;">{{ child.name }}'s Stats</h1>
+
+<div class="grid" style="grid-template-columns: repeat(4, 1fr); margin: 20px 0;">
+    <div class="card" style="text-align: center;">
+        <div style="font-size: 36px; font-weight: bold; color: #667eea;">{{ child.level }}</div>
+        <div>Level</div>
+    </div>
+    <div class="card" style="text-align: center;">
+        <div style="font-size: 36px; font-weight: bold; color: #48bb78;">{{ child.total_points }}</div>
+        <div>Points</div>
+    </div>
+    <div class="card" style="text-align: center;">
+        <div style="font-size: 36px; font-weight: bold; color: #ed8936;">{{ word_count }}</div>
+        <div>Words</div>
+    </div>
+    <div class="card" style="text-align: center;">
+        <div style="font-size: 36px; font-weight: bold; color: #9f7aea;">{{ badges|length }}</div>
+        <div>Badges</div>
+    </div>
+</div>
+
+<h2>Badges</h2>
+<div class="grid" style="margin-bottom: 30px;">
+    {% for badge_type, info in badge_defs.items() %}
+    {% set earned = badges|selectattr('badge_type', 'equalto', badge_type)|first %}
+    <div class="card" style="text-align: center; {% if not earned %}opacity: 0.4;{% endif %}">
+        <div style="font-size: 36px;">{{ info[0].split()[0] }}</div>
+        <div style="font-weight: bold;">{{ info[0].split()[1:] | join(' ') }}</div>
+        <div style="font-size: 12px; color: #666;">{{ info[1] }}</div>
+        {% if earned %}
+        <div style="font-size: 11px; color: #48bb78; margin-top: 5px;">✓ Earned</div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+
+<h2>Leaderboard</h2>
+<div class="card">
+    {% for c in leaderboard %}
+    <div style="display: flex; justify-content: space-between; padding: 10px; {% if c.id == child.id %}background: #e2e8f0; border-radius: 8px;{% endif %}">
+        <div>
+            <span style="font-size: 20px; margin-right: 10px;">
+                {% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}.{% endif %}
+            </span>
+            <strong>{{ c.name }}</strong>
+        </div>
+        <div>
+            Level {{ c.level }} • {{ c.total_points }} pts
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% if sessions %}
+<h2 style="margin-top: 30px;">Test History</h2>
+{% for session in sessions %}
+<div class="card">
+    <strong>{{ session.test_type }}</strong>:
+    {{ session.count }} tests,
+    {{ session.correct }}/{{ session.total }} correct
+    ({{ ((session.correct / session.total) * 100) | round | int }}%),
+    {{ session.score }} total points
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

@@ -151,3 +151,66 @@ def record_test_session(child_id: int, test_type: str, score: int,
     )
     conn.commit()
     conn.close()
+
+
+BADGE_DEFINITIONS = {
+    "first_steps": ("🎯 First Steps", "Add 10 words"),
+    "scholar": ("📚 Scholar", "Add 50 words"),
+    "sharp_mind": ("🧠 Sharp Mind", "10 correct in a row"),
+    "unstoppable": ("🔥 Unstoppable", "25 correct in a row"),
+    "speed_demon": ("⚡ Speed Demon", "Average < 3s per question"),
+    "dedicated": ("📅 Dedicated", "Test 7 days in a row"),
+    "master": ("👑 Master", "Get a word to level 5"),
+}
+
+
+def check_badges(child_id: int) -> list:
+    """Check and award any new badges. Returns list of newly earned badges."""
+    conn = get_db()
+    new_badges = []
+
+    # Get existing badges
+    existing = set(row["badge_type"] for row in conn.execute(
+        "SELECT badge_type FROM badge WHERE child_id = ?", (child_id,)
+    ).fetchall())
+
+    # Check word count badges
+    word_count = conn.execute(
+        "SELECT COUNT(*) FROM word WHERE child_id = ?", (child_id,)
+    ).fetchone()[0]
+
+    if word_count >= 10 and "first_steps" not in existing:
+        new_badges.append("first_steps")
+    if word_count >= 50 and "scholar" not in existing:
+        new_badges.append("scholar")
+
+    # Check streak badges (from word_progress)
+    max_streak = conn.execute(
+        "SELECT MAX(streak) FROM word_progress WHERE child_id = ?", (child_id,)
+    ).fetchone()[0] or 0
+
+    if max_streak >= 10 and "sharp_mind" not in existing:
+        new_badges.append("sharp_mind")
+    if max_streak >= 25 and "unstoppable" not in existing:
+        new_badges.append("unstoppable")
+
+    # Check master badge (any word at level 5)
+    master_words = conn.execute(
+        "SELECT COUNT(*) FROM word_progress WHERE child_id = ? AND difficulty_level >= 5",
+        (child_id,)
+    ).fetchone()[0]
+
+    if master_words > 0 and "master" not in existing:
+        new_badges.append("master")
+
+    # Award new badges
+    for badge in new_badges:
+        conn.execute(
+            "INSERT INTO badge (child_id, badge_type) VALUES (?, ?)",
+            (child_id, badge)
+        )
+
+    conn.commit()
+    conn.close()
+
+    return [(b, BADGE_DEFINITIONS[b]) for b in new_badges]

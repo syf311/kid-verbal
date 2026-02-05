@@ -4,7 +4,7 @@ from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.utils import secure_filename
 from database import init_db, get_db
 from dictionary import fetch_definition
-from test_engine import get_test_words, generate_choices, update_progress, record_test_session
+from test_engine import get_test_words, generate_choices, update_progress, record_test_session, check_badges, BADGE_DEFINITIONS
 from ocr import extract_text
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
@@ -250,6 +250,50 @@ def test_page(child_id):
     if not child:
         return "Child not found", 404
     return render_template("test.html", child=dict(child))
+
+
+@app.route("/child/<int:child_id>/stats")
+def stats_page(child_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    if not child:
+        return "Child not found", 404
+
+    # Check for new badges
+    check_badges(child_id)
+
+    # Get all stats
+    word_count = conn.execute(
+        "SELECT COUNT(*) FROM word WHERE child_id = ?", (child_id,)
+    ).fetchone()[0]
+
+    badges = conn.execute(
+        "SELECT badge_type, earned_at FROM badge WHERE child_id = ? ORDER BY earned_at DESC",
+        (child_id,)
+    ).fetchall()
+
+    sessions = conn.execute(
+        """SELECT test_type, SUM(correct_count) as correct, SUM(total_count) as total,
+                  SUM(score) as score, COUNT(*) as count
+           FROM test_session WHERE child_id = ? GROUP BY test_type""",
+        (child_id,)
+    ).fetchall()
+
+    all_children = conn.execute(
+        "SELECT id, name, total_points, level FROM child ORDER BY total_points DESC"
+    ).fetchall()
+
+    conn.close()
+
+    return render_template(
+        "stats.html",
+        child=dict(child),
+        word_count=word_count,
+        badges=[dict(b) for b in badges],
+        badge_defs=BADGE_DEFINITIONS,
+        sessions=[dict(s) for s in sessions],
+        leaderboard=[dict(c) for c in all_children]
+    )
 
 
 @app.route("/materials")
