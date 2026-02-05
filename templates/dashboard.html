@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}{{ child.name }} - Dashboard{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+    <div>
+        <a href="/" style="color: #667eea; text-decoration: none;">&larr; Back</a>
+        <h1 style="margin-top: 10px;">{{ child.name }}</h1>
+    </div>
+    <div style="text-align: right;">
+        <div style="font-size: 48px;">{{ child.avatar or '👤' }}</div>
+        <div style="font-size: 24px; font-weight: bold; color: #667eea;">Level {{ child.level }}</div>
+        <div style="color: #666;">{{ child.total_points }} points</div>
+    </div>
+</div>
+
+<div class="grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 30px;">
+    <div class="card" style="text-align: center;">
+        <div style="font-size: 36px; font-weight: bold; color: #667eea;">{{ word_count }}</div>
+        <div style="color: #666;">Words</div>
+    </div>
+    <div class="card" style="text-align: center;">
+        <div style="font-size: 36px; font-weight: bold; color: #48bb78;">{{ badges|length }}</div>
+        <div style="color: #666;">Badges</div>
+    </div>
+    <div class="card" style="text-align: center;">
+        <div style="font-size: 36px; font-weight: bold; color: #ed8936;">{{ recent_sessions|length }}</div>
+        <div style="color: #666;">Recent Tests</div>
+    </div>
+</div>
+
+<div class="grid" style="grid-template-columns: repeat(2, 1fr);">
+    <a href="/child/{{ child.id }}/words" class="btn btn-primary" style="text-align: center;">
+        📚 My Words
+    </a>
+    <a href="/child/{{ child.id }}/test" class="btn btn-success" style="text-align: center;">
+        🎯 Start Test
+    </a>
+    <a href="/child/{{ child.id }}/stats" class="btn btn-warning" style="text-align: center;">
+        📊 Stats & Badges
+    </a>
+    <a href="/materials" class="btn btn-primary" style="text-align: center;">
+        📖 Reading
+    </a>
+</div>
+
+{% if badges %}
+<div style="margin-top: 30px;">
+    <h2>Badges</h2>
+    <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+        {% for badge in badges %}
+        <div class="card" style="padding: 10px 15px;">
+            {{ badge.badge_type }}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if recent_sessions %}
+<div style="margin-top: 30px;">
+    <h2>Recent Tests</h2>
+    {% for session in recent_sessions %}
+    <div class="card">
+        <strong>{{ session.test_type }}</strong> -
+        {{ session.correct_count }}/{{ session.total_count }} correct,
+        {{ session.score }} pts
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

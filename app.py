@@ -57,6 +57,41 @@ def delete_child(child_id):
     return "", 204
 
 
+@app.route("/child/<int:child_id>")
+def child_dashboard(child_id):
+    conn = get_db()
+    child = conn.execute(
+        "SELECT * FROM child WHERE id = ?", (child_id,)
+    ).fetchone()
+    if not child:
+        return "Child not found", 404
+
+    word_count = conn.execute(
+        "SELECT COUNT(*) FROM word WHERE child_id = ?", (child_id,)
+    ).fetchone()[0]
+
+    recent_sessions = conn.execute(
+        """SELECT test_type, score, correct_count, total_count, created_at
+           FROM test_session WHERE child_id = ?
+           ORDER BY created_at DESC LIMIT 5""",
+        (child_id,)
+    ).fetchall()
+
+    badges = conn.execute(
+        "SELECT badge_type, earned_at FROM badge WHERE child_id = ?",
+        (child_id,)
+    ).fetchall()
+
+    conn.close()
+    return render_template(
+        "dashboard.html",
+        child=dict(child),
+        word_count=word_count,
+        recent_sessions=[dict(s) for s in recent_sessions],
+        badges=[dict(b) for b in badges]
+    )
+
+
 if __name__ == "__main__":
     init_db()
     socketio.run(app, host="0.0.0.0", port=5000, debug=True)
