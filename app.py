@@ -1,8 +1,14 @@
+import os
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO
+from werkzeug.utils import secure_filename
 from database import init_db, get_db
 from dictionary import fetch_definition
 from test_engine import get_test_words, generate_choices, update_progress, record_test_session
+from ocr import extract_text
+
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "REDACTED-SECRET"
@@ -241,6 +247,80 @@ def test_page(child_id):
     if not child:
         return "Child not found", 404
     return render_template("test.html", child=dict(child))
+
+
+@app.route("/materials")
+def materials_list():
+    conn = get_db()
+    materials = conn.execute(
+        "SELECT * FROM reading_material ORDER BY created_at DESC"
+    ).fetchall()
+    conn.close()
+    return render_template("materials.html", materials=[dict(m) for m in materials])
+
+
+@app.route("/api/materials", methods=["POST"])
+def create_material():
+    title = request.form.get("title", "Untitled")
+    content = request.form.get("content", "")
+    image_path = None
+
+    if "image" in request.files:
+        file = request.files["image"]
+        if file.filename:
+            filename = secure_filename(file.filename)
+            filepath = os.path.join(UPLOAD_FOLDER, filename)
+            file.save(filepath)
+            image_path = filename
+
+            # OCR if no content provided
+            if not content:
+                content = extract_text(filepath)
+
+    conn = get_db()
+    cursor = conn.execute(
+        "INSERT INTO reading_material (title, content, image_path) VALUES (?, ?, ?)",
+        (title, content, image_path)
+    )
+    material_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return jsonify({"id": material_id, "content": content})
+
+
+@app.route("/api/materials/<int:material_id>", methods=["GET"])
+def get_material(material_id):
+    conn = get_db()
+    material = conn.execute(
+        "SELECT * FROM reading_material WHERE id = ?", (material_id,)
+    ).fetchone()
+    conn.close()
+    if not material:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify(dict(material))
+
+
+@app.route("/api/materials/<int:material_id>", methods=["PUT"])
+def update_material(material_id):
+    data = request.json
+    conn = get_db()
+    conn.execute(
+        "UPDATE reading_material SET title = ?, content = ? WHERE id = ?",
+        (data.get("title"), data.get("content"), material_id)
+    )
+    conn.commit()
+    conn.close()
+    return "", 204
+
+
+@app.route("/api/materials/<int:material_id>", methods=["DELETE"])
+def delete_material(material_id):
+    conn = get_db()
+    conn.execute("DELETE FROM reading_material WHERE id = ?", (material_id,))
+    conn.commit()
+    conn.close()
+    return "", 204
 
 
 if __name__ == "__main__":

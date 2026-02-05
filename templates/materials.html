@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Reading Materials{% endblock %}
+
+{% block content %}
+<a href="/" style="color: #667eea; text-decoration: none;">&larr; Home</a>
+<h1 style="margin-top: 10px;">Reading Materials</h1>
+
+<div class="card" style="margin: 20px 0;">
+    <h2>Add New Material</h2>
+    <form id="upload-form" enctype="multipart/form-data">
+        <input type="text" name="title" placeholder="Title..." required>
+
+        <div style="margin-bottom: 15px;">
+            <label style="display: block; margin-bottom: 5px;">Upload Image (optional - will OCR text):</label>
+            <input type="file" name="image" accept="image/*" id="image-input">
+        </div>
+
+        <div style="margin-bottom: 15px;">
+            <label style="display: block; margin-bottom: 5px;">Or paste/type text directly:</label>
+            <textarea name="content" id="content-input" rows="6" placeholder="Paste or type reading material here..."></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-success">Add Material</button>
+    </form>
+</div>
+
+<h2>Materials</h2>
+<div id="materials-list">
+    {% for material in materials %}
+    <div class="card" style="margin-bottom: 15px;">
+        <div style="display: flex; justify-content: space-between; align-items: start;">
+            <div>
+                <h3 style="margin: 0;">{{ material.title }}</h3>
+                <p style="color: #666; margin-top: 5px;">
+                    {{ material.content[:100] }}{% if material.content|length > 100 %}...{% endif %}
+                </p>
+            </div>
+            <div>
+                <a href="/session/{{ material.id }}/parent" class="btn btn-primary" style="padding: 8px 15px;">
+                    Start Session
+                </a>
+                <button class="btn btn-danger" style="padding: 8px 15px;" onclick="deleteMaterial({{ material.id }})">
+                    Delete
+                </button>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <p style="color: #666;">No materials yet. Add one above!</p>
+    {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('upload-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const formData = new FormData(form);
+
+    const res = await fetch('/api/materials', {
+        method: 'POST',
+        body: formData
+    });
+
+    if (res.ok) {
+        location.reload();
+    } else {
+        alert('Error creating material');
+    }
+});
+
+async function deleteMaterial(id) {
+    if (!confirm('Delete this material?')) return;
+    await fetch(`/api/materials/${id}`, { method: 'DELETE' });
+    location.reload();
+}
+</script>
+{% endblock %}
