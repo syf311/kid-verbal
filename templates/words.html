@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block title %}{{ child.name }} - Words{% endblock %}
+
+{% block content %}
+<a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none;">&larr; Back to Dashboard</a>
+<h1 style="margin-top: 10px;">{{ child.name }}'s Words</h1>
+
+<div style="margin: 20px 0;">
+    <form id="add-word-form" style="display: flex; gap: 10px;">
+        <input type="text" id="new-word" placeholder="Enter a word..." style="flex: 1;" required>
+        <button type="submit" class="btn btn-success">Add Word</button>
+    </form>
+</div>
+
+<div id="words-list">
+    <!-- Words loaded via JS -->
+</div>
+
+<div id="edit-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100;">
+    <div style="background: white; max-width: 500px; margin: 50px auto; padding: 30px; border-radius: 20px;">
+        <h2>Edit Word</h2>
+        <input type="hidden" id="edit-word-id">
+        <label>Word:</label>
+        <input type="text" id="edit-word-text" readonly style="background: #f0f0f0;">
+        <label>Definition:</label>
+        <textarea id="edit-definition" rows="3"></textarea>
+        <label>Example Sentence:</label>
+        <textarea id="edit-example" rows="2"></textarea>
+        <div style="margin-top: 15px;">
+            <button class="btn btn-primary" onclick="saveEdit()">Save</button>
+            <button class="btn btn-danger" onclick="closeModal()">Cancel</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const childId = {{ child.id }};
+
+async function loadWords() {
+    const res = await fetch(`/api/children/${childId}/words`);
+    const words = await res.json();
+    const container = document.getElementById('words-list');
+
+    if (words.length === 0) {
+        container.innerHTML = '<p style="color: #666;">No words yet. Add your first word above!</p>';
+        return;
+    }
+
+    container.innerHTML = words.map(word => `
+        <div class="card" style="display: flex; justify-content: space-between; align-items: start;">
+            <div style="flex: 1;">
+                <div style="font-size: 20px; font-weight: bold; color: #333;">${word.word}</div>
+                <div style="color: #666; margin-top: 5px;">${word.definition || 'No definition'}</div>
+                ${word.example_sentence ? `<div style="color: #888; font-style: italic; margin-top: 5px;">"${word.example_sentence}"</div>` : ''}
+                <div style="margin-top: 8px; font-size: 12px; color: #999;">
+                    ✓ ${word.correct_count || 0} | ✗ ${word.wrong_count || 0} | Level ${word.difficulty_level || 1}
+                </div>
+            </div>
+            <div>
+                <button class="btn btn-primary" style="padding: 8px 12px; font-size: 14px;" onclick="speak('${word.word}')">🔊</button>
+                <button class="btn btn-warning" style="padding: 8px 12px; font-size: 14px;" onclick="editWord(${word.id}, '${word.word}', '${(word.definition || '').replace(/'/g, "\\'")}', '${(word.example_sentence || '').replace(/'/g, "\\'")}')">✏️</button>
+                <button class="btn btn-danger" style="padding: 8px 12px; font-size: 14px;" onclick="deleteWord(${word.id})">🗑️</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function speak(word) {
+    const utterance = new SpeechSynthesisUtterance(word);
+    speechSynthesis.speak(utterance);
+}
+
+document.getElementById('add-word-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const word = document.getElementById('new-word').value;
+    await fetch(`/api/children/${childId}/words`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ word })
+    });
+    document.getElementById('new-word').value = '';
+    loadWords();
+});
+
+function editWord(id, word, definition, example) {
+    document.getElementById('edit-word-id').value = id;
+    document.getElementById('edit-word-text').value = word;
+    document.getElementById('edit-definition').value = definition;
+    document.getElementById('edit-example').value = example;
+    document.getElementById('edit-modal').style.display = 'block';
+}
+
+function closeModal() {
+    document.getElementById('edit-modal').style.display = 'none';
+}
+
+async function saveEdit() {
+    const id = document.getElementById('edit-word-id').value;
+    await fetch(`/api/words/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            definition: document.getElementById('edit-definition').value,
+            example_sentence: document.getElementById('edit-example').value
+        })
+    });
+    closeModal();
+    loadWords();
+}
+
+async function deleteWord(id) {
+    if (!confirm('Delete this word?')) return;
+    await fetch(`/api/words/${id}`, { method: 'DELETE' });
+    loadWords();
+}
+
+loadWords();
+</script>
+{% endblock %}

@@ -93,6 +93,16 @@ def child_dashboard(child_id):
     )
 
 
+@app.route("/child/<int:child_id>/words")
+def word_list(child_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    conn.close()
+    if not child:
+        return "Child not found", 404
+    return render_template("words.html", child=dict(child))
+
+
 @app.route("/api/children/<int:child_id>/words", methods=["GET"])
 def get_words(child_id):
     conn = get_db()
