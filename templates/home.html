@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Kid Verbal - Home{% endblock %}
+
+{% block content %}
+<h1>Kid Verbal</h1>
+<p style="margin-bottom: 30px; color: #666;">Choose a profile to get started!</p>
+
+<div id="profiles" class="grid">
+    <!-- Profiles loaded via JS -->
+</div>
+
+<div style="margin-top: 30px;">
+    <h2>Add New Profile</h2>
+    <form id="add-profile-form">
+        <input type="text" id="child-name" placeholder="Enter name..." required>
+        <button type="submit" class="btn btn-success">Add Profile</button>
+    </form>
+</div>
+
+<div style="margin-top: 30px;">
+    <a href="/materials" class="btn btn-warning">Reading Materials</a>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadProfiles() {
+    const res = await fetch('/api/children');
+    const children = await res.json();
+    const container = document.getElementById('profiles');
+
+    if (children.length === 0) {
+        container.innerHTML = '<p style="color: #666;">No profiles yet. Add one below!</p>';
+        return;
+    }
+
+    container.innerHTML = children.map(child => `
+        <a href="/child/${child.id}" class="card" style="text-decoration: none; text-align: center;">
+            <div style="font-size: 48px; margin-bottom: 10px;">
+                ${child.avatar || '👤'}
+            </div>
+            <div style="font-size: 20px; font-weight: bold; color: #333;">
+                ${child.name}
+            </div>
+            <div style="color: #666; margin-top: 5px;">
+                Level ${child.level} • ${child.total_points} pts
+            </div>
+        </a>
+    `).join('');
+}
+
+document.getElementById('add-profile-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('child-name').value;
+    await fetch('/api/children', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+    });
+    document.getElementById('child-name').value = '';
+    loadProfiles();
+});
+
+loadProfiles();
+</script>
+{% endblock %}
