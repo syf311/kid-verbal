@@ -1,0 +1,394 @@
+{% extends "base.html" %}
+
+{% block title %}{{ child.name }} - Test{% endblock %}
+
+{% block extra_css %}
+<style>
+    .test-type-btn {
+        display: block;
+        width: 100%;
+        padding: 20px;
+        margin-bottom: 10px;
+        font-size: 20px;
+        text-align: left;
+        border: 3px solid #ddd;
+        border-radius: 15px;
+        background: white;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .test-type-btn:hover {
+        border-color: #667eea;
+        transform: scale(1.02);
+    }
+    .choice-btn {
+        display: block;
+        width: 100%;
+        padding: 15px 20px;
+        margin: 10px 0;
+        font-size: 18px;
+        text-align: left;
+        border: 2px solid #ddd;
+        border-radius: 10px;
+        background: white;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .choice-btn:hover { border-color: #667eea; background: #f7fafc; }
+    .choice-btn.correct { border-color: #48bb78; background: #c6f6d5; }
+    .choice-btn.wrong { border-color: #f56565; background: #fed7d7; }
+    .timer { font-size: 24px; font-weight: bold; color: #667eea; }
+    .streak { font-size: 18px; color: #ed8936; }
+    .score { font-size: 24px; color: #48bb78; }
+    #confetti { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1000; }
+</style>
+{% endblock %}
+
+{% block content %}
+<canvas id="confetti"></canvas>
+
+<div id="menu-screen">
+    <a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none;">&larr; Back</a>
+    <h1 style="margin-top: 10px;">Choose a Test</h1>
+
+    <button class="test-type-btn" onclick="startTest('definition')">
+        📖 Definition Quiz
+        <div style="font-size: 14px; color: #666;">See a word, pick the correct definition</div>
+    </button>
+
+    <button class="test-type-btn" onclick="startTest('reverse')">
+        🔄 Reverse Quiz
+        <div style="font-size: 14px; color: #666;">See a definition, pick the correct word</div>
+    </button>
+
+    <button class="test-type-btn" onclick="startTest('spelling')">
+        ✏️ Spelling Bee
+        <div style="font-size: 14px; color: #666;">Hear a word, type the spelling</div>
+    </button>
+
+    <button class="test-type-btn" onclick="startTest('fillblank')">
+        📝 Fill in the Blank
+        <div style="font-size: 14px; color: #666;">Complete the sentence with the right word</div>
+    </button>
+</div>
+
+<div id="test-screen" style="display: none;">
+    <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+        <div class="timer">⏱️ <span id="timer">15</span>s</div>
+        <div class="streak">🔥 <span id="streak">0</span> streak</div>
+        <div class="score">⭐ <span id="score">0</span> pts</div>
+    </div>
+
+    <div style="margin-bottom: 10px; color: #666;">
+        Question <span id="current-q">1</span> of <span id="total-q">10</span>
+    </div>
+
+    <div id="question-area" class="card">
+        <!-- Question content -->
+    </div>
+
+    <div id="answer-area">
+        <!-- Answer options -->
+    </div>
+
+    <div id="feedback" style="display: none; margin-top: 20px; padding: 15px; border-radius: 10px;">
+    </div>
+</div>
+
+<div id="results-screen" style="display: none; text-align: center;">
+    <h1>🎉 Test Complete!</h1>
+    <div style="font-size: 48px; margin: 30px 0;">
+        <span id="final-score">0</span> points
+    </div>
+    <div style="font-size: 24px; color: #666; margin-bottom: 30px;">
+        <span id="final-correct">0</span>/<span id="final-total">10</span> correct
+    </div>
+    <button class="btn btn-primary" onclick="location.reload()">Try Again</button>
+    <a href="/child/{{ child.id }}" class="btn btn-success">Back to Dashboard</a>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const childId = {{ child.id }};
+let testType = '';
+let words = [];
+let currentIndex = 0;
+let score = 0;
+let streak = 0;
+let correctCount = 0;
+let timer = null;
+let timeLeft = 15;
+let startTime = null;
+
+async function startTest(type) {
+    testType = type;
+    const res = await fetch(`/api/children/${childId}/test/words?count=10`);
+    words = await res.json();
+
+    if (words.length < 4) {
+        alert('You need at least 4 words to start a test!');
+        return;
+    }
+
+    document.getElementById('menu-screen').style.display = 'none';
+    document.getElementById('test-screen').style.display = 'block';
+    document.getElementById('total-q').textContent = words.length;
+
+    startTime = Date.now();
+    showQuestion();
+}
+
+async function showQuestion() {
+    if (currentIndex >= words.length) {
+        endTest();
+        return;
+    }
+
+    const word = words[currentIndex];
+    document.getElementById('current-q').textContent = currentIndex + 1;
+    document.getElementById('feedback').style.display = 'none';
+
+    const questionArea = document.getElementById('question-area');
+    const answerArea = document.getElementById('answer-area');
+
+    // Reset timer
+    clearInterval(timer);
+    timeLeft = 15 + (5 - word.difficulty_level) * 3; // More time for harder words (wait, lower difficulty = more time)
+    document.getElementById('timer').textContent = timeLeft;
+    timer = setInterval(() => {
+        timeLeft--;
+        document.getElementById('timer').textContent = timeLeft;
+        if (timeLeft <= 0) {
+            clearInterval(timer);
+            handleAnswer(false, null);
+        }
+    }, 1000);
+
+    if (testType === 'definition') {
+        questionArea.innerHTML = `
+            <div style="font-size: 36px; font-weight: bold; text-align: center;">${word.word}</div>
+            <div style="text-align: center; margin-top: 10px;">
+                <button class="btn btn-primary" style="padding: 8px 15px;" onclick="speak('${word.word}')">🔊 Listen</button>
+            </div>
+        `;
+
+        const choicesRes = await fetch(`/api/children/${childId}/test/choices/${word.id}`);
+        const { choices, correct } = await choicesRes.json();
+
+        answerArea.innerHTML = choices.map((c, i) => `
+            <button class="choice-btn" onclick="checkAnswer(this, '${c.replace(/'/g, "\\'")}', '${correct.replace(/'/g, "\\'")}')">
+                ${c}
+            </button>
+        `).join('');
+
+    } else if (testType === 'reverse') {
+        questionArea.innerHTML = `
+            <div style="font-size: 20px; text-align: center;">${word.definition}</div>
+        `;
+
+        // Get word choices
+        const otherWords = words.filter(w => w.id !== word.id).slice(0, 3).map(w => w.word);
+        const choices = [word.word, ...otherWords].sort(() => Math.random() - 0.5);
+
+        answerArea.innerHTML = choices.map(c => `
+            <button class="choice-btn" onclick="checkAnswer(this, '${c}', '${word.word}')">
+                ${c}
+            </button>
+        `).join('');
+
+    } else if (testType === 'spelling') {
+        questionArea.innerHTML = `
+            <div style="text-align: center;">
+                <button class="btn btn-primary" style="font-size: 24px; padding: 20px 40px;" onclick="speak('${word.word}')">
+                    🔊 Hear the Word
+                </button>
+                <div style="margin-top: 15px; color: #666;">Hint: ${word.definition || 'No definition'}</div>
+            </div>
+        `;
+        speak(word.word);
+
+        answerArea.innerHTML = `
+            <input type="text" id="spelling-input" placeholder="Type the spelling..."
+                   style="font-size: 24px; text-align: center;" autocomplete="off">
+            <button class="btn btn-success" style="width: 100%;" onclick="checkSpelling('${word.word}')">
+                Check Answer
+            </button>
+        `;
+        document.getElementById('spelling-input').focus();
+        document.getElementById('spelling-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') checkSpelling(word.word);
+        });
+
+    } else if (testType === 'fillblank') {
+        if (!word.example_sentence) {
+            // Skip words without examples
+            currentIndex++;
+            showQuestion();
+            return;
+        }
+
+        const sentence = word.example_sentence.replace(
+            new RegExp(word.word, 'gi'),
+            '_____'
+        );
+
+        questionArea.innerHTML = `
+            <div style="font-size: 20px; text-align: center;">"${sentence}"</div>
+        `;
+
+        const otherWords = words.filter(w => w.id !== word.id).slice(0, 3).map(w => w.word);
+        const choices = [word.word, ...otherWords].sort(() => Math.random() - 0.5);
+
+        answerArea.innerHTML = choices.map(c => `
+            <button class="choice-btn" onclick="checkAnswer(this, '${c}', '${word.word}')">
+                ${c}
+            </button>
+        `).join('');
+    }
+}
+
+function speak(word) {
+    const utterance = new SpeechSynthesisUtterance(word);
+    speechSynthesis.speak(utterance);
+}
+
+function checkAnswer(btn, selected, correct) {
+    clearInterval(timer);
+    const isCorrect = selected.toLowerCase() === correct.toLowerCase();
+
+    document.querySelectorAll('.choice-btn').forEach(b => {
+        b.disabled = true;
+        if (b.textContent.trim().toLowerCase() === correct.toLowerCase()) {
+            b.classList.add('correct');
+        } else if (b === btn && !isCorrect) {
+            b.classList.add('wrong');
+        }
+    });
+
+    handleAnswer(isCorrect, correct);
+}
+
+function checkSpelling(correct) {
+    clearInterval(timer);
+    const input = document.getElementById('spelling-input');
+    const answer = input.value.trim().toLowerCase();
+    const isCorrect = answer === correct.toLowerCase();
+
+    input.disabled = true;
+    input.style.borderColor = isCorrect ? '#48bb78' : '#f56565';
+    input.style.background = isCorrect ? '#c6f6d5' : '#fed7d7';
+
+    handleAnswer(isCorrect, correct);
+}
+
+async function handleAnswer(isCorrect, correct) {
+    const word = words[currentIndex];
+
+    // Update server
+    const res = await fetch(`/api/children/${childId}/test/answer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ word_id: word.id, correct: isCorrect })
+    });
+    const result = await res.json();
+
+    if (isCorrect) {
+        correctCount++;
+        score += result.points;
+        streak = result.streak;
+
+        if (streak >= 3) {
+            showConfetti();
+        }
+    } else {
+        streak = 0;
+    }
+
+    document.getElementById('score').textContent = score;
+    document.getElementById('streak').textContent = streak;
+
+    // Show feedback
+    const feedback = document.getElementById('feedback');
+    feedback.style.display = 'block';
+    feedback.style.background = isCorrect ? '#c6f6d5' : '#fed7d7';
+    feedback.innerHTML = isCorrect
+        ? `✓ Correct! +${result.points} points`
+        : `✗ The answer was: <strong>${correct}</strong>`;
+
+    // Next question after delay
+    setTimeout(() => {
+        currentIndex++;
+        showQuestion();
+    }, 1500);
+}
+
+function endTest() {
+    clearInterval(timer);
+    const timeTaken = Math.round((Date.now() - startTime) / 1000);
+
+    // Save session
+    fetch(`/api/children/${childId}/test/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            test_type: testType,
+            score: score,
+            correct_count: correctCount,
+            total_count: words.length,
+            time_taken: timeTaken
+        })
+    });
+
+    document.getElementById('test-screen').style.display = 'none';
+    document.getElementById('results-screen').style.display = 'block';
+    document.getElementById('final-score').textContent = score;
+    document.getElementById('final-correct').textContent = correctCount;
+    document.getElementById('final-total').textContent = words.length;
+
+    showConfetti();
+}
+
+function showConfetti() {
+    const canvas = document.getElementById('confetti');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const pieces = [];
+    const colors = ['#667eea', '#48bb78', '#ed8936', '#f56565', '#9f7aea'];
+
+    for (let i = 0; i < 100; i++) {
+        pieces.push({
+            x: Math.random() * canvas.width,
+            y: -20,
+            size: Math.random() * 10 + 5,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            speed: Math.random() * 3 + 2,
+            angle: Math.random() * Math.PI * 2
+        });
+    }
+
+    function animate() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        let active = false;
+
+        pieces.forEach(p => {
+            if (p.y < canvas.height) {
+                active = true;
+                p.y += p.speed;
+                p.x += Math.sin(p.angle) * 2;
+                p.angle += 0.1;
+
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, p.size, p.size);
+            }
+        });
+
+        if (active) requestAnimationFrame(animate);
+    }
+
+    animate();
+}
+</script>
+{% endblock %}

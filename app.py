@@ -233,6 +233,16 @@ def save_test_session(child_id):
     return "", 201
 
 
+@app.route("/child/<int:child_id>/test")
+def test_page(child_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    conn.close()
+    if not child:
+        return "Child not found", 404
+    return render_template("test.html", child=dict(child))
+
+
 if __name__ == "__main__":
     init_db()
     socketio.run(app, host="0.0.0.0", port=5000, debug=True)
