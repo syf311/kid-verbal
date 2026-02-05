@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO
 from database import init_db, get_db
 from dictionary import fetch_definition
+from test_engine import get_test_words, generate_choices, update_progress, record_test_session
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "REDACTED-SECRET"
@@ -183,6 +184,53 @@ def lookup_word(word):
     if result:
         return jsonify(result)
     return jsonify({"error": "Not found"}), 404
+
+
+@app.route("/api/children/<int:child_id>/test/words", methods=["GET"])
+def get_words_for_test(child_id):
+    count = request.args.get("count", 10, type=int)
+    words = get_test_words(child_id, count)
+    return jsonify(words)
+
+
+@app.route("/api/children/<int:child_id>/test/choices/<int:word_id>", methods=["GET"])
+def get_choices(child_id, word_id):
+    conn = get_db()
+    word = conn.execute("SELECT * FROM word WHERE id = ?", (word_id,)).fetchone()
+    all_words = conn.execute(
+        "SELECT * FROM word WHERE child_id = ?", (child_id,)
+    ).fetchall()
+    conn.close()
+
+    if not word:
+        return jsonify({"error": "Word not found"}), 404
+
+    choices = generate_choices(dict(word), [dict(w) for w in all_words])
+    return jsonify({"choices": choices, "correct": word["definition"]})
+
+
+@app.route("/api/children/<int:child_id>/test/answer", methods=["POST"])
+def submit_answer(child_id):
+    data = request.json
+    word_id = data["word_id"]
+    correct = data["correct"]
+
+    result = update_progress(child_id, word_id, correct)
+    return jsonify(result)
+
+
+@app.route("/api/children/<int:child_id>/test/session", methods=["POST"])
+def save_test_session(child_id):
+    data = request.json
+    record_test_session(
+        child_id,
+        data["test_type"],
+        data["score"],
+        data["correct_count"],
+        data["total_count"],
+        data["time_taken"]
+    )
+    return "", 201
 
 
 if __name__ == "__main__":
