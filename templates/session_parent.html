@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}Reading Session - Parent{% endblock %}
+
+{% block extra_css %}
+<style>
+    .reading-content {
+        font-size: 20px;
+        line-height: 1.8;
+        white-space: pre-wrap;
+    }
+    .reading-content span {
+        cursor: pointer;
+        padding: 2px;
+        border-radius: 3px;
+    }
+    .reading-content span:hover {
+        background: #e2e8f0;
+    }
+    .reading-content span.highlighted {
+        background: #faf089;
+        font-weight: bold;
+    }
+    .control-panel {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: white;
+        padding: 15px;
+        box-shadow: 0 -5px 20px rgba(0,0,0,0.1);
+    }
+    .progress-bar {
+        height: 10px;
+        background: #e2e8f0;
+        border-radius: 5px;
+        margin-bottom: 10px;
+    }
+    .progress-fill {
+        height: 100%;
+        background: #667eea;
+        border-radius: 5px;
+        transition: width 0.3s;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 100px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div>
+            <a href="/materials" style="color: #667eea; text-decoration: none;">&larr; Back</a>
+            <h1 style="margin-top: 10px;">{{ material.title }}</h1>
+        </div>
+        <div>
+            <label>Child: </label>
+            <select id="child-select" style="padding: 8px; font-size: 16px;">
+                {% for child in children %}
+                <option value="{{ child.id }}">{{ child.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <div style="background: #f0f0f0; padding: 10px; border-radius: 8px; margin-bottom: 20px;">
+        <span style="color: #666;">Child's view: </span>
+        <a href="/session/{{ material.id }}/child" target="_blank" style="color: #667eea;">
+            Open in new tab →
+        </a>
+        <span style="margin-left: 20px; color: #888;" id="connection-status">Waiting for child to connect...</span>
+    </div>
+
+    <div class="reading-content" id="content">
+        <!-- Words will be wrapped in spans -->
+    </div>
+</div>
+
+<div class="control-panel">
+    <div class="progress-bar">
+        <div class="progress-fill" id="progress-fill" style="width: 0%;"></div>
+    </div>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <span id="selected-word" style="font-weight: bold; min-width: 100px;"></span>
+        <button class="btn btn-primary" id="ask-meaning-btn" style="display: none;" onclick="askMeaning()">
+            What does this mean?
+        </button>
+        <button class="btn btn-success" id="add-word-btn" style="display: none;" onclick="addWord()">
+            Add to Words
+        </button>
+        <button class="btn btn-warning" id="clear-btn" style="display: none;" onclick="clearHighlight()">
+            Clear
+        </button>
+        <input type="text" id="custom-question" placeholder="Type a question..." style="flex: 1; min-width: 200px;">
+        <button class="btn btn-primary" onclick="askCustom()">Ask</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+<script>
+const materialId = {{ material.id }};
+const socket = io();
+let selectedWord = null;
+
+// Wrap each word in a span
+const content = `{{ material.content | e }}`;
+const contentEl = document.getElementById('content');
+contentEl.innerHTML = content.split(/(\s+)/).map((part, i) => {
+    if (part.trim()) {
+        return `<span onclick="selectWord(this, '${part.replace(/[^a-zA-Z]/g, '')}')">${part}</span>`;
+    }
+    return part;
+}).join('');
+
+socket.emit('join_session', { material_id: materialId, role: 'parent' });
+
+socket.on('user_joined', (data) => {
+    if (data.role === 'child') {
+        document.getElementById('connection-status').textContent = 'Child connected!';
+        document.getElementById('connection-status').style.color = '#48bb78';
+    }
+});
+
+socket.on('scroll_updated', (data) => {
+    document.getElementById('progress-fill').style.width = data.percent + '%';
+});
+
+socket.on('response_received', (data) => {
+    alert(`Child responded: ${data.response}`);
+});
+
+socket.on('word_added', (data) => {
+    alert(`Added "${data.word}" to vocabulary!\nDefinition: ${data.definition}`);
+});
+
+function selectWord(el, word) {
+    // Clear previous highlight
+    document.querySelectorAll('.highlighted').forEach(e => e.classList.remove('highlighted'));
+
+    // Highlight new word
+    el.classList.add('highlighted');
+    selectedWord = word;
+
+    document.getElementById('selected-word').textContent = word;
+    document.getElementById('ask-meaning-btn').style.display = 'inline-block';
+    document.getElementById('add-word-btn').style.display = 'inline-block';
+    document.getElementById('clear-btn').style.display = 'inline-block';
+
+    socket.emit('highlight_word', {
+        material_id: materialId,
+        word: word,
+        index: Array.from(el.parentNode.children).indexOf(el)
+    });
+}
+
+function clearHighlight() {
+    document.querySelectorAll('.highlighted').forEach(e => e.classList.remove('highlighted'));
+    selectedWord = null;
+    document.getElementById('selected-word').textContent = '';
+    document.getElementById('ask-meaning-btn').style.display = 'none';
+    document.getElementById('add-word-btn').style.display = 'none';
+    document.getElementById('clear-btn').style.display = 'none';
+
+    socket.emit('clear_highlight', { material_id: materialId });
+}
+
+function askMeaning() {
+    if (!selectedWord) return;
+    socket.emit('ask_question', {
+        material_id: materialId,
+        question: `What does "${selectedWord}" mean?`,
+        word: selectedWord
+    });
+}
+
+function askCustom() {
+    const question = document.getElementById('custom-question').value.trim();
+    if (!question) return;
+
+    socket.emit('ask_question', {
+        material_id: materialId,
+        question: question,
+        word: selectedWord
+    });
+    document.getElementById('custom-question').value = '';
+}
+
+function addWord() {
+    if (!selectedWord) return;
+    const childId = document.getElementById('child-select').value;
+
+    socket.emit('add_word', {
+        material_id: materialId,
+        word: selectedWord,
+        child_id: childId
+    });
+
+    clearHighlight();
+}
+</script>
+{% endblock %}

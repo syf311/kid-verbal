@@ -1,6 +1,6 @@
 import os
 from flask import Flask, render_template, request, jsonify
-from flask_socketio import SocketIO
+from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.utils import secure_filename
 from database import init_db, get_db
 from dictionary import fetch_definition
@@ -13,6 +13,9 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "REDACTED-SECRET"
 socketio = SocketIO(app, cors_allowed_origins="*")
+
+# Store active sessions
+active_sessions = {}
 
 
 @app.route("/")
@@ -321,6 +324,104 @@ def delete_material(material_id):
     conn.commit()
     conn.close()
     return "", 204
+
+
+@app.route("/session/<int:material_id>/parent")
+def session_parent(material_id):
+    conn = get_db()
+    material = conn.execute(
+        "SELECT * FROM reading_material WHERE id = ?", (material_id,)
+    ).fetchone()
+    children = conn.execute("SELECT id, name FROM child ORDER BY name").fetchall()
+    conn.close()
+    if not material:
+        return "Material not found", 404
+    return render_template(
+        "session_parent.html",
+        material=dict(material),
+        children=[dict(c) for c in children]
+    )
+
+
+@app.route("/session/<int:material_id>/child")
+def session_child(material_id):
+    conn = get_db()
+    material = conn.execute(
+        "SELECT * FROM reading_material WHERE id = ?", (material_id,)
+    ).fetchone()
+    children = conn.execute("SELECT id, name FROM child ORDER BY name").fetchall()
+    conn.close()
+    if not material:
+        return "Material not found", 404
+    return render_template(
+        "session_child.html",
+        material=dict(material),
+        children=[dict(c) for c in children]
+    )
+
+
+@socketio.on("join_session")
+def handle_join(data):
+    room = f"session_{data['material_id']}"
+    join_room(room)
+    emit("user_joined", {"role": data["role"]}, room=room)
+
+
+@socketio.on("highlight_word")
+def handle_highlight(data):
+    room = f"session_{data['material_id']}"
+    emit("word_highlighted", data, room=room, include_self=False)
+
+
+@socketio.on("clear_highlight")
+def handle_clear(data):
+    room = f"session_{data['material_id']}"
+    emit("highlight_cleared", {}, room=room, include_self=False)
+
+
+@socketio.on("ask_question")
+def handle_question(data):
+    room = f"session_{data['material_id']}"
+    emit("question_asked", data, room=room, include_self=False)
+
+
+@socketio.on("child_response")
+def handle_response(data):
+    room = f"session_{data['material_id']}"
+    emit("response_received", data, room=room, include_self=False)
+
+
+@socketio.on("scroll_update")
+def handle_scroll(data):
+    room = f"session_{data['material_id']}"
+    emit("scroll_updated", data, room=room, include_self=False)
+
+
+@socketio.on("add_word")
+def handle_add_word(data):
+    # Add word to child's vocabulary
+    word = data["word"].strip().lower()
+    child_id = data["child_id"]
+
+    result = fetch_definition(word)
+    definition = result["definition"] if result else ""
+    example = result.get("example", "") if result else ""
+
+    conn = get_db()
+    cursor = conn.execute(
+        "INSERT INTO word (child_id, word, definition, example_sentence) VALUES (?, ?, ?, ?)",
+        (child_id, word, definition, example)
+    )
+    word_id = cursor.lastrowid
+    conn.execute(
+        "INSERT INTO word_progress (child_id, word_id, difficulty_level) VALUES (?, ?, 1)",
+        (child_id, word_id)
+    )
+    conn.commit()
+    conn.close()
+
+    room = f"session_{data['material_id']}"
+    emit("word_added", {"word": word, "definition": definition}, room=room)
 
 
 if __name__ == "__main__":

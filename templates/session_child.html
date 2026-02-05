@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}Reading Session - Child{% endblock %}
+
+{% block extra_css %}
+<style>
+    .reading-content {
+        font-size: 24px;
+        line-height: 2;
+        white-space: pre-wrap;
+    }
+    .reading-content span.highlighted {
+        background: #faf089;
+        font-weight: bold;
+        padding: 2px 5px;
+        border-radius: 5px;
+    }
+    .question-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.7);
+        z-index: 100;
+    }
+    .question-box {
+        background: white;
+        max-width: 500px;
+        margin: 100px auto;
+        padding: 30px;
+        border-radius: 20px;
+        text-align: center;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 20px;">
+    <h1>{{ material.title }}</h1>
+    <div style="background: #e2e8f0; padding: 10px; border-radius: 8px;">
+        <span id="connection-status" style="color: #666;">Connecting to parent...</span>
+    </div>
+</div>
+
+<div style="margin-bottom: 20px;">
+    <label>Who's reading? </label>
+    <select id="child-select" style="padding: 10px; font-size: 18px;">
+        {% for child in children %}
+        <option value="{{ child.id }}">{{ child.name }}</option>
+        {% endfor %}
+    </select>
+</div>
+
+<div class="reading-content" id="content">
+    <!-- Words will be wrapped in spans -->
+</div>
+
+<div class="question-modal" id="question-modal">
+    <div class="question-box">
+        <h2 id="question-text">Question</h2>
+        <div style="margin: 30px 0;">
+            <button class="btn btn-success" style="font-size: 24px; padding: 20px 40px;" onclick="respond('I know it!')">
+                I Know It!
+            </button>
+            <button class="btn btn-warning" style="font-size: 24px; padding: 20px 40px; margin-left: 10px;" onclick="respond('I don\'t know')">
+                I Don't Know
+            </button>
+        </div>
+        <button class="btn btn-primary" onclick="closeQuestion()">Close</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+<script>
+const materialId = {{ material.id }};
+const socket = io();
+let currentQuestion = null;
+
+// Wrap each word in a span
+const content = `{{ material.content | e }}`;
+const contentEl = document.getElementById('content');
+contentEl.innerHTML = content.split(/(\s+)/).map((part, i) => {
+    if (part.trim()) {
+        return `<span data-index="${i}">${part}</span>`;
+    }
+    return part;
+}).join('');
+
+socket.emit('join_session', { material_id: materialId, role: 'child' });
+
+socket.on('connect', () => {
+    document.getElementById('connection-status').textContent = 'Connected to parent!';
+    document.getElementById('connection-status').style.color = '#48bb78';
+});
+
+socket.on('word_highlighted', (data) => {
+    // Clear previous highlights
+    document.querySelectorAll('.highlighted').forEach(e => e.classList.remove('highlighted'));
+
+    // Highlight the word
+    const spans = contentEl.querySelectorAll('span');
+    if (data.index !== undefined && spans[data.index]) {
+        spans[data.index].classList.add('highlighted');
+        spans[data.index].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+});
+
+socket.on('highlight_cleared', () => {
+    document.querySelectorAll('.highlighted').forEach(e => e.classList.remove('highlighted'));
+});
+
+socket.on('question_asked', (data) => {
+    currentQuestion = data;
+    document.getElementById('question-text').textContent = data.question;
+    document.getElementById('question-modal').style.display = 'block';
+});
+
+socket.on('word_added', (data) => {
+    // Show brief notification
+    const el = document.createElement('div');
+    el.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #48bb78; color: white; padding: 15px 25px; border-radius: 10px; z-index: 200;';
+    el.textContent = `"${data.word}" added to your words!`;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 3000);
+});
+
+function respond(response) {
+    socket.emit('child_response', {
+        material_id: materialId,
+        response: response,
+        question: currentQuestion?.question,
+        word: currentQuestion?.word
+    });
+    closeQuestion();
+}
+
+function closeQuestion() {
+    document.getElementById('question-modal').style.display = 'none';
+    currentQuestion = null;
+}
+
+// Track scroll position
+let lastScroll = 0;
+window.addEventListener('scroll', () => {
+    const now = Date.now();
+    if (now - lastScroll < 500) return;
+    lastScroll = now;
+
+    const percent = Math.round((window.scrollY / (document.body.scrollHeight - window.innerHeight)) * 100);
+    socket.emit('scroll_update', { material_id: materialId, percent: percent });
+});
+</script>
+{% endblock %}
