@@ -41,14 +41,11 @@ sudo apt install tesseract-ocr
 # Install dependencies
 pip install -r requirements.txt
 
-# Initialize database
-python database.py
-
-# Run server
-python app.py
+# Run server (use the startup script)
+./start.sh
 ```
 
-Open http://localhost:5000
+Open http://localhost:5001
 
 ## Usage
 

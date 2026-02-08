@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Register - Kid Verbal{% endblock %}
+
+{% block content %}
+<div style="max-width: 400px; margin: 0 auto;">
+    <h1 style="text-align: center;">Create Account</h1>
+    <p style="text-align: center; color: #666; margin-bottom: 30px;">Register as a parent to get started</p>
+
+    {% if error %}
+    <div style="background: #fed7d7; color: #c53030; padding: 12px; border-radius: 8px; margin-bottom: 20px;">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="POST" action="/register">
+        <label style="font-weight: bold; color: #333;">Username</label>
+        <input type="text" name="username" placeholder="Choose a username..." required autofocus>
+
+        <label style="font-weight: bold; color: #333;">Password</label>
+        <input type="password" name="password" placeholder="Choose a password (4+ chars)..." required minlength="4">
+
+        <input type="hidden" name="role" value="parent">
+
+        <button type="submit" class="btn btn-success" style="width: 100%; font-size: 20px; padding: 15px; margin-top: 10px;">
+            Register as Parent
+        </button>
+    </form>
+
+    <p style="text-align: center; margin-top: 25px; color: #666;">
+        Already have an account?
+        <a href="/login" style="color: #667eea; text-decoration: none; font-weight: bold;">Log In</a>
+    </p>
+</div>
+{% endblock %}

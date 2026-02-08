@@ -10,7 +10,38 @@
     <form id="add-word-form" style="display: flex; gap: 10px;">
         <input type="text" id="new-word" placeholder="Enter a word..." style="flex: 1;" required>
         <button type="submit" class="btn btn-success">Add Word</button>
+        <button type="button" class="btn btn-primary" onclick="showBatchImport()">Batch Import</button>
     </form>
+</div>
+
+<div style="margin: 20px 0;">
+    <input type="text" id="search-words" placeholder="Search words..." style="width: 100%;" oninput="filterWords()">
+</div>
+
+<div style="margin-bottom: 20px;">
+    <button class="btn btn-warning" onclick="refreshMissingDefinitions()" id="refresh-all-btn">
+        🔄 Refresh Missing Definitions
+    </button>
+    <span id="missing-count" style="margin-left: 10px; color: #666;"></span>
+</div>
+
+<div id="batch-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100;">
+    <div style="background: white; max-width: 500px; margin: 50px auto; padding: 30px; border-radius: 20px;">
+        <h2>Batch Import Words</h2>
+        <p style="color: #666; margin-bottom: 15px;">Enter one word per line. Definitions will be fetched automatically.</p>
+        <textarea id="batch-words" rows="10" placeholder="apple&#10;banana&#10;orange&#10;..." style="width: 100%;"></textarea>
+        <div id="batch-progress" style="margin-top: 10px; display: none;">
+            <div style="background: #e0e0e0; border-radius: 10px; overflow: hidden; height: 20px;">
+                <div id="batch-progress-bar" style="background: linear-gradient(90deg, #667eea, #764ba2); height: 100%; width: 0%; transition: width 0.3s;"></div>
+            </div>
+            <div id="batch-progress-text" style="text-align: center; margin-top: 5px; color: #666;">0 / 0</div>
+        </div>
+        <div id="batch-status" style="margin-top: 10px; display: none;"></div>
+        <div style="margin-top: 15px;">
+            <button class="btn btn-success" onclick="submitBatchImport()" id="batch-submit-btn">Import Words</button>
+            <button class="btn btn-danger" onclick="closeBatchModal()">Cancel</button>
+        </div>
+    </div>
 </div>
 
 <div id="words-list">
@@ -27,33 +58,82 @@
         <textarea id="edit-definition" rows="3"></textarea>
         <label>Example Sentence:</label>
         <textarea id="edit-example" rows="2"></textarea>
+        <label>Image (optional):</label>
+        <div id="current-image-container" style="margin-bottom: 10px; display: none;">
+            <img id="current-image" style="max-width: 150px; max-height: 100px; border-radius: 8px;">
+            <button type="button" class="btn btn-danger" style="padding: 5px 10px; font-size: 12px; margin-left: 10px;" onclick="removeImage()">Remove</button>
+        </div>
+        <div id="paste-zone" style="border: 2px dashed #ccc; padding: 20px; text-align: center; margin-bottom: 10px; border-radius: 8px; cursor: pointer;" onclick="document.getElementById('edit-image').click()">
+            <div style="color: #666;">Click to select or paste image (Ctrl+V / Cmd+V)</div>
+            <div id="paste-preview" style="margin-top: 10px; display: none;">
+                <img id="paste-preview-img" style="max-width: 150px; max-height: 100px; border-radius: 8px;">
+            </div>
+        </div>
+        <input type="file" id="edit-image" accept="image/*" style="display: none;" onchange="previewSelectedImage(this)">
         <div style="margin-top: 15px;">
             <button class="btn btn-primary" onclick="saveEdit()">Save</button>
             <button class="btn btn-danger" onclick="closeModal()">Cancel</button>
         </div>
     </div>
 </div>
+
+<div id="image-viewer" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.9); z-index: 200; cursor: pointer;" onclick="this.style.display='none'">
+    <img id="viewer-image" style="max-width: 90%; max-height: 90%; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);">
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 const childId = {{ child.id }};
+let allWords = [];
+let pastedFile = null;
 
 async function loadWords() {
     const res = await fetch(`/api/children/${childId}/words`);
-    const words = await res.json();
+    allWords = await res.json();
+    updateMissingCount();
+    filterWords();
+}
+
+function updateMissingCount() {
+    const missing = allWords.filter(w => !w.definition || w.definition === '').length;
+    const countEl = document.getElementById('missing-count');
+    if (missing > 0) {
+        countEl.textContent = `${missing} words without definitions`;
+        document.getElementById('refresh-all-btn').style.display = 'inline-block';
+    } else {
+        countEl.textContent = '';
+        document.getElementById('refresh-all-btn').style.display = 'none';
+    }
+}
+
+function filterWords() {
+    const search = document.getElementById('search-words').value.toLowerCase();
     const container = document.getElementById('words-list');
 
-    if (words.length === 0) {
-        container.innerHTML = '<p style="color: #666;">No words yet. Add your first word above!</p>';
+    const filtered = allWords.filter(word =>
+        word.word.toLowerCase().includes(search) ||
+        (word.definition && word.definition.toLowerCase().includes(search))
+    );
+
+    if (filtered.length === 0) {
+        container.innerHTML = '<p style="color: #666;">No words found.</p>';
         return;
     }
 
-    container.innerHTML = words.map(word => `
+    container.innerHTML = filtered.map(word => {
+        const escapedDef = (word.definition || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        const escapedExample = (word.example_sentence || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        const needsRefresh = !word.definition || word.definition === '';
+        return `
         <div class="card" style="display: flex; justify-content: space-between; align-items: start;">
             <div style="flex: 1;">
                 <div style="font-size: 20px; font-weight: bold; color: #333;">${word.word}</div>
-                <div style="color: #666; margin-top: 5px;">${word.definition || 'No definition'}</div>
+                <div style="color: #666; margin-top: 5px;">
+                    ${word.definition || '<span style="color: #f56565;">No definition</span>'}
+                    ${needsRefresh ? `<button class="btn btn-warning" style="padding: 2px 8px; font-size: 12px; margin-left: 10px;" onclick="refreshSingleWord(${word.id}, this)">🔄 Refresh</button>` : ''}
+                </div>
+                ${word.image_path ? `<div style="margin-top: 10px;"><img src="/uploads/${word.image_path}" style="max-width: 200px; max-height: 150px; border-radius: 8px; cursor: pointer;" onclick="viewImage('/uploads/${word.image_path}')"></div>` : ''}
                 ${word.example_sentence ? `<div style="color: #888; font-style: italic; margin-top: 5px;">"${word.example_sentence}"</div>` : ''}
                 <div style="margin-top: 8px; font-size: 12px; color: #999;">
                     ✓ ${word.correct_count || 0} | ✗ ${word.wrong_count || 0} | Level ${word.difficulty_level || 1}
@@ -61,11 +141,11 @@ async function loadWords() {
             </div>
             <div>
                 <button class="btn btn-primary" style="padding: 8px 12px; font-size: 14px;" onclick="speak('${word.word}')">🔊</button>
-                <button class="btn btn-warning" style="padding: 8px 12px; font-size: 14px;" onclick="editWord(${word.id}, '${word.word}', '${(word.definition || '').replace(/'/g, "\\'")}', '${(word.example_sentence || '').replace(/'/g, "\\'")}')">✏️</button>
+                <button class="btn btn-warning" style="padding: 8px 12px; font-size: 14px;" onclick="editWord(${word.id}, '${word.word}', '${escapedDef}', '${escapedExample}', '${word.image_path || ''}')">✏️</button>
                 <button class="btn btn-danger" style="padding: 8px 12px; font-size: 14px;" onclick="deleteWord(${word.id})">🗑️</button>
             </div>
         </div>
-    `).join('');
+    `}).join('');
 }
 
 function speak(word) {
@@ -85,12 +165,46 @@ document.getElementById('add-word-form').addEventListener('submit', async (e) =>
     loadWords();
 });
 
-function editWord(id, word, definition, example) {
+function editWord(id, word, definition, example, imagePath) {
     document.getElementById('edit-word-id').value = id;
     document.getElementById('edit-word-text').value = word;
-    document.getElementById('edit-definition').value = definition;
-    document.getElementById('edit-example').value = example;
+    // Decode HTML entities
+    const decodeHtml = (html) => {
+        const txt = document.createElement('textarea');
+        txt.innerHTML = html;
+        return txt.value;
+    };
+    document.getElementById('edit-definition').value = decodeHtml(definition);
+    document.getElementById('edit-example').value = decodeHtml(example);
+    document.getElementById('edit-image').value = '';
+    pastedFile = null;
+
+    // Reset paste preview
+    document.getElementById('paste-preview').style.display = 'none';
+
+    const imgContainer = document.getElementById('current-image-container');
+    if (imagePath) {
+        document.getElementById('current-image').src = '/uploads/' + imagePath;
+        imgContainer.style.display = 'block';
+        imgContainer.dataset.imagePath = imagePath;
+    } else {
+        imgContainer.style.display = 'none';
+        imgContainer.dataset.imagePath = '';
+    }
+
     document.getElementById('edit-modal').style.display = 'block';
+}
+
+function viewImage(src) {
+    document.getElementById('viewer-image').src = src;
+    document.getElementById('image-viewer').style.display = 'block';
+}
+
+async function removeImage() {
+    const id = document.getElementById('edit-word-id').value;
+    await fetch(`/api/words/${id}/image`, { method: 'DELETE' });
+    document.getElementById('current-image-container').style.display = 'none';
+    document.getElementById('current-image-container').dataset.imagePath = '';
 }
 
 function closeModal() {
@@ -99,6 +213,8 @@ function closeModal() {
 
 async function saveEdit() {
     const id = document.getElementById('edit-word-id').value;
+
+    // Save text fields
     await fetch(`/api/words/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -107,14 +223,195 @@ async function saveEdit() {
             example_sentence: document.getElementById('edit-example').value
         })
     });
+
+    // Upload image if selected or pasted
+    const imageInput = document.getElementById('edit-image');
+    const fileToUpload = pastedFile || (imageInput.files.length > 0 ? imageInput.files[0] : null);
+
+    if (fileToUpload) {
+        const formData = new FormData();
+        formData.append('image', fileToUpload);
+        await fetch(`/api/words/${id}/image`, {
+            method: 'POST',
+            body: formData
+        });
+    }
+
     closeModal();
     loadWords();
 }
+
+function previewSelectedImage(input) {
+    if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            document.getElementById('paste-preview-img').src = e.target.result;
+            document.getElementById('paste-preview').style.display = 'block';
+        };
+        reader.readAsDataURL(input.files[0]);
+    }
+}
+
+// Paste event listener for clipboard images
+document.addEventListener('paste', function(e) {
+    const modal = document.getElementById('edit-modal');
+    if (modal.style.display !== 'block') return;
+
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let item of items) {
+        if (item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (file) {
+                pastedFile = file;
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('paste-preview-img').src = e.target.result;
+                    document.getElementById('paste-preview').style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+            break;
+        }
+    }
+});
 
 async function deleteWord(id) {
     if (!confirm('Delete this word?')) return;
     await fetch(`/api/words/${id}`, { method: 'DELETE' });
     loadWords();
+}
+
+async function refreshDefinition(wordId) {
+    const res = await fetch(`/api/words/${wordId}/refresh`, { method: 'POST' });
+    if (res.ok) {
+        const data = await res.json();
+        return data;
+    }
+    return null;
+}
+
+async function refreshSingleWord(wordId, btn) {
+    btn.disabled = true;
+    btn.textContent = '...';
+
+    const result = await refreshDefinition(wordId);
+    if (result && result.definition) {
+        loadWords();
+    } else {
+        btn.textContent = 'Not found';
+        setTimeout(() => {
+            btn.textContent = '🔄 Refresh';
+            btn.disabled = false;
+        }, 2000);
+    }
+}
+
+async function refreshMissingDefinitions() {
+    const missing = allWords.filter(w => !w.definition || w.definition === '');
+    if (missing.length === 0) {
+        alert('All words have definitions!');
+        return;
+    }
+
+    const btn = document.getElementById('refresh-all-btn');
+    const countEl = document.getElementById('missing-count');
+    btn.disabled = true;
+
+    let refreshed = 0;
+    let failed = 0;
+
+    for (let i = 0; i < missing.length; i++) {
+        const word = missing[i];
+        countEl.textContent = `Refreshing ${i + 1}/${missing.length}: ${word.word}...`;
+
+        const result = await refreshDefinition(word.id);
+        if (result && result.definition) {
+            refreshed++;
+        } else {
+            failed++;
+        }
+    }
+
+    btn.disabled = false;
+    countEl.textContent = `Done! Refreshed ${refreshed}, ${failed} not found in dictionary.`;
+    loadWords();
+}
+
+function showBatchImport() {
+    document.getElementById('batch-modal').style.display = 'block';
+    document.getElementById('batch-words').value = '';
+    document.getElementById('batch-status').style.display = 'none';
+    document.getElementById('batch-progress').style.display = 'none';
+    document.getElementById('batch-progress-bar').style.width = '0%';
+}
+
+function closeBatchModal() {
+    document.getElementById('batch-modal').style.display = 'none';
+}
+
+async function submitBatchImport() {
+    const wordsText = document.getElementById('batch-words').value;
+    if (!wordsText.trim()) {
+        alert('Please enter some words');
+        return;
+    }
+
+    const wordList = wordsText.split('\n').map(w => w.trim()).filter(w => w);
+    if (wordList.length === 0) {
+        alert('Please enter some words');
+        return;
+    }
+
+    const btn = document.getElementById('batch-submit-btn');
+    const status = document.getElementById('batch-status');
+    const progress = document.getElementById('batch-progress');
+    const progressBar = document.getElementById('batch-progress-bar');
+    const progressText = document.getElementById('batch-progress-text');
+
+    btn.disabled = true;
+    btn.textContent = 'Importing...';
+    progress.style.display = 'block';
+    status.style.display = 'none';
+
+    let imported = 0;
+    let skipped = 0;
+    const total = wordList.length;
+
+    for (let i = 0; i < wordList.length; i++) {
+        const word = wordList[i];
+        progressText.textContent = `${i + 1} / ${total}: ${word}`;
+        progressBar.style.width = `${((i + 1) / total) * 100}%`;
+
+        try {
+            const res = await fetch(`/api/children/${childId}/words`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ word: word })
+            });
+
+            if (res.status === 201) {
+                imported++;
+            } else {
+                skipped++;
+            }
+        } catch (err) {
+            skipped++;
+        }
+    }
+
+    status.style.display = 'block';
+    status.innerHTML = `<span style="color: #48bb78;">Imported ${imported} words.</span>` +
+        (skipped > 0 ? ` <span style="color: #ed8936;">${skipped} failed or already existed.</span>` : '');
+
+    btn.disabled = false;
+    btn.textContent = 'Import Words';
+
+    setTimeout(() => {
+        closeBatchModal();
+        loadWords();
+    }, 1500);
 }
 
 loadWords();

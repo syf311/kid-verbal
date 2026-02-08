@@ -9,20 +9,36 @@
         <h1 style="margin-top: 10px;">{{ child.name }}</h1>
     </div>
     <div style="text-align: right;">
-        <div style="font-size: 48px;">{{ child.avatar or '👤' }}</div>
+        <div style="font-size: 48px;">{{ child.avatar or '\ud83d\udc64' }}</div>
         <div style="font-size: 24px; font-weight: bold; color: #667eea;">Level {{ child.level }}</div>
         <div style="color: #666;">{{ child.total_points }} points</div>
+        <a href="/logout" style="font-size: 14px; color: #f56565; text-decoration: none;">Logout</a>
     </div>
 </div>
 
-<div class="grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 30px;">
+{% if study_sessions %}
+<div style="margin-bottom: 30px;">
+    <h2>Assigned Study Sessions</h2>
+    {% for ss in study_sessions %}
+    <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong style="font-size: 18px;">{{ ss.title or 'Study Session' }}</strong>
+            <div style="font-size: 14px; color: #666;">
+                {{ ss.word_count }} words | Created {{ ss.created_at[:10] }}
+            </div>
+        </div>
+        <a href="/child/{{ child.id }}/study/{{ ss.id }}" class="btn btn-success" style="padding: 10px 25px;">
+            Start
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="grid" style="grid-template-columns: repeat(2, 1fr); margin-bottom: 30px;">
     <div class="card" style="text-align: center;">
         <div style="font-size: 36px; font-weight: bold; color: #667eea;">{{ word_count }}</div>
         <div style="color: #666;">Words</div>
-    </div>
-    <div class="card" style="text-align: center;">
-        <div style="font-size: 36px; font-weight: bold; color: #48bb78;">{{ badges|length }}</div>
-        <div style="color: #666;">Badges</div>
     </div>
     <div class="card" style="text-align: center;">
         <div style="font-size: 36px; font-weight: bold; color: #ed8936;">{{ recent_sessions|length }}</div>
@@ -31,42 +47,43 @@
 </div>
 
 <div class="grid" style="grid-template-columns: repeat(2, 1fr);">
+    {% if role == 'parent' %}
     <a href="/child/{{ child.id }}/words" class="btn btn-primary" style="text-align: center;">
-        📚 My Words
+        Words
     </a>
+    <a href="/child/{{ child.id }}/progress" class="btn btn-warning" style="text-align: center;">
+        Word Progress
+    </a>
+    <a href="/parent/child/{{ child.id }}/study/new" class="btn btn-success" style="text-align: center;">
+        Create Study
+    </a>
+    <a href="/child/{{ child.id }}/tests" class="btn btn-warning" style="text-align: center;">
+        Test History
+    </a>
+    {% else %}
     <a href="/child/{{ child.id }}/test" class="btn btn-success" style="text-align: center;">
-        🎯 Start Test
+        Start Test
     </a>
-    <a href="/child/{{ child.id }}/stats" class="btn btn-warning" style="text-align: center;">
-        📊 Stats & Badges
+    <a href="/child/{{ child.id }}/tests" class="btn btn-warning" style="text-align: center;">
+        Test History
     </a>
-    <a href="/materials" class="btn btn-primary" style="text-align: center;">
-        📖 Reading
-    </a>
+    {% endif %}
 </div>
-
-{% if badges %}
-<div style="margin-top: 30px;">
-    <h2>Badges</h2>
-    <div style="display: flex; flex-wrap: wrap; gap: 10px;">
-        {% for badge in badges %}
-        <div class="card" style="padding: 10px 15px;">
-            {{ badge.badge_type }}
-        </div>
-        {% endfor %}
-    </div>
-</div>
-{% endif %}
 
 {% if recent_sessions %}
 <div style="margin-top: 30px;">
     <h2>Recent Tests</h2>
-    {% for session in recent_sessions %}
-    <div class="card">
-        <strong>{{ session.test_type }}</strong> -
-        {{ session.correct_count }}/{{ session.total_count }} correct,
-        {{ session.score }} pts
-    </div>
+    {% for s in recent_sessions %}
+    <a href="/child/{{ child.id }}/tests/{{ s.id }}" class="card" style="display: block; text-decoration: none; color: inherit;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <strong>{{ s.test_type }}</strong> -
+                {{ s.correct_count }}/{{ s.total_count }} correct,
+                {{ s.score }} pts
+            </div>
+            <div style="color: #666; font-size: 14px;">{{ s.created_at[:10] }} &rarr;</div>
+        </div>
+    </a>
     {% endfor %}
 </div>
 {% endif %}

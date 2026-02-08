@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+
+{% block title %}Parent Dashboard - Kid Verbal{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+    <h1>Parent Dashboard</h1>
+    <div style="color: #666;">
+        {{ account.username }} |
+        <a href="/logout" style="color: #f56565; text-decoration: none;">Logout</a>
+    </div>
+</div>
+
+<!-- Children list -->
+<h2>Children</h2>
+<div id="children-grid" class="grid" style="margin-bottom: 30px;">
+    {% for child in children %}
+    <div class="card" style="text-align: center;">
+        <div style="font-size: 48px; margin-bottom: 10px;">{{ child.avatar or '\ud83d\udc64' }}</div>
+        <div style="font-size: 20px; font-weight: bold;">{{ child.name }}</div>
+        <div style="color: #666; margin: 5px 0;">Level {{ child.level }} | {{ child.total_points }} pts</div>
+        <div style="margin-top: 15px; display: flex; flex-direction: column; gap: 8px;">
+            <a href="/child/{{ child.id }}/words" class="btn btn-primary" style="padding: 8px; font-size: 14px;">Words</a>
+            <a href="/child/{{ child.id }}/progress" class="btn btn-warning" style="padding: 8px; font-size: 14px;">Progress</a>
+            <a href="/child/{{ child.id }}/tests" class="btn btn-primary" style="padding: 8px; font-size: 14px;">Test History</a>
+            <a href="/parent/child/{{ child.id }}/study/new" class="btn btn-success" style="padding: 8px; font-size: 14px;">Create Study</a>
+            <a href="/child/{{ child.id }}" class="btn btn-primary" style="padding: 8px; font-size: 14px;">Dashboard</a>
+            <button class="btn btn-danger" style="padding: 8px; font-size: 14px;" onclick="deleteChild({{ child.id }}, '{{ child.name }}')">Delete</button>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Add child profile -->
+<div class="card">
+    <h2>Add Child Profile</h2>
+    <form id="add-child-form" style="display: flex; gap: 10px;">
+        <input type="text" id="child-name" placeholder="Child's name..." required style="flex: 1;">
+        <button type="submit" class="btn btn-success" style="padding: 10px 20px;">Add</button>
+    </form>
+</div>
+
+<!-- Create child account -->
+<div class="card" style="margin-top: 20px;">
+    <h2>Child Accounts</h2>
+    <p style="color: #666; margin-bottom: 15px;">Create login accounts for children so they can log in and do their study sessions.</p>
+
+    {% if child_accounts %}
+    <div style="margin-bottom: 20px;">
+        {% for ca in child_accounts %}
+        <div style="padding: 8px 0; border-bottom: 1px solid #eee;">
+            <strong>{{ ca.username }}</strong>
+            {% if ca.child_name %}
+            <span style="color: #666;"> &rarr; {{ ca.child_name }}</span>
+            {% else %}
+            <span style="color: #f56565;"> (no profile linked)</span>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <form id="add-account-form" style="display: flex; flex-direction: column; gap: 10px;">
+        <select id="account-child-id" required style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #ddd; border-radius: 8px;">
+            <option value="">Select child profile...</option>
+            {% for child in children %}
+            <option value="{{ child.id }}">{{ child.name }}</option>
+            {% endfor %}
+        </select>
+        <input type="text" id="account-username" placeholder="Username for child..." required>
+        <input type="password" id="account-password" placeholder="Password for child..." required>
+        <button type="submit" class="btn btn-success">Create Child Account</button>
+    </form>
+    <div id="account-status" style="margin-top: 10px;"></div>
+</div>
+
+<!-- Study sessions overview -->
+<div class="card" style="margin-top: 20px;">
+    <h2>Recent Study Sessions</h2>
+    <div id="study-sessions-list">Loading...</div>
+</div>
+
+<div style="margin-top: 20px;">
+    <a href="/materials" class="btn btn-warning">Reading Materials</a>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('add-child-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('child-name').value;
+    await fetch('/api/children', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+    });
+    location.reload();
+});
+
+document.getElementById('add-account-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const childId = document.getElementById('account-child-id').value;
+    const username = document.getElementById('account-username').value;
+    const password = document.getElementById('account-password').value;
+
+    const res = await fetch('/api/child-accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ child_id: parseInt(childId), username, password })
+    });
+
+    const status = document.getElementById('account-status');
+    if (res.ok) {
+        status.innerHTML = '<span style="color: #48bb78;">Account created!</span>';
+        setTimeout(() => location.reload(), 1000);
+    } else {
+        const data = await res.json();
+        status.innerHTML = `<span style="color: #f56565;">${data.error}</span>`;
+    }
+});
+
+// Load all study sessions
+async function loadStudySessions() {
+    const container = document.getElementById('study-sessions-list');
+    const children = {{ children|tojson }};
+    let allSessions = [];
+
+    for (const child of children) {
+        const res = await fetch(`/api/children/${child.id}/study-sessions`);
+        const sessions = await res.json();
+        sessions.forEach(s => { s.child_name = child.name; });
+        allSessions = allSessions.concat(sessions);
+    }
+
+    allSessions.sort((a, b) => b.created_at.localeCompare(a.created_at));
+
+    if (allSessions.length === 0) {
+        container.innerHTML = '<p style="color: #666;">No study sessions created yet.</p>';
+        return;
+    }
+
+    container.innerHTML = allSessions.slice(0, 20).map(s => `
+        <div style="padding: 10px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <strong>${s.title || 'Study Session'}</strong>
+                <span style="color: #666;"> for ${s.child_name}</span>
+                <div style="font-size: 13px; color: #999;">${s.created_at.slice(0, 10)} | ${s.word_count || '?'} words</div>
+            </div>
+            <div>
+                ${s.status === 'completed'
+                    ? '<span style="color: #48bb78; font-weight: bold;">Completed</span>'
+                    : '<span style="color: #ed8936; font-weight: bold;">Pending</span>'}
+                <button class="btn btn-danger" style="padding: 4px 10px; font-size: 12px; margin-left: 8px;" onclick="deleteSession(${s.id})">Delete</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function deleteSession(id) {
+    if (!confirm('Delete this study session?')) return;
+    await fetch(`/api/study-sessions/${id}`, { method: 'DELETE' });
+    loadStudySessions();
+}
+
+async function deleteChild(id, name) {
+    if (!confirm(`Delete ${name} and all their data (words, progress, study sessions, account)? This cannot be undone.`)) return;
+    await fetch(`/api/children/${id}`, { method: 'DELETE' });
+    location.reload();
+}
+
+loadStudySessions();
+</script>
+{% endblock %}

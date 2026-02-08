@@ -4,23 +4,6 @@
 
 {% block extra_css %}
 <style>
-    .test-type-btn {
-        display: block;
-        width: 100%;
-        padding: 20px;
-        margin-bottom: 10px;
-        font-size: 20px;
-        text-align: left;
-        border: 3px solid #ddd;
-        border-radius: 15px;
-        background: white;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-    .test-type-btn:hover {
-        border-color: #667eea;
-        transform: scale(1.02);
-    }
     .choice-btn {
         display: block;
         width: 100%;
@@ -40,55 +23,70 @@
     .timer { font-size: 24px; font-weight: bold; color: #667eea; }
     .streak { font-size: 18px; color: #ed8936; }
     .score { font-size: 24px; color: #48bb78; }
+    .type-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: bold;
+        color: white;
+        margin-bottom: 15px;
+    }
+    .type-definition { background: #667eea; }
+    .type-reverse { background: #ed8936; }
+    .type-spelling { background: #9f7aea; }
+    .type-fillblank { background: #48bb78; }
     #confetti { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1000; }
+    .progress-bar-bg {
+        width: 100%;
+        height: 8px;
+        background: #e2e8f0;
+        border-radius: 4px;
+        margin-bottom: 20px;
+    }
+    .progress-bar-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #667eea, #48bb78);
+        border-radius: 4px;
+        transition: width 0.3s;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 <canvas id="confetti"></canvas>
 
-<div id="menu-screen">
+<div id="start-screen">
     <a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none;">&larr; Back</a>
-    <h1 style="margin-top: 10px;">Choose a Test</h1>
-
-    <button class="test-type-btn" onclick="startTest('definition')">
-        📖 Definition Quiz
-        <div style="font-size: 14px; color: #666;">See a word, pick the correct definition</div>
-    </button>
-
-    <button class="test-type-btn" onclick="startTest('reverse')">
-        🔄 Reverse Quiz
-        <div style="font-size: 14px; color: #666;">See a definition, pick the correct word</div>
-    </button>
-
-    <button class="test-type-btn" onclick="startTest('spelling')">
-        ✏️ Spelling Bee
-        <div style="font-size: 14px; color: #666;">Hear a word, type the spelling</div>
-    </button>
-
-    <button class="test-type-btn" onclick="startTest('fillblank')">
-        📝 Fill in the Blank
-        <div style="font-size: 14px; color: #666;">Complete the sentence with the right word</div>
+    <h1 style="margin-top: 10px;">Vocabulary Test</h1>
+    <p style="color: #666; margin-bottom: 20px;">
+        Mixed questions: definitions, reverse lookup, spelling, and fill-in-the-blank.
+        Words you got wrong or haven't tested yet come first!
+    </p>
+    <button class="btn btn-success" style="width: 100%; font-size: 24px; padding: 25px;" onclick="startTest()">
+        Start Test
     </button>
 </div>
 
 <div id="test-screen" style="display: none;">
-    <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
-        <div class="timer">⏱️ <span id="timer">15</span>s</div>
-        <div class="streak">🔥 <span id="streak">0</span> streak</div>
-        <div class="score">⭐ <span id="score">0</span> pts</div>
+    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+        <div class="timer"><span id="timer">15</span>s</div>
+        <div class="streak">streak <span id="streak">0</span></div>
+        <div class="score"><span id="score">0</span> pts</div>
+    </div>
+
+    <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progress-bar" style="width: 0%;"></div>
     </div>
 
     <div style="margin-bottom: 10px; color: #666;">
-        Question <span id="current-q">1</span> of <span id="total-q">10</span>
+        Question <span id="current-q">1</span> of <span id="total-q">25</span>
     </div>
 
     <div id="question-area" class="card">
-        <!-- Question content -->
     </div>
 
     <div id="answer-area">
-        <!-- Answer options -->
     </div>
 
     <div id="feedback" style="display: none; margin-top: 20px; padding: 15px; border-radius: 10px;">
@@ -96,13 +94,14 @@
 </div>
 
 <div id="results-screen" style="display: none; text-align: center;">
-    <h1>🎉 Test Complete!</h1>
+    <h1>Test Complete!</h1>
     <div style="font-size: 48px; margin: 30px 0;">
         <span id="final-score">0</span> points
     </div>
     <div style="font-size: 24px; color: #666; margin-bottom: 30px;">
-        <span id="final-correct">0</span>/<span id="final-total">10</span> correct
+        <span id="final-correct">0</span>/<span id="final-total">25</span> correct
     </div>
+    <div id="results-breakdown" style="text-align: left; margin-bottom: 30px;"></div>
     <button class="btn btn-primary" onclick="location.reload()">Try Again</button>
     <a href="/child/{{ child.id }}" class="btn btn-success">Back to Dashboard</a>
 </div>
@@ -111,7 +110,20 @@
 {% block scripts %}
 <script>
 const childId = {{ child.id }};
-let testType = '';
+const TEST_TYPES = ['definition', 'reverse', 'spelling', 'fillblank'];
+const TYPE_LABELS = {
+    definition: 'Definition Quiz',
+    reverse: 'Reverse Quiz',
+    spelling: 'Spelling Bee',
+    fillblank: 'Fill in the Blank'
+};
+const TYPE_ICONS = {
+    definition: '\ud83d\udcd6',
+    reverse: '\ud83d\udd04',
+    spelling: '\u270f\ufe0f',
+    fillblank: '\ud83d\udcdd'
+};
+
 let words = [];
 let currentIndex = 0;
 let score = 0;
@@ -120,10 +132,11 @@ let correctCount = 0;
 let timer = null;
 let timeLeft = 15;
 let startTime = null;
+let questionTypes = []; // assigned type per question
+let results = []; // track each answer
 
-async function startTest(type) {
-    testType = type;
-    const res = await fetch(`/api/children/${childId}/test/words?count=10`);
+async function startTest() {
+    const res = await fetch(`/api/children/${childId}/test/words?count=25`);
     words = await res.json();
 
     if (words.length < 4) {
@@ -131,7 +144,17 @@ async function startTest(type) {
         return;
     }
 
-    document.getElementById('menu-screen').style.display = 'none';
+    // Assign a random test type to each word
+    questionTypes = words.map(w => {
+        let available = ['definition', 'reverse'];
+        // Only add spelling if word exists
+        if (w.word) available.push('spelling');
+        // Only add fillblank if example sentence exists
+        if (w.example_sentence) available.push('fillblank');
+        return available[Math.floor(Math.random() * available.length)];
+    });
+
+    document.getElementById('start-screen').style.display = 'none';
     document.getElementById('test-screen').style.display = 'block';
     document.getElementById('total-q').textContent = words.length;
 
@@ -146,64 +169,77 @@ async function showQuestion() {
     }
 
     const word = words[currentIndex];
+    const qType = questionTypes[currentIndex];
+
     document.getElementById('current-q').textContent = currentIndex + 1;
     document.getElementById('feedback').style.display = 'none';
+    document.getElementById('progress-bar').style.width =
+        ((currentIndex / words.length) * 100) + '%';
 
     const questionArea = document.getElementById('question-area');
     const answerArea = document.getElementById('answer-area');
 
+    // Type badge
+    const badgeClass = 'type-' + qType;
+    const badge = `<span class="type-badge ${badgeClass}">${TYPE_ICONS[qType]} ${TYPE_LABELS[qType]}</span>`;
+
     // Reset timer
     clearInterval(timer);
-    timeLeft = 15 + (5 - word.difficulty_level) * 3; // More time for harder words (wait, lower difficulty = more time)
+    timeLeft = 15;
     document.getElementById('timer').textContent = timeLeft;
     timer = setInterval(() => {
         timeLeft--;
         document.getElementById('timer').textContent = timeLeft;
         if (timeLeft <= 0) {
             clearInterval(timer);
-            handleAnswer(false, null);
+            handleAnswer(false, word.word, '(timed out)');
         }
     }, 1000);
 
-    if (testType === 'definition') {
+    if (qType === 'definition') {
         questionArea.innerHTML = `
+            ${badge}
             <div style="font-size: 36px; font-weight: bold; text-align: center;">${word.word}</div>
+            ${word.image_path ? `<div style="text-align: center; margin-top: 15px;"><img src="/uploads/${word.image_path}" style="max-width: 250px; max-height: 200px; border-radius: 10px;"></div>` : ''}
             <div style="text-align: center; margin-top: 10px;">
-                <button class="btn btn-primary" style="padding: 8px 15px;" onclick="speak('${word.word}')">🔊 Listen</button>
+                <button class="btn btn-primary" style="padding: 8px 15px;" onclick="speak('${escapeJs(word.word)}')">Listen</button>
             </div>
         `;
 
-        const choicesRes = await fetch(`/api/children/${childId}/test/choices/${word.id}`);
-        const { choices, correct } = await choicesRes.json();
+        const choicesRes = await fetch(`/api/children/${childId}/test/choices/${word.id}?mode=definition`);
+        const data = await choicesRes.json();
 
-        answerArea.innerHTML = choices.map((c, i) => `
-            <button class="choice-btn" onclick="checkAnswer(this, '${c.replace(/'/g, "\\'")}', '${correct.replace(/'/g, "\\'")}')">
-                ${c}
+        answerArea.innerHTML = data.choices.map(c => `
+            <button class="choice-btn" onclick="checkAnswer(this, ${JSON.stringify(c)}, ${JSON.stringify(data.correct)})">
+                ${escapeHtml(c)}
             </button>
         `).join('');
 
-    } else if (testType === 'reverse') {
+    } else if (qType === 'reverse') {
         questionArea.innerHTML = `
-            <div style="font-size: 20px; text-align: center;">${word.definition}</div>
+            ${badge}
+            <div style="font-size: 20px; text-align: center;">${escapeHtml(word.definition)}</div>
+            ${word.image_path ? `<div style="text-align: center; margin-top: 15px;"><img src="/uploads/${word.image_path}" style="max-width: 250px; max-height: 200px; border-radius: 10px;"></div>` : ''}
         `;
 
-        // Get word choices
-        const otherWords = words.filter(w => w.id !== word.id).slice(0, 3).map(w => w.word);
-        const choices = [word.word, ...otherWords].sort(() => Math.random() - 0.5);
+        const choicesRes = await fetch(`/api/children/${childId}/test/choices/${word.id}?mode=word`);
+        const data = await choicesRes.json();
 
-        answerArea.innerHTML = choices.map(c => `
-            <button class="choice-btn" onclick="checkAnswer(this, '${c}', '${word.word}')">
-                ${c}
+        answerArea.innerHTML = data.choices.map(c => `
+            <button class="choice-btn" onclick="checkAnswer(this, ${JSON.stringify(c)}, ${JSON.stringify(data.correct)})">
+                ${escapeHtml(c)}
             </button>
         `).join('');
 
-    } else if (testType === 'spelling') {
+    } else if (qType === 'spelling') {
         questionArea.innerHTML = `
+            ${badge}
             <div style="text-align: center;">
-                <button class="btn btn-primary" style="font-size: 24px; padding: 20px 40px;" onclick="speak('${word.word}')">
-                    🔊 Hear the Word
+                <button class="btn btn-primary" style="font-size: 24px; padding: 20px 40px;" onclick="speak('${escapeJs(word.word)}')">
+                    Hear the Word
                 </button>
-                <div style="margin-top: 15px; color: #666;">Hint: ${word.definition || 'No definition'}</div>
+                <div style="margin-top: 15px; color: #666;">Hint: ${escapeHtml(word.definition || 'No definition')}</div>
+                ${word.image_path ? `<div style="margin-top: 15px;"><img src="/uploads/${word.image_path}" style="max-width: 200px; max-height: 150px; border-radius: 10px;"></div>` : ''}
             </div>
         `;
         speak(word.word);
@@ -211,41 +247,53 @@ async function showQuestion() {
         answerArea.innerHTML = `
             <input type="text" id="spelling-input" placeholder="Type the spelling..."
                    style="font-size: 24px; text-align: center;" autocomplete="off">
-            <button class="btn btn-success" style="width: 100%;" onclick="checkSpelling('${word.word}')">
+            <button class="btn btn-success" style="width: 100%;" onclick="checkSpelling('${escapeJs(word.word)}')">
                 Check Answer
             </button>
         `;
-        document.getElementById('spelling-input').focus();
-        document.getElementById('spelling-input').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') checkSpelling(word.word);
-        });
+        setTimeout(() => {
+            const inp = document.getElementById('spelling-input');
+            if (inp) {
+                inp.focus();
+                inp.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') checkSpelling(word.word);
+                });
+            }
+        }, 100);
 
-    } else if (testType === 'fillblank') {
-        if (!word.example_sentence) {
-            // Skip words without examples
-            currentIndex++;
-            showQuestion();
-            return;
-        }
-
+    } else if (qType === 'fillblank') {
         const sentence = word.example_sentence.replace(
-            new RegExp(word.word, 'gi'),
+            new RegExp(word.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'),
             '_____'
         );
 
         questionArea.innerHTML = `
-            <div style="font-size: 20px; text-align: center;">"${sentence}"</div>
+            ${badge}
+            <div style="font-size: 20px; text-align: center;">"${escapeHtml(sentence)}"</div>
+            ${word.image_path ? `<div style="text-align: center; margin-top: 15px;"><img src="/uploads/${word.image_path}" style="max-width: 200px; max-height: 150px; border-radius: 10px;"></div>` : ''}
         `;
 
-        const otherWords = words.filter(w => w.id !== word.id).slice(0, 3).map(w => w.word);
-        const choices = [word.word, ...otherWords].sort(() => Math.random() - 0.5);
+        const choicesRes = await fetch(`/api/children/${childId}/test/choices/${word.id}?mode=word`);
+        const data = await choicesRes.json();
 
-        answerArea.innerHTML = choices.map(c => `
-            <button class="choice-btn" onclick="checkAnswer(this, '${c}', '${word.word}')">
-                ${c}
+        answerArea.innerHTML = data.choices.map(c => `
+            <button class="choice-btn" onclick="checkAnswer(this, ${JSON.stringify(c)}, ${JSON.stringify(data.correct)})">
+                ${escapeHtml(c)}
             </button>
         `).join('');
     }
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function escapeJs(str) {
+    if (!str) return '';
+    return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
 function speak(word) {
@@ -266,24 +314,34 @@ function checkAnswer(btn, selected, correct) {
         }
     });
 
-    handleAnswer(isCorrect, correct);
+    handleAnswer(isCorrect, correct, selected);
 }
 
 function checkSpelling(correct) {
     clearInterval(timer);
     const input = document.getElementById('spelling-input');
-    const answer = input.value.trim().toLowerCase();
-    const isCorrect = answer === correct.toLowerCase();
+    const answer = input.value.trim();
+    const isCorrect = answer.toLowerCase() === correct.toLowerCase();
 
     input.disabled = true;
     input.style.borderColor = isCorrect ? '#48bb78' : '#f56565';
     input.style.background = isCorrect ? '#c6f6d5' : '#fed7d7';
 
-    handleAnswer(isCorrect, correct);
+    handleAnswer(isCorrect, correct, answer);
 }
 
-async function handleAnswer(isCorrect, correct) {
+async function handleAnswer(isCorrect, correct, childAnswer) {
     const word = words[currentIndex];
+
+    // Track result with full detail
+    results.push({
+        word_id: word.id,
+        word_text: word.word,
+        question_type: questionTypes[currentIndex],
+        child_answer: childAnswer || '',
+        correct_answer: correct,
+        is_correct: isCorrect
+    });
 
     // Update server
     const res = await fetch(`/api/children/${childId}/test/answer`, {
@@ -313,8 +371,8 @@ async function handleAnswer(isCorrect, correct) {
     feedback.style.display = 'block';
     feedback.style.background = isCorrect ? '#c6f6d5' : '#fed7d7';
     feedback.innerHTML = isCorrect
-        ? `✓ Correct! +${result.points} points`
-        : `✗ The answer was: <strong>${correct}</strong>`;
+        ? `\u2713 Correct! +${result.points} points`
+        : `\u2717 The answer was: <strong>${escapeHtml(correct)}</strong>`;
 
     // Next question after delay
     setTimeout(() => {
@@ -327,16 +385,17 @@ function endTest() {
     clearInterval(timer);
     const timeTaken = Math.round((Date.now() - startTime) / 1000);
 
-    // Save session
+    // Save session with detailed answers
     fetch(`/api/children/${childId}/test/session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            test_type: testType,
+            test_type: 'mixed',
             score: score,
             correct_count: correctCount,
             total_count: words.length,
-            time_taken: timeTaken
+            time_taken: timeTaken,
+            answers: results
         })
     });
 
@@ -345,6 +404,23 @@ function endTest() {
     document.getElementById('final-score').textContent = score;
     document.getElementById('final-correct').textContent = correctCount;
     document.getElementById('final-total').textContent = words.length;
+    document.getElementById('progress-bar').style.width = '100%';
+
+    // Show breakdown
+    const wrongWords = results.filter(r => !r.is_correct);
+    if (wrongWords.length > 0) {
+        document.getElementById('results-breakdown').innerHTML = `
+            <div class="card">
+                <h2>Words to Review</h2>
+                ${wrongWords.map(r => `
+                    <div style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">
+                        <strong>${escapeHtml(r.word_text)}</strong>
+                        <span style="color: #999; font-size: 14px;">(${TYPE_LABELS[r.question_type]})</span>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
 
     showConfetti();
 }

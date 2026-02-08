@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Login - Kid Verbal{% endblock %}
+
+{% block content %}
+<div style="max-width: 400px; margin: 0 auto;">
+    <h1 style="text-align: center;">Kid Verbal</h1>
+    <p style="text-align: center; color: #666; margin-bottom: 30px;">Log in to continue</p>
+
+    {% if error %}
+    <div style="background: #fed7d7; color: #c53030; padding: 12px; border-radius: 8px; margin-bottom: 20px;">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="POST" action="/login">
+        <label style="font-weight: bold; color: #333;">Username</label>
+        <input type="text" name="username" placeholder="Enter username..." required autofocus>
+
+        <label style="font-weight: bold; color: #333;">Password</label>
+        <input type="password" name="password" placeholder="Enter password..." required>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; font-size: 20px; padding: 15px; margin-top: 10px;">
+            Log In
+        </button>
+    </form>
+
+    <p style="text-align: center; margin-top: 25px; color: #666;">
+        Don't have an account?
+        <a href="/register" style="color: #667eea; text-decoration: none; font-weight: bold;">Register</a>
+    </p>
+</div>
+{% endblock %}

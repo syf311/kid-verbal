@@ -1,18 +1,27 @@
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from database import get_db
 
 
-def get_test_words(child_id: int, count: int = 10) -> list:
+REVIEW_WINDOW_DAYS = 7
+
+
+def get_test_words(child_id: int, count: int = 25) -> list:
     """
-    Get words for testing, weighted by difficulty (lower difficulty = more likely).
+    Get words for testing using priority-based selection:
+    1. Never tested words (no progress or last_tested IS NULL)
+    2. Wrong words (wrong_count > correct_count, or streak=0 and has been tested)
+    3. Due for review (last_correct_at older than 7 days)
+    4. Recently correct (fill remaining, oldest last_correct_at first)
     """
     conn = get_db()
     words = conn.execute(
-        """SELECT w.id, w.word, w.definition, w.example_sentence,
-                  COALESCE(wp.difficulty_level, 1) as difficulty_level
+        """SELECT w.id, w.word, w.definition, w.example_sentence, w.image_path,
+                  wp.correct_count, wp.wrong_count, wp.streak,
+                  COALESCE(wp.difficulty_level, 1) as difficulty_level,
+                  wp.last_tested, wp.last_correct_at
            FROM word w
-           LEFT JOIN word_progress wp ON w.id = wp.word_id
+           LEFT JOIN word_progress wp ON w.id = wp.word_id AND wp.child_id = w.child_id
            WHERE w.child_id = ?""",
         (child_id,)
     ).fetchall()
@@ -22,22 +31,43 @@ def get_test_words(child_id: int, count: int = 10) -> list:
         return []
 
     words = [dict(w) for w in words]
+    cutoff = datetime.now() - timedelta(days=REVIEW_WINDOW_DAYS)
+    cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
 
-    # Weight by inverse difficulty (level 1 = weight 5, level 5 = weight 1)
-    weighted = []
+    never_tested = []
+    wrong = []
+    due_for_review = []
+    recently_correct = []
+
     for w in words:
-        weight = 6 - w["difficulty_level"]
-        weighted.extend([w] * weight)
+        if not w["definition"]:
+            continue  # skip words without definitions
 
-    random.shuffle(weighted)
+        if w["last_tested"] is None:
+            never_tested.append(w)
+        elif w["wrong_count"] and w["wrong_count"] > (w["correct_count"] or 0):
+            wrong.append(w)
+        elif w["streak"] == 0 and w["last_tested"] is not None:
+            wrong.append(w)
+        elif w["last_correct_at"] is None or w["last_correct_at"] < cutoff_str:
+            due_for_review.append(w)
+        else:
+            recently_correct.append(w)
 
-    # Get unique words up to count
+    # Shuffle within each group
+    random.shuffle(never_tested)
+    random.shuffle(wrong)
+    random.shuffle(due_for_review)
+    # Sort recently correct by oldest last_correct_at first
+    recently_correct.sort(key=lambda w: w["last_correct_at"] or "")
+
+    # Combine in priority order
     selected = []
-    seen = set()
-    for w in weighted:
-        if w["id"] not in seen:
+    for group in [never_tested, wrong, due_for_review, recently_correct]:
+        for w in group:
+            if len(selected) >= count:
+                break
             selected.append(w)
-            seen.add(w["id"])
         if len(selected) >= count:
             break
 
@@ -56,6 +86,25 @@ def generate_choices(correct_word: dict, all_words: list, count: int = 4) -> lis
     for d in other_defs:
         if d not in choices:
             choices.append(d)
+        if len(choices) >= count:
+            break
+
+    random.shuffle(choices)
+    return choices
+
+
+def generate_word_choices(correct_word: dict, all_words: list, count: int = 4) -> list:
+    """
+    Generate multiple choice word options (for reverse quiz and fill-in-blank).
+    """
+    choices = [correct_word["word"]]
+    other_words = [w["word"] for w in all_words
+                   if w["id"] != correct_word["id"] and w["word"]]
+
+    random.shuffle(other_words)
+    for w in other_words:
+        if w not in choices:
+            choices.append(w)
         if len(choices) >= count:
             break
 
@@ -86,6 +135,8 @@ def update_progress(child_id: int, word_id: int, correct: bool) -> dict:
     else:
         progress = dict(progress)
 
+    now = datetime.now()
+
     # Calculate new values
     if correct:
         new_correct = progress["correct_count"] + 1
@@ -95,6 +146,15 @@ def update_progress(child_id: int, word_id: int, correct: bool) -> dict:
 
         # Points: base + streak bonus + difficulty bonus
         points = 10 + (new_streak - 1) * 5 + (progress["difficulty_level"] - 1) * 5
+
+        conn.execute(
+            """UPDATE word_progress
+               SET correct_count = ?, wrong_count = ?, streak = ?,
+                   difficulty_level = ?, last_tested = ?, last_correct_at = ?
+               WHERE child_id = ? AND word_id = ?""",
+            (new_correct, new_wrong, new_streak, new_difficulty,
+             now, now, child_id, word_id)
+        )
     else:
         new_correct = progress["correct_count"]
         new_wrong = progress["wrong_count"] + 1
@@ -102,14 +162,14 @@ def update_progress(child_id: int, word_id: int, correct: bool) -> dict:
         new_difficulty = max(1, progress["difficulty_level"] - 1)
         points = 0
 
-    conn.execute(
-        """UPDATE word_progress
-           SET correct_count = ?, wrong_count = ?, streak = ?,
-               difficulty_level = ?, last_tested = ?
-           WHERE child_id = ? AND word_id = ?""",
-        (new_correct, new_wrong, new_streak, new_difficulty,
-         datetime.now(), child_id, word_id)
-    )
+        conn.execute(
+            """UPDATE word_progress
+               SET correct_count = ?, wrong_count = ?, streak = ?,
+                   difficulty_level = ?, last_tested = ?
+               WHERE child_id = ? AND word_id = ?""",
+            (new_correct, new_wrong, new_streak, new_difficulty,
+             now, child_id, word_id)
+        )
 
     # Update child total points
     if points > 0:

@@ -65,6 +65,12 @@
 </head>
 <body>
     <div class="container">
+        {% if session.get('username') %}
+        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 15px; margin-bottom: 10px; font-size: 14px;">
+            <span style="color: #666;">{{ session.username }} ({{ session.role }})</span>
+            <a href="/logout" style="color: #f56565; text-decoration: none;">Logout</a>
+        </div>
+        {% endif %}
         {% block content %}{% endblock %}
     </div>
     {% block scripts %}{% endblock %}

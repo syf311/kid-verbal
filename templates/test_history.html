@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}{{ child.name }} - Test History{% endblock %}
+
+{% block content %}
+<a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none;">&larr; Back to Dashboard</a>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; margin-bottom: 20px;">
+    <h1 style="margin: 0;">{{ child.name }} - Test History</h1>
+    {% if sessions %}
+    <button class="btn btn-danger" style="padding: 8px 15px; font-size: 14px;" onclick="clearHistory()">Clear All</button>
+    {% endif %}
+</div>
+
+{% if sessions %}
+{% for s in sessions %}
+<a href="/child/{{ child.id }}/tests/{{ s.id }}" class="card" style="display: block; text-decoration: none; color: inherit;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong style="font-size: 18px;">{{ s.test_type }}</strong>
+            <div style="font-size: 14px; color: #666; margin-top: 4px;">
+                {{ s.correct_count }}/{{ s.total_count }} correct | {{ s.score }} pts
+                {% if s.time_taken %} | {{ s.time_taken }}s{% endif %}
+            </div>
+        </div>
+        <div style="text-align: right;">
+            <div style="font-size: 14px; color: #666;">{{ s.created_at[:10] }}</div>
+            <div style="font-size: 14px; color: #667eea;">View details &rarr;</div>
+        </div>
+    </div>
+</a>
+{% endfor %}
+{% else %}
+<p style="color: #666; margin-top: 20px;">No tests taken yet.</p>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function clearHistory() {
+    if (!confirm('Clear all test history for {{ child.name }}? This cannot be undone.')) return;
+    await fetch('/api/children/{{ child.id }}/test-sessions', { method: 'DELETE' });
+    location.reload();
+}
+</script>
+{% endblock %}

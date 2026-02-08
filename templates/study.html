@@ -1,0 +1,790 @@
+{% extends "base.html" %}
+
+{% block title %}{{ child.name }} - Study Session{% endblock %}
+
+{% block extra_css %}
+<style>
+    .word-select-item {
+        display: flex;
+        align-items: center;
+        padding: 12px 15px;
+        border: 2px solid #e2e8f0;
+        border-radius: 10px;
+        margin-bottom: 8px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .word-select-item:hover { border-color: #667eea; background: #f7fafc; }
+    .word-select-item.selected { border-color: #667eea; background: #ebf4ff; }
+    .word-select-item input[type="checkbox"] {
+        width: auto;
+        margin: 0 12px 0 0;
+        transform: scale(1.3);
+    }
+
+    .flashcard {
+        min-height: 250px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        border: 3px solid #e2e8f0;
+        border-radius: 20px;
+        padding: 40px 30px;
+        margin: 20px 0;
+        transition: all 0.3s;
+        background: white;
+    }
+    .flashcard:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+    .flashcard .word { font-size: 42px; font-weight: bold; color: #333; }
+    .flashcard .hint { font-size: 16px; color: #a0aec0; margin-top: 15px; }
+    .flashcard .definition { font-size: 22px; color: #4a5568; margin-top: 10px; text-align: center; }
+    .flashcard .example { font-size: 16px; color: #718096; font-style: italic; margin-top: 15px; text-align: center; }
+    .flashcard .revealed { border-color: #667eea; }
+
+    .nav-btns {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 20px;
+    }
+    .nav-btns .btn { flex: 1; text-align: center; }
+
+    .choice-btn {
+        display: block;
+        width: 100%;
+        padding: 15px 20px;
+        margin: 10px 0;
+        font-size: 18px;
+        text-align: left;
+        border: 2px solid #ddd;
+        border-radius: 10px;
+        background: white;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .choice-btn:hover { border-color: #667eea; background: #f7fafc; }
+    .choice-btn.correct { border-color: #48bb78; background: #c6f6d5; }
+    .choice-btn.wrong { border-color: #f56565; background: #fed7d7; }
+
+    .type-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: bold;
+        color: white;
+        margin-bottom: 15px;
+    }
+    .type-definition { background: #667eea; }
+    .type-reverse { background: #ed8936; }
+    .type-spelling { background: #9f7aea; }
+    .type-fillblank { background: #48bb78; }
+
+    .timer { font-size: 24px; font-weight: bold; color: #667eea; }
+    .streak { font-size: 18px; color: #ed8936; }
+    .score-display { font-size: 24px; color: #48bb78; }
+
+    .progress-bar-bg {
+        width: 100%;
+        height: 8px;
+        background: #e2e8f0;
+        border-radius: 4px;
+        margin-bottom: 20px;
+    }
+    .progress-bar-fill {
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.3s;
+    }
+    .progress-study { background: linear-gradient(90deg, #667eea, #764ba2); }
+    .progress-test { background: linear-gradient(90deg, #48bb78, #38a169); }
+
+    #confetti { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1000; }
+
+    .select-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .retry-word {
+        padding: 10px 15px;
+        border-left: 4px solid #f56565;
+        background: #fff5f5;
+        margin-bottom: 8px;
+        border-radius: 0 8px 8px 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<canvas id="confetti"></canvas>
+
+<!-- SCREEN 1: Word Selection -->
+<div id="select-screen">
+    <a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none;">&larr; Back</a>
+    <h1 style="margin-top: 10px;">Study Session</h1>
+    <p style="color: #666; margin-bottom: 20px;">Select words to study, then review and test until you get them all right.</p>
+
+    <div class="select-bar">
+        <div>
+            <button class="btn btn-primary" style="padding: 8px 15px; font-size: 14px;" onclick="selectAll()">Select All</button>
+            <button class="btn btn-warning" style="padding: 8px 15px; font-size: 14px;" onclick="deselectAll()">Deselect All</button>
+        </div>
+        <div style="color: #666;"><span id="selected-count">0</span> words selected</div>
+    </div>
+
+    <div id="word-checklist">
+        <!-- Loaded via JS -->
+    </div>
+
+    <button id="start-study-btn" class="btn btn-success" style="width: 100%; font-size: 20px; padding: 20px; margin-top: 20px;" onclick="startStudy()" disabled>
+        Start Study (select at least 4 words)
+    </button>
+</div>
+
+<!-- SCREEN 2: Flashcard Review -->
+<div id="review-screen" style="display: none;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2>Review Words</h2>
+        <div style="color: #666;">Card <span id="card-num">1</span> of <span id="card-total">0</span></div>
+    </div>
+
+    <div class="progress-bar-bg">
+        <div class="progress-bar-fill progress-study" id="review-progress" style="width: 0%;"></div>
+    </div>
+
+    <div class="flashcard" id="flashcard" onclick="flipCard()">
+        <div id="card-front">
+            <div class="word" id="card-word"></div>
+            <div class="hint">(tap to reveal)</div>
+        </div>
+        <div id="card-back" style="display: none;">
+            <div class="word" id="card-word-back"></div>
+            <div class="definition" id="card-definition"></div>
+            <div class="example" id="card-example"></div>
+            <div id="card-image" style="margin-top: 15px;"></div>
+        </div>
+    </div>
+
+    <div style="text-align: center; margin-bottom: 15px;">
+        <button class="btn btn-primary" style="padding: 10px 20px;" onclick="speakCurrent()">Listen</button>
+    </div>
+
+    <div class="nav-btns">
+        <button class="btn btn-warning" id="prev-btn" onclick="prevCard()" disabled>&larr; Previous</button>
+        <button class="btn btn-primary" id="next-btn" onclick="nextCard()">Next &rarr;</button>
+    </div>
+
+    <button id="ready-test-btn" class="btn btn-success" style="width: 100%; font-size: 20px; padding: 20px; margin-top: 20px; display: none;" onclick="startTest()">
+        Ready for Test
+    </button>
+</div>
+
+<!-- SCREEN 3: Test Phase -->
+<div id="test-screen" style="display: none;">
+    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+        <div class="timer"><span id="timer">15</span>s</div>
+        <div class="streak">streak <span id="streak">0</span></div>
+        <div class="score-display"><span id="score">0</span> pts</div>
+    </div>
+
+    <div class="progress-bar-bg">
+        <div class="progress-bar-fill progress-test" id="test-progress" style="width: 0%;"></div>
+    </div>
+
+    <div style="margin-bottom: 10px; color: #666;">
+        Question <span id="current-q">1</span> of <span id="total-q">0</span>
+    </div>
+
+    <div id="question-area" class="card"></div>
+    <div id="answer-area"></div>
+    <div id="feedback" style="display: none; margin-top: 20px; padding: 15px; border-radius: 10px;"></div>
+</div>
+
+<!-- SCREEN 4: Results / Retry -->
+<div id="results-screen" style="display: none; text-align: center;">
+    <div id="results-content"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const childId = {{ child.id }};
+const sessionId = {{ session_id|tojson }};
+const TYPE_LABELS = {
+    definition: 'Definition Quiz',
+    reverse: 'Reverse Quiz',
+    spelling: 'Spelling Bee',
+    fillblank: 'Fill in the Blank'
+};
+const TYPE_ICONS = {
+    definition: '\ud83d\udcd6',
+    reverse: '\ud83d\udd04',
+    spelling: '\u270f\ufe0f',
+    fillblank: '\ud83d\udcdd'
+};
+
+let allWords = [];
+let studyWords = [];
+let cardIndex = 0;
+let cardFlipped = false;
+let viewedAll = false;
+
+// Test state
+let testWords = [];
+let questionTypes = [];
+let currentIndex = 0;
+let testScore = 0;
+let testStreak = 0;
+let correctCount = 0;
+let testTimer = null;
+let timeLeft = 15;
+let testResults = [];
+let attemptNumber = 0;
+
+// ======= SCREEN 1: Word Selection =======
+
+async function loadWords() {
+    if (sessionId) {
+        // Load words from parent-assigned study session
+        const res = await fetch(`/api/study-sessions/${sessionId}/words`);
+        allWords = await res.json();
+        if (allWords.length === 0) {
+            alert('No words found in this study session.');
+            window.location.href = `/child/${childId}`;
+            return;
+        }
+        // Skip word selection, go straight to review
+        studyWords = allWords;
+        cardIndex = 0;
+        viewedAll = false;
+        document.getElementById('select-screen').style.display = 'none';
+        document.getElementById('review-screen').style.display = 'block';
+        document.getElementById('card-total').textContent = studyWords.length;
+        document.getElementById('ready-test-btn').style.display = 'none';
+        showCard();
+        return;
+    }
+    const res = await fetch(`/api/children/${childId}/words`);
+    allWords = await res.json();
+    renderChecklist();
+}
+
+function renderChecklist() {
+    const container = document.getElementById('word-checklist');
+    const wordsWithDef = allWords.filter(w => w.definition);
+
+    if (wordsWithDef.length === 0) {
+        container.innerHTML = '<p style="color: #666;">No words with definitions found. Add words first.</p>';
+        return;
+    }
+
+    container.innerHTML = wordsWithDef.map(w => `
+        <label class="word-select-item" id="ws-${w.id}" onclick="toggleWord(${w.id}, event)">
+            <input type="checkbox" data-word-id="${w.id}" onchange="updateCount()">
+            <div style="flex: 1;">
+                <strong style="font-size: 18px;">${escapeHtml(w.word)}</strong>
+                <div style="font-size: 14px; color: #888; margin-top: 2px;">${escapeHtml(w.definition || '')}</div>
+            </div>
+        </label>
+    `).join('');
+}
+
+function toggleWord(wordId, e) {
+    if (e.target.tagName === 'INPUT') return;
+    const cb = document.querySelector(`#ws-${wordId} input`);
+    cb.checked = !cb.checked;
+    updateCount();
+}
+
+function updateCount() {
+    const checked = document.querySelectorAll('#word-checklist input:checked');
+    const count = checked.length;
+    document.getElementById('selected-count').textContent = count;
+    const btn = document.getElementById('start-study-btn');
+    btn.disabled = count < 4;
+    btn.textContent = count < 4
+        ? `Start Study (select at least ${4 - count} more)`
+        : `Start Study (${count} words)`;
+
+    // Update visual selection
+    document.querySelectorAll('.word-select-item').forEach(item => {
+        const cb = item.querySelector('input');
+        item.classList.toggle('selected', cb.checked);
+    });
+}
+
+function selectAll() {
+    document.querySelectorAll('#word-checklist input').forEach(cb => cb.checked = true);
+    updateCount();
+}
+
+function deselectAll() {
+    document.querySelectorAll('#word-checklist input').forEach(cb => cb.checked = false);
+    updateCount();
+}
+
+// ======= SCREEN 2: Flashcard Review =======
+
+function startStudy() {
+    const checked = document.querySelectorAll('#word-checklist input:checked');
+    const selectedIds = new Set([...checked].map(cb => parseInt(cb.dataset.wordId)));
+    studyWords = allWords.filter(w => selectedIds.has(w.id));
+
+    cardIndex = 0;
+    viewedAll = false;
+
+    document.getElementById('select-screen').style.display = 'none';
+    document.getElementById('review-screen').style.display = 'block';
+    document.getElementById('card-total').textContent = studyWords.length;
+    document.getElementById('ready-test-btn').style.display = 'none';
+
+    showCard();
+}
+
+function showCard() {
+    const w = studyWords[cardIndex];
+    cardFlipped = false;
+
+    document.getElementById('card-num').textContent = cardIndex + 1;
+    document.getElementById('review-progress').style.width =
+        ((cardIndex / studyWords.length) * 100) + '%';
+
+    // Front
+    document.getElementById('card-word').textContent = w.word;
+    document.getElementById('card-front').style.display = '';
+    document.getElementById('card-back').style.display = 'none';
+    document.getElementById('flashcard').classList.remove('revealed');
+
+    // Back
+    document.getElementById('card-word-back').textContent = w.word;
+    document.getElementById('card-definition').textContent = w.definition || '';
+    document.getElementById('card-example').textContent =
+        w.example_sentence ? '"' + w.example_sentence + '"' : '';
+    document.getElementById('card-image').innerHTML =
+        w.image_path ? `<img src="/uploads/${w.image_path}" style="max-width: 250px; max-height: 180px; border-radius: 10px;">` : '';
+
+    // Navigation
+    document.getElementById('prev-btn').disabled = (cardIndex === 0);
+    document.getElementById('next-btn').textContent =
+        (cardIndex === studyWords.length - 1) ? 'Done' : 'Next \u2192';
+}
+
+function flipCard() {
+    cardFlipped = !cardFlipped;
+    document.getElementById('card-front').style.display = cardFlipped ? 'none' : '';
+    document.getElementById('card-back').style.display = cardFlipped ? '' : 'none';
+    document.getElementById('flashcard').classList.toggle('revealed', cardFlipped);
+}
+
+function speakCurrent() {
+    const w = studyWords[cardIndex];
+    const utterance = new SpeechSynthesisUtterance(w.word);
+    speechSynthesis.speak(utterance);
+}
+
+function prevCard() {
+    if (cardIndex > 0) {
+        cardIndex--;
+        showCard();
+    }
+}
+
+function nextCard() {
+    if (cardIndex < studyWords.length - 1) {
+        cardIndex++;
+        showCard();
+    } else {
+        // Viewed all cards
+        viewedAll = true;
+        document.getElementById('review-progress').style.width = '100%';
+        document.getElementById('ready-test-btn').style.display = 'block';
+    }
+}
+
+// ======= SCREEN 3: Test Phase =======
+
+function startTest() {
+    attemptNumber++;
+    if (attemptNumber === 1) {
+        testWords = [...studyWords];
+    }
+    // else testWords is already set to wrong words from retry
+
+    currentIndex = 0;
+    testScore = 0;
+    testStreak = 0;
+    correctCount = 0;
+    testResults = [];
+
+    // Assign random type per word
+    questionTypes = testWords.map(w => {
+        let available = ['definition', 'reverse'];
+        if (w.word) available.push('spelling');
+        if (w.example_sentence) available.push('fillblank');
+        return available[Math.floor(Math.random() * available.length)];
+    });
+
+    // Shuffle test order
+    const indices = testWords.map((_, i) => i);
+    for (let i = indices.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    testWords = indices.map(i => testWords[i]);
+    questionTypes = indices.map(i => questionTypes[i]);
+
+    document.getElementById('review-screen').style.display = 'none';
+    document.getElementById('results-screen').style.display = 'none';
+    document.getElementById('test-screen').style.display = 'block';
+    document.getElementById('total-q').textContent = testWords.length;
+    document.getElementById('score').textContent = 0;
+    document.getElementById('streak').textContent = 0;
+
+    showTestQuestion();
+}
+
+async function showTestQuestion() {
+    if (currentIndex >= testWords.length) {
+        endTest();
+        return;
+    }
+
+    const word = testWords[currentIndex];
+    const qType = questionTypes[currentIndex];
+
+    document.getElementById('current-q').textContent = currentIndex + 1;
+    document.getElementById('feedback').style.display = 'none';
+    document.getElementById('test-progress').style.width =
+        ((currentIndex / testWords.length) * 100) + '%';
+
+    const questionArea = document.getElementById('question-area');
+    const answerArea = document.getElementById('answer-area');
+
+    const badgeClass = 'type-' + qType;
+    const badge = `<span class="type-badge ${badgeClass}">${TYPE_ICONS[qType]} ${TYPE_LABELS[qType]}</span>`;
+
+    clearInterval(testTimer);
+    timeLeft = 15;
+    document.getElementById('timer').textContent = timeLeft;
+    testTimer = setInterval(() => {
+        timeLeft--;
+        document.getElementById('timer').textContent = timeLeft;
+        if (timeLeft <= 0) {
+            clearInterval(testTimer);
+            handleTestAnswer(false, word.word, '(timed out)');
+        }
+    }, 1000);
+
+    if (qType === 'definition') {
+        questionArea.innerHTML = `
+            ${badge}
+            <div style="font-size: 36px; font-weight: bold; text-align: center;">${escapeHtml(word.word)}</div>
+            ${word.image_path ? `<div style="text-align: center; margin-top: 15px;"><img src="/uploads/${word.image_path}" style="max-width: 250px; max-height: 200px; border-radius: 10px;"></div>` : ''}
+            <div style="text-align: center; margin-top: 10px;">
+                <button class="btn btn-primary" style="padding: 8px 15px;" onclick="speak('${escapeJs(word.word)}')">Listen</button>
+            </div>
+        `;
+        const choicesRes = await fetch(`/api/children/${childId}/test/choices/${word.id}?mode=definition`);
+        const data = await choicesRes.json();
+        answerArea.innerHTML = data.choices.map(c => `
+            <button class="choice-btn" onclick="checkTestAnswer(this, ${JSON.stringify(c)}, ${JSON.stringify(data.correct)})">
+                ${escapeHtml(c)}
+            </button>
+        `).join('');
+
+    } else if (qType === 'reverse') {
+        questionArea.innerHTML = `
+            ${badge}
+            <div style="font-size: 20px; text-align: center;">${escapeHtml(word.definition)}</div>
+            ${word.image_path ? `<div style="text-align: center; margin-top: 15px;"><img src="/uploads/${word.image_path}" style="max-width: 250px; max-height: 200px; border-radius: 10px;"></div>` : ''}
+        `;
+        const choicesRes = await fetch(`/api/children/${childId}/test/choices/${word.id}?mode=word`);
+        const data = await choicesRes.json();
+        answerArea.innerHTML = data.choices.map(c => `
+            <button class="choice-btn" onclick="checkTestAnswer(this, ${JSON.stringify(c)}, ${JSON.stringify(data.correct)})">
+                ${escapeHtml(c)}
+            </button>
+        `).join('');
+
+    } else if (qType === 'spelling') {
+        questionArea.innerHTML = `
+            ${badge}
+            <div style="text-align: center;">
+                <button class="btn btn-primary" style="font-size: 24px; padding: 20px 40px;" onclick="speak('${escapeJs(word.word)}')">
+                    Hear the Word
+                </button>
+                <div style="margin-top: 15px; color: #666;">Hint: ${escapeHtml(word.definition || '')}</div>
+                ${word.image_path ? `<div style="margin-top: 15px;"><img src="/uploads/${word.image_path}" style="max-width: 200px; max-height: 150px; border-radius: 10px;"></div>` : ''}
+            </div>
+        `;
+        speak(word.word);
+        answerArea.innerHTML = `
+            <input type="text" id="spelling-input" placeholder="Type the spelling..."
+                   style="font-size: 24px; text-align: center;" autocomplete="off">
+            <button class="btn btn-success" style="width: 100%;" onclick="checkTestSpelling('${escapeJs(word.word)}')">
+                Check Answer
+            </button>
+        `;
+        setTimeout(() => {
+            const inp = document.getElementById('spelling-input');
+            if (inp) {
+                inp.focus();
+                inp.addEventListener('keypress', e => {
+                    if (e.key === 'Enter') checkTestSpelling(word.word);
+                });
+            }
+        }, 100);
+
+    } else if (qType === 'fillblank') {
+        const sentence = word.example_sentence.replace(
+            new RegExp(word.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'),
+            '_____'
+        );
+        questionArea.innerHTML = `
+            ${badge}
+            <div style="font-size: 20px; text-align: center;">"${escapeHtml(sentence)}"</div>
+            ${word.image_path ? `<div style="text-align: center; margin-top: 15px;"><img src="/uploads/${word.image_path}" style="max-width: 200px; max-height: 150px; border-radius: 10px;"></div>` : ''}
+        `;
+        const choicesRes = await fetch(`/api/children/${childId}/test/choices/${word.id}?mode=word`);
+        const data = await choicesRes.json();
+        answerArea.innerHTML = data.choices.map(c => `
+            <button class="choice-btn" onclick="checkTestAnswer(this, ${JSON.stringify(c)}, ${JSON.stringify(data.correct)})">
+                ${escapeHtml(c)}
+            </button>
+        `).join('');
+    }
+}
+
+function checkTestAnswer(btn, selected, correct) {
+    clearInterval(testTimer);
+    const isCorrect = selected.toLowerCase() === correct.toLowerCase();
+
+    document.querySelectorAll('.choice-btn').forEach(b => {
+        b.disabled = true;
+        if (b.textContent.trim().toLowerCase() === correct.toLowerCase()) {
+            b.classList.add('correct');
+        } else if (b === btn && !isCorrect) {
+            b.classList.add('wrong');
+        }
+    });
+
+    handleTestAnswer(isCorrect, correct, selected);
+}
+
+function checkTestSpelling(correct) {
+    clearInterval(testTimer);
+    const input = document.getElementById('spelling-input');
+    const answer = input.value.trim();
+    const isCorrect = answer.toLowerCase() === correct.toLowerCase();
+
+    input.disabled = true;
+    input.style.borderColor = isCorrect ? '#48bb78' : '#f56565';
+    input.style.background = isCorrect ? '#c6f6d5' : '#fed7d7';
+
+    handleTestAnswer(isCorrect, correct, answer);
+}
+
+async function handleTestAnswer(isCorrect, correct, childAnswer) {
+    const word = testWords[currentIndex];
+
+    testResults.push({
+        word: word,
+        word_id: word.id,
+        word_text: word.word,
+        question_type: questionTypes[currentIndex],
+        child_answer: childAnswer || '',
+        correct_answer: correct,
+        is_correct: isCorrect
+    });
+
+    // Update progress on server
+    await fetch(`/api/children/${childId}/test/answer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ word_id: word.id, correct: isCorrect })
+    });
+
+    if (isCorrect) {
+        correctCount++;
+        testStreak++;
+        if (testStreak >= 3) showConfetti();
+    } else {
+        testStreak = 0;
+    }
+
+    document.getElementById('streak').textContent = testStreak;
+
+    const feedback = document.getElementById('feedback');
+    feedback.style.display = 'block';
+    feedback.style.background = isCorrect ? '#c6f6d5' : '#fed7d7';
+    feedback.innerHTML = isCorrect
+        ? '\u2713 Correct!'
+        : `\u2717 The answer was: <strong>${escapeHtml(correct)}</strong>`;
+
+    setTimeout(() => {
+        currentIndex++;
+        showTestQuestion();
+    }, 1500);
+}
+
+async function endTest() {
+    clearInterval(testTimer);
+    document.getElementById('test-screen').style.display = 'none';
+    document.getElementById('test-progress').style.width = '100%';
+
+    const wrongResults = testResults.filter(r => !r.is_correct);
+    const isPerfect = wrongResults.length === 0;
+    const resultsDiv = document.getElementById('results-content');
+
+    if (isPerfect) {
+        // Mark session as completed if this is a parent-assigned session
+        if (sessionId) {
+            await fetch(`/api/study-sessions/${sessionId}/complete`, { method: 'POST' });
+        }
+        resultsDiv.innerHTML = `
+            <h1 style="color: #48bb78; font-size: 36px;">100% - Perfect!</h1>
+            <div style="font-size: 24px; color: #666; margin: 20px 0;">
+                You got all ${testWords.length} words correct!
+            </div>
+            <div style="font-size: 18px; color: #888; margin-bottom: 30px;">
+                Attempt ${attemptNumber}
+            </div>
+            <a href="/child/{{ child.id }}" class="btn btn-success" style="font-size: 20px; padding: 15px 40px;">
+                Back to Dashboard
+            </a>
+            ${!sessionId ? `
+            <button class="btn btn-primary" style="font-size: 20px; padding: 15px 40px;" onclick="resetStudy()">
+                New Study Session
+            </button>` : ''}
+        `;
+        showConfetti();
+    } else {
+        resultsDiv.innerHTML = `
+            <h1 style="color: #ed8936;">
+                ${correctCount}/${testWords.length} Correct
+            </h1>
+            <div style="font-size: 20px; color: #666; margin: 15px 0;">
+                You need 100% to complete this study session.
+            </div>
+            <div style="font-size: 16px; color: #888; margin-bottom: 20px;">
+                Attempt ${attemptNumber} &mdash; ${wrongResults.length} word${wrongResults.length > 1 ? 's' : ''} to retry
+            </div>
+            <div style="text-align: left; margin-bottom: 25px;">
+                <h2>Words to Retry:</h2>
+                ${wrongResults.map(r => `
+                    <div class="retry-word">
+                        <strong>${escapeHtml(r.word.word)}</strong>
+                        <div style="font-size: 14px; color: #666;">${escapeHtml(r.word.definition || '')}</div>
+                    </div>
+                `).join('')}
+            </div>
+            <button class="btn btn-success" style="width: 100%; font-size: 22px; padding: 20px;" onclick="retryWrong()">
+                Retry Wrong Words (${wrongResults.length})
+            </button>
+            <button class="btn btn-warning" style="width: 100%; font-size: 16px; padding: 12px; margin-top: 10px;" onclick="reviewThenRetry()">
+                Review Words First, Then Retry
+            </button>
+        `;
+    }
+
+    document.getElementById('results-screen').style.display = 'block';
+}
+
+function retryWrong() {
+    const wrongWords = testResults.filter(r => !r.is_correct).map(r => r.word);
+    testWords = wrongWords;
+    startTest();
+}
+
+function reviewThenRetry() {
+    const wrongWords = testResults.filter(r => !r.is_correct).map(r => r.word);
+    studyWords = wrongWords;
+    cardIndex = 0;
+    viewedAll = false;
+
+    document.getElementById('results-screen').style.display = 'none';
+    document.getElementById('review-screen').style.display = 'block';
+    document.getElementById('card-total').textContent = studyWords.length;
+    document.getElementById('ready-test-btn').style.display = 'none';
+
+    // Set testWords for when they click "Ready for Test"
+    testWords = wrongWords;
+
+    showCard();
+}
+
+function resetStudy() {
+    attemptNumber = 0;
+    document.getElementById('results-screen').style.display = 'none';
+    document.getElementById('select-screen').style.display = 'block';
+    deselectAll();
+}
+
+// ======= Utils =======
+
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function escapeJs(str) {
+    if (!str) return '';
+    return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function speak(word) {
+    const utterance = new SpeechSynthesisUtterance(word);
+    speechSynthesis.speak(utterance);
+}
+
+function showConfetti() {
+    const canvas = document.getElementById('confetti');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const pieces = [];
+    const colors = ['#667eea', '#48bb78', '#ed8936', '#f56565', '#9f7aea'];
+
+    for (let i = 0; i < 100; i++) {
+        pieces.push({
+            x: Math.random() * canvas.width,
+            y: -20,
+            size: Math.random() * 10 + 5,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            speed: Math.random() * 3 + 2,
+            angle: Math.random() * Math.PI * 2
+        });
+    }
+
+    function animate() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        let active = false;
+        pieces.forEach(p => {
+            if (p.y < canvas.height) {
+                active = true;
+                p.y += p.speed;
+                p.x += Math.sin(p.angle) * 2;
+                p.angle += 0.1;
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, p.size, p.size);
+            }
+        });
+        if (active) requestAnimationFrame(animate);
+    }
+    animate();
+}
+
+// Init
+loadWords();
+</script>
+{% endblock %}

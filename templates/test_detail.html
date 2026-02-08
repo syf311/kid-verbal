@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}{{ child.name }} - Test Detail{% endblock %}
+
+{% block extra_css %}
+<style>
+    .answer-row {
+        padding: 12px 15px;
+        border-radius: 10px;
+        margin-bottom: 8px;
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    .answer-correct { background: #c6f6d5; }
+    .answer-wrong { background: #fed7d7; }
+    .answer-icon { font-size: 20px; flex-shrink: 0; margin-top: 2px; }
+    .answer-details { flex: 1; }
+    .answer-word { font-size: 18px; font-weight: bold; color: #333; }
+    .answer-meta { font-size: 14px; color: #666; margin-top: 4px; }
+    .answer-comparison { font-size: 14px; margin-top: 6px; }
+    .type-tag {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: bold;
+        color: white;
+    }
+    .type-tag-definition { background: #667eea; }
+    .type-tag-reverse { background: #ed8936; }
+    .type-tag-spelling { background: #9f7aea; }
+    .type-tag-fillblank { background: #48bb78; }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="/child/{{ child.id }}/tests" style="color: #667eea; text-decoration: none;">&larr; Back to Test History</a>
+<h1 style="margin-top: 10px;">Test Detail</h1>
+
+<div class="card" style="margin-bottom: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div>
+            <strong style="font-size: 20px;">{{ test_session.test_type }}</strong>
+            <div style="font-size: 14px; color: #666; margin-top: 4px;">{{ test_session.created_at[:16] }}</div>
+        </div>
+        <div style="text-align: right;">
+            <div style="font-size: 24px; font-weight: bold; color: {% if test_session.correct_count == test_session.total_count %}#48bb78{% else %}#ed8936{% endif %};">
+                {{ test_session.correct_count }}/{{ test_session.total_count }}
+            </div>
+            <div style="font-size: 14px; color: #666;">
+                {{ test_session.score }} pts
+                {% if test_session.time_taken %} | {{ test_session.time_taken }}s{% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if answers %}
+<h2 style="margin-bottom: 15px;">Questions & Answers</h2>
+{% for a in answers %}
+<div class="answer-row {{ 'answer-correct' if a.is_correct else 'answer-wrong' }}">
+    <div class="answer-icon">{{ '&#10003;' if a.is_correct else '&#10007;' }}</div>
+    <div class="answer-details">
+        <div class="answer-word">
+            {{ a.word_text }}
+            <span class="type-tag type-tag-{{ a.question_type }}">{{ a.question_type }}</span>
+        </div>
+        {% if not a.is_correct %}
+        <div class="answer-comparison">
+            <div><strong>Child's answer:</strong> {{ a.child_answer }}</div>
+            <div><strong>Correct answer:</strong> {{ a.correct_answer }}</div>
+        </div>
+        {% else %}
+        <div class="answer-meta">{{ a.correct_answer }}</div>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+{% else %}
+<p style="color: #666;">No detailed answer data available for this test session.</p>
+{% endif %}
+{% endblock %}

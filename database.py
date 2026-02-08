@@ -29,6 +29,7 @@ def init_db():
             word TEXT NOT NULL,
             definition TEXT,
             example_sentence TEXT,
+            image_path TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE
         );
@@ -75,8 +76,64 @@ def init_db():
             FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE,
             UNIQUE(child_id, badge_type)
         );
+
+        CREATE TABLE IF NOT EXISTS account (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL,
+            child_id INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS study_session (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id INTEGER NOT NULL,
+            created_by INTEGER NOT NULL,
+            title TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE,
+            FOREIGN KEY (created_by) REFERENCES account(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS study_session_word (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            word_id INTEGER NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES study_session(id) ON DELETE CASCADE,
+            FOREIGN KEY (word_id) REFERENCES word(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS test_session_answer (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            word_id INTEGER NOT NULL,
+            word_text TEXT NOT NULL,
+            question_type TEXT NOT NULL,
+            child_answer TEXT,
+            correct_answer TEXT,
+            is_correct BOOLEAN NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES test_session(id) ON DELETE CASCADE
+        );
     """)
     conn.commit()
+
+    # Migration: Add image_path to word table if not exists
+    try:
+        conn.execute("ALTER TABLE word ADD COLUMN image_path TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    # Migration: Add last_correct_at to word_progress table if not exists
+    try:
+        conn.execute("ALTER TABLE word_progress ADD COLUMN last_correct_at DATETIME")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
     conn.close()
 
 
