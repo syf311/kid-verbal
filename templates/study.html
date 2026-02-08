@@ -247,6 +247,8 @@ let testTimer = null;
 let timeLeft = 15;
 let testResults = [];
 let attemptNumber = 0;
+let currentChoices = [];
+let currentCorrectAnswer = '';
 
 // ======= SCREEN 1: Word Selection =======
 
@@ -493,8 +495,10 @@ async function showTestQuestion() {
         `;
         const choicesRes = await fetch(`/api/children/${childId}/test/choices/${word.id}?mode=definition`);
         const data = await choicesRes.json();
-        answerArea.innerHTML = data.choices.map(c => `
-            <button class="choice-btn" onclick="checkTestAnswer(this, ${JSON.stringify(c)}, ${JSON.stringify(data.correct)})">
+        currentChoices = data.choices;
+        currentCorrectAnswer = data.correct;
+        answerArea.innerHTML = data.choices.map((c, i) => `
+            <button class="choice-btn" onclick="checkTestAnswer(this, ${i})">
                 ${escapeHtml(c)}
             </button>
         `).join('');
@@ -507,8 +511,10 @@ async function showTestQuestion() {
         `;
         const choicesRes = await fetch(`/api/children/${childId}/test/choices/${word.id}?mode=word`);
         const data = await choicesRes.json();
-        answerArea.innerHTML = data.choices.map(c => `
-            <button class="choice-btn" onclick="checkTestAnswer(this, ${JSON.stringify(c)}, ${JSON.stringify(data.correct)})">
+        currentChoices = data.choices;
+        currentCorrectAnswer = data.correct;
+        answerArea.innerHTML = data.choices.map((c, i) => `
+            <button class="choice-btn" onclick="checkTestAnswer(this, ${i})">
                 ${escapeHtml(c)}
             </button>
         `).join('');
@@ -554,16 +560,20 @@ async function showTestQuestion() {
         `;
         const choicesRes = await fetch(`/api/children/${childId}/test/choices/${word.id}?mode=word`);
         const data = await choicesRes.json();
-        answerArea.innerHTML = data.choices.map(c => `
-            <button class="choice-btn" onclick="checkTestAnswer(this, ${JSON.stringify(c)}, ${JSON.stringify(data.correct)})">
+        currentChoices = data.choices;
+        currentCorrectAnswer = data.correct;
+        answerArea.innerHTML = data.choices.map((c, i) => `
+            <button class="choice-btn" onclick="checkTestAnswer(this, ${i})">
                 ${escapeHtml(c)}
             </button>
         `).join('');
     }
 }
 
-function checkTestAnswer(btn, selected, correct) {
+function checkTestAnswer(btn, choiceIndex) {
     clearInterval(testTimer);
+    const selected = currentChoices[choiceIndex];
+    const correct = currentCorrectAnswer;
     const isCorrect = selected.toLowerCase() === correct.toLowerCase();
 
     document.querySelectorAll('.choice-btn').forEach(b => {
