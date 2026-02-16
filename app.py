@@ -247,7 +247,8 @@ def create_study_session():
 def get_study_sessions(child_id):
     conn = get_db()
     sessions = conn.execute(
-        """SELECT ss.*, a.username as created_by_name
+        """SELECT ss.*, a.username as created_by_name,
+                  (SELECT COUNT(*) FROM study_session_word WHERE session_id = ss.id) as word_count
            FROM study_session ss
            JOIN account a ON ss.created_by = a.id
            WHERE ss.child_id = ?
