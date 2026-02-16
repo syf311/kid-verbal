@@ -151,7 +151,8 @@ async function loadStudySessions() {
                 ${s.status === 'completed'
                     ? '<span style="color: #48bb78; font-weight: bold;">Completed</span>'
                     : '<span style="color: #ed8936; font-weight: bold;">Pending</span>'}
-                <button class="btn btn-danger" style="padding: 4px 10px; font-size: 12px; margin-left: 8px;" onclick="deleteSession(${s.id})">Delete</button>
+                <a href="/child/${s.child_id}/study/${s.id}" class="btn btn-primary" style="padding: 4px 10px; font-size: 12px; margin-left: 8px;">Preview</a>
+                <button class="btn btn-danger" style="padding: 4px 10px; font-size: 12px; margin-left: 4px;" onclick="deleteSession(${s.id})">Delete</button>
             </div>
         </div>
     `).join('');
