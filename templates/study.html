@@ -125,7 +125,7 @@
 
 <!-- SCREEN 1: Word Selection -->
 <div id="select-screen">
-    <a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none;">&larr; Back</a>
+    <a href="/" style="color: #667eea; text-decoration: none;">&larr; Back</a>
     <h1 style="margin-top: 10px;">Study Session</h1>
     <p style="color: #666; margin-bottom: 20px;">Select words to study, then review and test until you get them all right.</p>
 
@@ -207,7 +207,7 @@
 
 <!-- SCREEN 4: Results / Retry -->
 <div id="results-screen" style="display: none; text-align: center;">
-    <a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none; display: block; text-align: left;">&larr; Back</a>
+    <a href="/" style="color: #667eea; text-decoration: none; display: block; text-align: left;">&larr; Back</a>
     <div id="results-content"></div>
 </div>
 {% endblock %}
@@ -666,8 +666,8 @@ async function endTest() {
             <div style="font-size: 18px; color: #888; margin-bottom: 30px;">
                 Attempt ${attemptNumber}
             </div>
-            <a href="/child/{{ child.id }}" class="btn btn-success" style="font-size: 20px; padding: 15px 40px;">
-                Back to Dashboard
+            <a href="/" class="btn btn-success" style="font-size: 20px; padding: 15px 40px;">
+                Back
             </a>
             ${!sessionId ? `
             <button class="btn btn-primary" style="font-size: 20px; padding: 15px 40px;" onclick="resetStudy()">
@@ -701,7 +701,7 @@ async function endTest() {
             <button class="btn btn-warning" style="width: 100%; font-size: 16px; padding: 12px; margin-top: 10px;" onclick="reviewThenRetry()">
                 Review Words First, Then Retry
             </button>
-            <a href="/child/{{ child.id }}" style="display: block; margin-top: 15px; color: #667eea; text-decoration: none;">&larr; Back to Dashboard</a>
+            <a href="/" style="display: block; margin-top: 15px; color: #667eea; text-decoration: none;">&larr; Back</a>
         `;
     }
 

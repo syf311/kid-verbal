@@ -55,7 +55,7 @@
 <canvas id="confetti"></canvas>
 
 <div id="start-screen">
-    <a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none;">&larr; Back</a>
+    <a href="/" style="color: #667eea; text-decoration: none;">&larr; Back</a>
     <h1 style="margin-top: 10px;">Vocabulary Test</h1>
     <p style="color: #666; margin-bottom: 20px;">
         Mixed questions: definitions, reverse lookup, spelling, and fill-in-the-blank.
@@ -90,14 +90,14 @@
 </div>
 
 <div id="results-screen" style="display: none; text-align: center;">
-    <a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none; display: block; text-align: left;">&larr; Back</a>
+    <a href="/" style="color: #667eea; text-decoration: none; display: block; text-align: left;">&larr; Back</a>
     <h1>Test Complete!</h1>
     <div style="font-size: 48px; margin: 30px 0;">
         <span id="final-correct">0</span>/<span id="final-total">25</span> correct
     </div>
     <div id="results-breakdown" style="text-align: left; margin-bottom: 30px;"></div>
     <button class="btn btn-primary" onclick="location.reload()">Try Again</button>
-    <a href="/child/{{ child.id }}" class="btn btn-success">Back to Dashboard</a>
+    <a href="/" class="btn btn-success">Back</a>
 </div>
 {% endblock %}
 
