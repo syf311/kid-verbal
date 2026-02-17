@@ -108,7 +108,12 @@
                 <button class="btn" style="padding: 8px 15px; background: #edf2f7; color: #4a5568;" onclick="toggleQuestions({{ material.id }})">
                     Questions (<span id="qcount-{{ material.id }}">{{ material.question_count }}</span>)
                 </button>
-                <button class="btn" style="padding: 8px 15px; background: #ebf8ff; color: #2b6cb0;" onclick="editMaterial({{ material.id }}, '{{ material.title | e }}', '{{ material.source_url or '' }}', '{{ material.child_id or '' }}')">
+                <button class="btn" style="padding: 8px 15px; background: #ebf8ff; color: #2b6cb0;"
+                    data-id="{{ material.id }}"
+                    data-title="{{ material.title | e }}"
+                    data-url="{{ material.source_url or '' }}"
+                    data-child="{{ material.child_id or '' }}"
+                    onclick="editMaterial(this)">
                     Edit
                 </button>
                 <a href="/session/{{ material.id }}/parent" class="btn btn-primary" style="padding: 8px 15px;">
@@ -313,11 +318,11 @@ async function deleteMaterial(id) {
     location.reload();
 }
 
-function editMaterial(id, title, sourceUrl, childId) {
-    document.getElementById('edit-material-id').value = id;
-    document.getElementById('edit-material-title').value = title;
-    document.getElementById('edit-material-url').value = sourceUrl;
-    document.getElementById('edit-material-child').value = childId;
+function editMaterial(btn) {
+    document.getElementById('edit-material-id').value = btn.dataset.id;
+    document.getElementById('edit-material-title').value = btn.dataset.title;
+    document.getElementById('edit-material-url').value = btn.dataset.url;
+    document.getElementById('edit-material-child').value = btn.dataset.child;
     document.getElementById('edit-material-modal').style.display = 'block';
 }
 
