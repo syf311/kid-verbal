@@ -1083,20 +1083,45 @@ def study_page(child_id, session_id=None):
 @app.route("/materials")
 def materials_list():
     conn = get_db()
-    materials = conn.execute(
-        """SELECT rm.*,
-                  (SELECT COUNT(*) FROM material_question WHERE material_id = rm.id) as question_count
-           FROM reading_material rm
-           ORDER BY rm.created_at DESC"""
-    ).fetchall()
+    child_filter = request.args.get("child_id", "", type=str)
+
+    if child_filter:
+        materials = conn.execute(
+            """SELECT rm.*,
+                      (SELECT COUNT(*) FROM material_question WHERE material_id = rm.id) as question_count,
+                      c.name as child_name
+               FROM reading_material rm
+               LEFT JOIN child c ON rm.child_id = c.id
+               WHERE rm.child_id = ?
+               ORDER BY rm.created_at DESC""",
+            (child_filter,)
+        ).fetchall()
+    else:
+        materials = conn.execute(
+            """SELECT rm.*,
+                      (SELECT COUNT(*) FROM material_question WHERE material_id = rm.id) as question_count,
+                      c.name as child_name
+               FROM reading_material rm
+               LEFT JOIN child c ON rm.child_id = c.id
+               ORDER BY rm.created_at DESC"""
+        ).fetchall()
+
+    children = conn.execute("SELECT id, name FROM child ORDER BY name").fetchall()
     conn.close()
-    return render_template("materials.html", materials=[dict(m) for m in materials])
+    return render_template(
+        "materials.html",
+        materials=[dict(m) for m in materials],
+        children=[dict(c) for c in children],
+        child_filter=child_filter
+    )
 
 
 @app.route("/api/materials", methods=["POST"])
 def create_material():
     title = request.form.get("title", "Untitled")
     content = request.form.get("content", "")
+    source_url = request.form.get("source_url", "").strip() or None
+    child_id = request.form.get("child_id", "").strip() or None
     image_path = None
 
     if "image" in request.files:
@@ -1113,8 +1138,8 @@ def create_material():
 
     conn = get_db()
     cursor = conn.execute(
-        "INSERT INTO reading_material (title, content, image_path) VALUES (?, ?, ?)",
-        (title, content, image_path)
+        "INSERT INTO reading_material (title, content, image_path, source_url, child_id) VALUES (?, ?, ?, ?, ?)",
+        (title, content, image_path, source_url, child_id)
     )
     material_id = cursor.lastrowid
     conn.commit()
@@ -1162,8 +1187,8 @@ def update_material(material_id):
     data = request.json
     conn = get_db()
     conn.execute(
-        "UPDATE reading_material SET title = ?, content = ? WHERE id = ?",
-        (data.get("title"), data.get("content"), material_id)
+        "UPDATE reading_material SET title = ?, content = ?, source_url = ?, child_id = ? WHERE id = ?",
+        (data.get("title"), data.get("content"), data.get("source_url") or None, data.get("child_id") or None, material_id)
     )
     conn.commit()
     conn.close()
@@ -1416,8 +1441,8 @@ def import_article():
 
     conn = get_db()
     cursor = conn.execute(
-        "INSERT INTO reading_material (title, content) VALUES (?, ?)",
-        (title, content)
+        "INSERT INTO reading_material (title, content, source_url) VALUES (?, ?, ?)",
+        (title, content, url)
     )
     material_id = cursor.lastrowid
     conn.commit()

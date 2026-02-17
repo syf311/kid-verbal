@@ -38,6 +38,22 @@
     <form id="upload-form" enctype="multipart/form-data">
         <input type="text" name="title" placeholder="Title..." required>
 
+        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+            <div style="flex: 1;">
+                <label style="display: block; margin-bottom: 5px;">Source URL (optional):</label>
+                <input type="url" name="source_url" placeholder="https://..." id="source-url-input">
+            </div>
+            <div style="flex: 1;">
+                <label style="display: block; margin-bottom: 5px;">For child:</label>
+                <select name="child_id" id="child-id-input" style="width: 100%; padding: 10px;">
+                    <option value="">All children</option>
+                    {% for child in children %}
+                    <option value="{{ child.id }}">{{ child.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
         <div style="margin-bottom: 15px;">
             <label style="display: block; margin-bottom: 5px;">Upload Images (select multiple for book pages):</label>
             <input type="file" name="images" accept="image/*" id="image-input" multiple>
@@ -61,19 +77,39 @@
 </div>
 
 <h2>Materials</h2>
+<div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
+    <label>Filter by child:</label>
+    <select id="child-filter" onchange="window.location.href='/materials' + (this.value ? '?child_id=' + this.value : '')" style="padding: 8px 12px; border: 2px solid #ddd; border-radius: 8px;">
+        <option value="">All</option>
+        {% for child in children %}
+        <option value="{{ child.id }}" {% if child_filter == child.id|string %}selected{% endif %}>{{ child.name }}</option>
+        {% endfor %}
+    </select>
+</div>
 <div id="materials-list">
     {% for material in materials %}
     <div class="card" style="margin-bottom: 15px;" id="material-{{ material.id }}">
         <div style="display: flex; justify-content: space-between; align-items: start;">
-            <div>
+            <div style="flex: 1; min-width: 0;">
                 <h3 style="margin: 0;">{{ material.title }}</h3>
+                <div style="margin-top: 4px; font-size: 13px;">
+                    {% if material.child_name %}
+                    <span style="background: #e9d8fd; color: #553c9a; padding: 2px 8px; border-radius: 4px;">{{ material.child_name }}</span>
+                    {% endif %}
+                    {% if material.source_url %}
+                    <a href="{{ material.source_url }}" target="_blank" rel="noopener" style="color: #667eea;">Source</a>
+                    {% endif %}
+                </div>
                 <p style="color: #666; margin-top: 5px;">
                     {{ material.content[:100] }}{% if material.content|length > 100 %}...{% endif %}
                 </p>
             </div>
-            <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+            <div style="display: flex; gap: 5px; flex-wrap: wrap; flex-shrink: 0;">
                 <button class="btn" style="padding: 8px 15px; background: #edf2f7; color: #4a5568;" onclick="toggleQuestions({{ material.id }})">
                     Questions (<span id="qcount-{{ material.id }}">{{ material.question_count }}</span>)
+                </button>
+                <button class="btn" style="padding: 8px 15px; background: #ebf8ff; color: #2b6cb0;" onclick="editMaterial({{ material.id }}, '{{ material.title | e }}', '{{ material.source_url or '' }}', '{{ material.child_id or '' }}')">
+                    Edit
                 </button>
                 <a href="/session/{{ material.id }}/parent" class="btn btn-primary" style="padding: 8px 15px;">
                     Start Session
@@ -114,6 +150,29 @@
     {% else %}
     <p style="color: #666;">No materials yet. Add one above!</p>
     {% endfor %}
+</div>
+
+<!-- Edit Material Modal -->
+<div id="edit-material-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100;">
+    <div style="background: white; max-width: 450px; margin: 50px auto; padding: 25px; border-radius: 16px;">
+        <h2 style="margin-top: 0;">Edit Material</h2>
+        <input type="hidden" id="edit-material-id">
+        <label style="display: block; font-weight: 600; margin-bottom: 4px;">Title:</label>
+        <input type="text" id="edit-material-title" style="margin-bottom: 12px;">
+        <label style="display: block; font-weight: 600; margin-bottom: 4px;">Source URL:</label>
+        <input type="url" id="edit-material-url" placeholder="https://..." style="margin-bottom: 12px;">
+        <label style="display: block; font-weight: 600; margin-bottom: 4px;">For child:</label>
+        <select id="edit-material-child" style="width: 100%; padding: 10px; margin-bottom: 15px;">
+            <option value="">All children</option>
+            {% for child in children %}
+            <option value="{{ child.id }}">{{ child.name }}</option>
+            {% endfor %}
+        </select>
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+            <button class="btn" style="background: #e2e8f0;" onclick="closeEditMaterial()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveEditMaterial()">Save</button>
+        </div>
+    </div>
 </div>
 
 <div class="card" style="margin: 30px 0;">
@@ -171,6 +230,8 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
     const files = document.getElementById('image-input').files;
     const title = form.querySelector('input[name="title"]').value;
     const content = document.getElementById('content-input').value;
+    const sourceUrl = document.getElementById('source-url-input').value;
+    const childId = document.getElementById('child-id-input').value;
 
     const submitBtn = document.getElementById('submit-btn');
     const progress = document.getElementById('upload-progress');
@@ -207,6 +268,8 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
         const finalForm = new FormData();
         finalForm.append('title', title);
         finalForm.append('content', allText);
+        finalForm.append('source_url', sourceUrl);
+        finalForm.append('child_id', childId);
 
         const res = await fetch('/api/materials', {
             method: 'POST',
@@ -223,6 +286,8 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
         const formData = new FormData();
         formData.append('title', title);
         formData.append('content', content);
+        formData.append('source_url', sourceUrl);
+        formData.append('child_id', childId);
         if (files.length === 1) {
             formData.append('image', files[0]);
         }
@@ -245,6 +310,38 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
 async function deleteMaterial(id) {
     if (!confirm('Delete this material?')) return;
     await fetch(`/api/materials/${id}`, { method: 'DELETE' });
+    location.reload();
+}
+
+function editMaterial(id, title, sourceUrl, childId) {
+    document.getElementById('edit-material-id').value = id;
+    document.getElementById('edit-material-title').value = title;
+    document.getElementById('edit-material-url').value = sourceUrl;
+    document.getElementById('edit-material-child').value = childId;
+    document.getElementById('edit-material-modal').style.display = 'block';
+}
+
+function closeEditMaterial() {
+    document.getElementById('edit-material-modal').style.display = 'none';
+}
+
+async function saveEditMaterial() {
+    const id = document.getElementById('edit-material-id').value;
+    // First get current content so we don't wipe it
+    const materialRes = await fetch(`/api/materials/${id}`);
+    const material = await materialRes.json();
+
+    await fetch(`/api/materials/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            title: document.getElementById('edit-material-title').value,
+            content: material.content,
+            source_url: document.getElementById('edit-material-url').value,
+            child_id: document.getElementById('edit-material-child').value
+        })
+    });
+    closeEditMaterial();
     location.reload();
 }
 

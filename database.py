@@ -198,6 +198,20 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # Migration: Add source_url to reading_material
+    try:
+        conn.execute("ALTER TABLE reading_material ADD COLUMN source_url TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    # Migration: Add child_id to reading_material
+    try:
+        conn.execute("ALTER TABLE reading_material ADD COLUMN child_id INTEGER")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
     conn.close()
 
 
