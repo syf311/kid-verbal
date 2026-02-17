@@ -42,8 +42,31 @@
     .word-table td {
         padding: 10px 8px;
         border-bottom: 1px solid #f0f0f0;
+        transition: all 0.2s;
     }
-    .word-table tr:hover td { background: #f7fafc; }
+    {% if role == 'parent' %}
+    .word-table tbody tr {
+        cursor: pointer;
+    }
+    .word-table tbody tr:hover td { background: #f7fafc; }
+    .word-table tbody tr.selected td {
+        background: #ebf4ff;
+        border-top: 2px solid #667eea;
+        border-bottom: 2px solid #667eea;
+    }
+    .word-table tbody tr.selected td:first-child {
+        border-left: 2px solid #667eea;
+        border-top-left-radius: 8px;
+        border-bottom-left-radius: 8px;
+    }
+    .word-table tbody tr.selected td:last-child {
+        border-right: 2px solid #667eea;
+        border-top-right-radius: 8px;
+        border-bottom-right-radius: 8px;
+    }
+    {% else %}
+    .word-table tbody tr:hover td { background: #f7fafc; }
+    {% endif %}
 
     .status-badge {
         display: inline-block;
@@ -90,6 +113,42 @@
     .date-cell { font-size: 13px; color: #666; }
     .count-correct { color: #48bb78; font-weight: 600; }
     .count-wrong { color: #f56565; font-weight: 600; }
+
+    .floating-actions {
+        position: fixed;
+        bottom: 30px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 100;
+        display: flex;
+        gap: 10px;
+        background: white;
+        padding: 12px 20px;
+        border-radius: 15px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        align-items: center;
+    }
+    .floating-actions .count { font-weight: bold; color: #667eea; margin-right: 5px; }
+
+    .def-text { font-size: 13px; color: #888; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .edit-modal-overlay {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.4); z-index: 200;
+        display: flex; align-items: center; justify-content: center;
+    }
+    .edit-modal {
+        background: white; border-radius: 15px; padding: 25px;
+        width: 90%; max-width: 500px; box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    }
+    .edit-modal h2 { margin-top: 0; }
+    .edit-modal input, .edit-modal textarea {
+        width: 100%; padding: 10px; font-size: 16px;
+        border: 2px solid #e2e8f0; border-radius: 8px; margin-bottom: 12px;
+        box-sizing: border-box;
+    }
+    .edit-modal textarea { min-height: 80px; resize: vertical; }
+    .edit-modal .modal-buttons { display: flex; gap: 10px; justify-content: flex-end; }
 </style>
 {% endblock %}
 
@@ -123,29 +182,40 @@
     <button class="filter-btn" onclick="filterWords('due', this)">Due for Review</button>
     <button class="filter-btn" onclick="filterWords('good', this)">Good</button>
     <button class="filter-btn" onclick="filterWords('mastered', this)">Mastered</button>
+    {% if role == 'parent' %}
+    <button class="filter-btn" onclick="selectAllVisible()" style="margin-left: auto;">Select All Visible</button>
+    <button class="filter-btn" onclick="deselectAll()">Deselect All</button>
+    {% endif %}
 </div>
 
-<div style="overflow-x: auto;">
+<div style="overflow-x: auto; padding-bottom: 80px;">
 <table class="word-table" id="word-table">
     <thead>
         <tr>
             <th onclick="sortTable(0)">Word</th>
-            <th onclick="sortTable(1)">Status</th>
-            <th onclick="sortTable(2)">Correct</th>
-            <th onclick="sortTable(3)">Wrong</th>
-            <th onclick="sortTable(4)">Level</th>
-            <th onclick="sortTable(5)">Last Tested</th>
-            <th onclick="sortTable(6)">Last Correct</th>
+            <th></th>
+            <th onclick="sortTable(2)">Status</th>
+            <th onclick="sortTable(3)">Correct</th>
+            <th onclick="sortTable(4)">Wrong</th>
+            <th onclick="sortTable(5)">Mastery</th>
+            <th onclick="sortTable(6)">Last Tested</th>
+            <th onclick="sortTable(7)">Last Correct</th>
         </tr>
     </thead>
     <tbody>
         {% for w in words %}
-        <tr data-status="{{ 'never' if not w.last_tested else ('wrong' if w.wrong_count > w.correct_count else ('mastered' if w.difficulty_level >= 4 else ('due' if not w.last_correct_at or w.last_correct_at < cutoff else 'good'))) }}">
+        <tr data-status="{{ 'never' if not w.last_tested else ('wrong' if w.wrong_count > w.correct_count else ('mastered' if w.difficulty_level >= 4 else ('due' if not w.last_correct_at or w.last_correct_at < cutoff else 'good'))) }}"
+            data-word-id="{{ w.id }}"
+            data-word="{{ w.word }}"
+            data-definition="{{ w.definition or '' }}"
+            data-example="{{ w.example_sentence or '' }}"
+            {% if role == 'parent' %}onclick="toggleRow(this, event)"{% endif %}>
             <td>
                 <strong>{{ w.word }}</strong>
-                {% if w.definition %}
-                <div style="font-size: 13px; color: #888; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ w.definition }}</div>
-                {% endif %}
+                <div class="def-text">{{ w.definition or '' }}</div>
+            </td>
+            <td style="white-space: nowrap;">
+                <button class="btn btn-primary" style="padding: 3px 10px; font-size: 12px;" onclick="openEditModal(this, event)">Edit</button>
             </td>
             <td>
                 {% if not w.last_tested %}
@@ -169,21 +239,51 @@
                     {% endfor %}
                 </div>
             </td>
-            <td class="date-cell">{{ w.last_tested[:10] if w.last_tested else '-' }}</td>
-            <td class="date-cell">{{ w.last_correct_at[:10] if w.last_correct_at else '-' }}</td>
+            <td class="date-cell" data-date="{{ w.last_tested or '' }}">{{ w.last_tested[:10] if w.last_tested else '-' }}</td>
+            <td class="date-cell" data-date="{{ w.last_correct_at or '' }}">{{ w.last_correct_at[:10] if w.last_correct_at else '-' }}</td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
 </div>
+
+{% if role == 'parent' %}
+<div class="floating-actions" id="floating-actions" style="display: none;">
+    <span><span class="count" id="sel-count">0</span> selected</span>
+    <button class="btn btn-success" style="padding: 8px 15px; font-size: 14px;" onclick="createFromSelected('study')">Create Study</button>
+    <button class="btn btn-warning" style="padding: 8px 15px; font-size: 14px;" onclick="createFromSelected('test')">Create Test</button>
+</div>
+{% endif %}
+
+<div id="edit-modal-container"></div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+const childId = {{ child.id }};
+let selectedIds = new Set();
+
+// Convert dates to "X days ago"
+function daysAgo(dateStr) {
+    if (!dateStr) return '-';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return '1 day ago';
+    return diffDays + ' days ago';
+}
+
+document.querySelectorAll('.date-cell[data-date]').forEach(cell => {
+    const d = cell.getAttribute('data-date');
+    if (d) cell.textContent = daysAgo(d);
+});
+
+// Filtering
 function filterWords(status, btn) {
     document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-
     document.querySelectorAll('#word-table tbody tr').forEach(row => {
         if (status === 'all') {
             row.style.display = '';
@@ -193,29 +293,160 @@ function filterWords(status, btn) {
     });
 }
 
+// Sorting
 let sortDir = {};
 function sortTable(col) {
     const table = document.getElementById('word-table');
     const tbody = table.querySelector('tbody');
     const rows = Array.from(tbody.querySelectorAll('tr'));
-
     sortDir[col] = !sortDir[col];
     const dir = sortDir[col] ? 1 : -1;
-
     rows.sort((a, b) => {
         let aVal = a.cells[col].textContent.trim();
         let bVal = b.cells[col].textContent.trim();
-
-        // Try numeric sort
         const aNum = parseFloat(aVal);
         const bNum = parseFloat(bVal);
-        if (!isNaN(aNum) && !isNaN(bNum)) {
-            return (aNum - bNum) * dir;
-        }
+        if (!isNaN(aNum) && !isNaN(bNum)) return (aNum - bNum) * dir;
         return aVal.localeCompare(bVal) * dir;
     });
-
     rows.forEach(row => tbody.appendChild(row));
+}
+
+// Row click to select
+function toggleRow(tr, event) {
+    // Don't toggle if clicking the Edit button
+    if (event.target.closest('button')) return;
+
+    const wordId = parseInt(tr.dataset.wordId);
+    if (selectedIds.has(wordId)) {
+        selectedIds.delete(wordId);
+        tr.classList.remove('selected');
+    } else {
+        selectedIds.add(wordId);
+        tr.classList.add('selected');
+    }
+    updateFloatingBar();
+}
+
+function selectAllVisible() {
+    document.querySelectorAll('#word-table tbody tr').forEach(row => {
+        if (row.style.display !== 'none') {
+            const wordId = parseInt(row.dataset.wordId);
+            selectedIds.add(wordId);
+            row.classList.add('selected');
+        }
+    });
+    updateFloatingBar();
+}
+
+function deselectAll() {
+    selectedIds.clear();
+    document.querySelectorAll('#word-table tbody tr').forEach(row => row.classList.remove('selected'));
+    updateFloatingBar();
+}
+
+function updateFloatingBar() {
+    const bar = document.getElementById('floating-actions');
+    if (!bar) return;
+    const count = document.getElementById('sel-count');
+    if (selectedIds.size > 0) {
+        bar.style.display = 'flex';
+        count.textContent = selectedIds.size;
+    } else {
+        bar.style.display = 'none';
+    }
+}
+
+async function createFromSelected(type) {
+    const wordIds = [...selectedIds];
+    if (wordIds.length < 4) {
+        alert('Select at least 4 words.');
+        return;
+    }
+
+    const title = prompt(`Title for this ${type === 'study' ? 'study session' : 'test'}:`, `${type === 'study' ? 'Study' : 'Test'} Session`);
+    if (title === null) return;
+
+    const url = type === 'study' ? '/api/study-sessions' : '/api/parent-tests';
+
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ child_id: childId, word_ids: wordIds, title })
+    });
+
+    if (res.ok) {
+        alert(`${type === 'study' ? 'Study session' : 'Test'} created!`);
+        deselectAll();
+    } else {
+        const data = await res.json();
+        alert('Error: ' + (data.error || 'Failed'));
+    }
+}
+
+// Edit modal
+function openEditModal(btn, event) {
+    event.stopPropagation();
+    const tr = btn.closest('tr');
+    const wordId = tr.dataset.wordId;
+    const word = tr.dataset.word;
+    const definition = tr.dataset.definition;
+    const example = tr.dataset.example;
+
+    const container = document.getElementById('edit-modal-container');
+    container.innerHTML = `
+        <div class="edit-modal-overlay" onclick="closeEditModal(event)">
+            <div class="edit-modal" onclick="event.stopPropagation()">
+                <h2>Edit Word</h2>
+                <label style="font-weight: bold; font-size: 14px;">Word</label>
+                <input type="text" id="edit-word-text" value="${escapeHtml(word)}" style="margin-bottom: 12px;">
+                <label style="font-weight: bold; font-size: 14px;">Definition</label>
+                <textarea id="edit-def">${escapeHtml(definition)}</textarea>
+                <label style="font-weight: bold; font-size: 14px;">Example Sentence</label>
+                <textarea id="edit-example">${escapeHtml(example)}</textarea>
+                <div class="modal-buttons">
+                    <button class="btn btn-warning" style="padding: 8px 20px;" onclick="closeEditModal()">Cancel</button>
+                    <button class="btn btn-success" style="padding: 8px 20px;" onclick="saveEdit(${wordId})">Save</button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function closeEditModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('edit-modal-container').innerHTML = '';
+}
+
+async function saveEdit(wordId) {
+    const newWord = document.getElementById('edit-word-text').value.trim();
+    const newDef = document.getElementById('edit-def').value.trim();
+    const newExample = document.getElementById('edit-example').value.trim();
+
+    const res = await fetch(`/api/words/${wordId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ word: newWord, definition: newDef, example_sentence: newExample })
+    });
+
+    if (res.ok) {
+        const tr = document.querySelector(`tr[data-word-id="${wordId}"]`);
+        tr.dataset.word = newWord;
+        tr.dataset.definition = newDef;
+        tr.dataset.example = newExample;
+        tr.querySelector('strong').textContent = newWord;
+        tr.querySelector('.def-text').textContent = newDef || '';
+        closeEditModal();
+    } else {
+        alert('Failed to save');
+    }
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
 }
 </script>
 {% endblock %}

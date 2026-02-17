@@ -10,11 +10,28 @@
     </div>
     <div style="text-align: right;">
         <div style="font-size: 48px;">{{ child.avatar or '\ud83d\udc64' }}</div>
-        <div style="font-size: 24px; font-weight: bold; color: #667eea;">Level {{ child.level }}</div>
-        <div style="color: #666;">{{ child.total_points }} points</div>
         <a href="/logout" style="font-size: 14px; color: #f56565; text-decoration: none;">Logout</a>
     </div>
 </div>
+
+{% if parent_tests %}
+<div style="margin-bottom: 30px;">
+    <h2>Assigned Tests</h2>
+    {% for pt in parent_tests %}
+    <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong style="font-size: 18px;">{{ pt.title or 'Test' }}</strong>
+            <div style="font-size: 14px; color: #666;">
+                {{ pt.word_count }} words | Created {{ pt.created_at[:10] }}
+            </div>
+        </div>
+        <a href="/child/{{ child.id }}/test/{{ pt.id }}" class="btn btn-success" style="padding: 10px 25px;">
+            Start
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
 
 {% if study_sessions %}
 <div style="margin-bottom: 30px;">
@@ -30,6 +47,23 @@
         <a href="/child/{{ child.id }}/study/{{ ss.id }}" class="btn btn-success" style="padding: 10px 25px;">
             Start
         </a>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if completed_sessions %}
+<div style="margin-bottom: 30px;">
+    <h2>Completed Study Sessions</h2>
+    {% for ss in completed_sessions %}
+    <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong style="font-size: 18px;">{{ ss.title or 'Study Session' }}</strong>
+            <div style="font-size: 14px; color: #666;">
+                {{ ss.word_count }} words | {{ ss.created_at[:10] }}
+            </div>
+        </div>
+        <span style="color: #48bb78; font-weight: bold;">Completed</span>
     </div>
     {% endfor %}
 </div>
@@ -77,9 +111,8 @@
     <a href="/child/{{ child.id }}/tests/{{ s.id }}" class="card" style="display: block; text-decoration: none; color: inherit;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
-                <strong>{{ s.test_type }}</strong> -
-                {{ s.correct_count }}/{{ s.total_count }} correct,
-                {{ s.score }} pts
+                <strong>Test {{ s.created_at[:10] }}</strong> -
+                {{ s.correct_count }}/{{ s.total_count }} correct
             </div>
             <div style="color: #666; font-size: 14px;">{{ s.created_at[:10] }} &rarr;</div>
         </div>

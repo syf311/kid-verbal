@@ -7,7 +7,7 @@
     .answer-row {
         padding: 12px 15px;
         border-radius: 10px;
-        margin-bottom: 8px;
+        margin-bottom: 12px;
         display: flex;
         align-items: flex-start;
         gap: 12px;
@@ -31,6 +31,44 @@
     .type-tag-reverse { background: #ed8936; }
     .type-tag-spelling { background: #9f7aea; }
     .type-tag-fillblank { background: #48bb78; }
+    .creator-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: bold;
+        color: white;
+        margin-left: 8px;
+    }
+    .badge-parent { background: #667eea; }
+    .badge-kid { background: #a0aec0; }
+    .choices-list { margin-top: 8px; }
+    .choice-item {
+        padding: 6px 12px;
+        border-radius: 8px;
+        margin: 4px 0;
+        font-size: 14px;
+        border: 1px solid #e2e8f0;
+        background: white;
+    }
+    .choice-item.kid-pick {
+        border: 2px solid #667eea;
+        font-weight: bold;
+    }
+    .choice-item.kid-pick.wrong-pick {
+        border-color: #f56565;
+        background: #fff5f5;
+    }
+    .choice-item.correct-choice {
+        border-color: #48bb78;
+        background: #f0fff4;
+    }
+    .choice-label {
+        font-size: 11px;
+        font-weight: bold;
+        margin-left: 6px;
+        color: #666;
+    }
 </style>
 {% endblock %}
 
@@ -41,16 +79,22 @@
 <div class="card" style="margin-bottom: 20px;">
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
         <div>
-            <strong style="font-size: 20px;">{{ test_session.test_type }}</strong>
+            <strong style="font-size: 20px;">Test {{ test_session.created_at[:10] }}</strong>
+            {% if test_session.created_by == 'parent' %}
+            <span class="creator-badge badge-parent">Parent</span>
+            {% else %}
+            <span class="creator-badge badge-kid">Kid</span>
+            {% endif %}
             <div style="font-size: 14px; color: #666; margin-top: 4px;">{{ test_session.created_at[:16] }}</div>
+            {% if test_session.created_by == 'parent' and test_session.parent_test_source == 'study_session' %}
+            <div style="font-size: 13px; color: #999; margin-top: 2px;">From study: {{ test_session.parent_test_title or 'Study Session' }}</div>
+            {% elif test_session.created_by == 'parent' %}
+            <div style="font-size: 13px; color: #999; margin-top: 2px;">Custom words</div>
+            {% endif %}
         </div>
         <div style="text-align: right;">
             <div style="font-size: 24px; font-weight: bold; color: {% if test_session.correct_count == test_session.total_count %}#48bb78{% else %}#ed8936{% endif %};">
                 {{ test_session.correct_count }}/{{ test_session.total_count }}
-            </div>
-            <div style="font-size: 14px; color: #666;">
-                {{ test_session.score }} pts
-                {% if test_session.time_taken %} | {{ test_session.time_taken }}s{% endif %}
             </div>
         </div>
     </div>
@@ -60,19 +104,52 @@
 <h2 style="margin-bottom: 15px;">Questions & Answers</h2>
 {% for a in answers %}
 <div class="answer-row {{ 'answer-correct' if a.is_correct else 'answer-wrong' }}">
-    <div class="answer-icon">{{ '&#10003;' if a.is_correct else '&#10007;' }}</div>
+    <div class="answer-icon">{% if a.is_correct %}&#x2714;{% else %}&#x2718;{% endif %}</div>
     <div class="answer-details">
         <div class="answer-word">
             {{ a.word_text }}
             <span class="type-tag type-tag-{{ a.question_type }}">{{ a.question_type }}</span>
         </div>
-        {% if not a.is_correct %}
-        <div class="answer-comparison">
-            <div><strong>Child's answer:</strong> {{ a.child_answer }}</div>
+        {% if a.question_text %}
+        <div style="font-size: 15px; color: #555; margin-top: 4px; font-style: italic;">{{ a.question_text }}</div>
+        {% endif %}
+        {% if a.word_image %}
+        <div style="margin-top: 8px;"><img src="/uploads/{{ a.word_image }}" style="max-width: 200px; max-height: 150px; border-radius: 8px;"></div>
+        {% endif %}
+
+        {% if a.choices %}
+        <div class="choices-list">
+            {% for c in a.choices %}
+            {% set is_kid_pick = c|lower == (a.child_answer|default(''))|lower %}
+            {% set is_correct = c|lower == (a.correct_answer|default(''))|lower %}
+            <div class="choice-item {{ 'kid-pick' if is_kid_pick else '' }} {{ 'wrong-pick' if is_kid_pick and not a.is_correct else '' }} {{ 'correct-choice' if is_correct else '' }}">
+                {{ c }}
+                {% if is_kid_pick and is_correct %}
+                <span class="choice-label" style="color: #48bb78;">&#x2714; Kid's answer</span>
+                {% elif is_kid_pick %}
+                <span class="choice-label" style="color: #f56565;">&#x2718; Kid's answer</span>
+                {% elif is_correct %}
+                <span class="choice-label" style="color: #48bb78;">&#x2714; Correct</span>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        {% if a.question_type == 'spelling' %}
+        <div class="answer-comparison" style="margin-top: 6px;">
+            <div><strong>Kid typed:</strong> {{ a.child_answer }}</div>
+            {% if not a.is_correct %}
+            <div><strong>Correct spelling:</strong> {{ a.correct_answer }}</div>
+            {% endif %}
+        </div>
+        {% elif not a.is_correct %}
+        <div class="answer-comparison" style="margin-top: 6px;">
+            <div><strong>Kid's answer:</strong> {{ a.child_answer }}</div>
             <div><strong>Correct answer:</strong> {{ a.correct_answer }}</div>
         </div>
         {% else %}
         <div class="answer-meta">{{ a.correct_answer }}</div>
+        {% endif %}
         {% endif %}
     </div>
 </div>

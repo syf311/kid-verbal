@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Create Study Session - {{ child.name }}{% endblock %}
+{% block title %}Create Test - {{ child.name }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -46,11 +46,11 @@
 
 {% block content %}
 <a href="/parent" style="color: #667eea; text-decoration: none;">&larr; Back to Parent Dashboard</a>
-<h1 style="margin-top: 10px;">Create Study Session for {{ child.name }}</h1>
+<h1 style="margin-top: 10px;">Create Test for {{ child.name }}</h1>
 
 <div style="margin-bottom: 20px;">
-    <label style="font-weight: bold;">Session Title (optional)</label>
-    <input type="text" id="session-title" placeholder="e.g. Week 5 Vocabulary...">
+    <label style="font-weight: bold;">Test Title (optional)</label>
+    <input type="text" id="test-title" placeholder="e.g. Week 5 Vocabulary Test...">
 </div>
 
 <div class="select-bar">
@@ -65,8 +65,8 @@
     Loading words...
 </div>
 
-<button id="create-btn" class="btn btn-success floating-btn" onclick="createSession()" disabled>
-    Create Study Session (select at least 4 words)
+<button id="create-btn" class="btn btn-success floating-btn" onclick="createTest()" disabled>
+    Create Test (select at least 4 words)
 </button>
 {% endblock %}
 
@@ -124,8 +124,8 @@ function updateCount() {
     const btn = document.getElementById('create-btn');
     btn.disabled = count < 4;
     btn.textContent = count < 4
-        ? `Create Study Session (select at least ${4 - count} more)`
-        : `Create Study Session (${count} words)`;
+        ? `Create Test (select at least ${4 - count} more)`
+        : `Create Test (${count} words)`;
 }
 
 function selectAll() {
@@ -140,22 +140,22 @@ function deselectAll() {
     updateCount();
 }
 
-async function createSession() {
+async function createTest() {
     const wordIds = [...selectedIds];
-    const title = document.getElementById('session-title').value.trim() || 'Study Session';
+    const title = document.getElementById('test-title').value.trim() || 'Test';
 
-    const res = await fetch('/api/study-sessions', {
+    const res = await fetch('/api/parent-tests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ child_id: childId, word_ids: wordIds, title })
     });
 
     if (res.ok) {
-        alert('Study session created! The child will see it when they log in.');
+        alert('Test created! The child will see it when they log in.');
         window.location.href = '/parent';
     } else {
         const data = await res.json();
-        alert('Error: ' + (data.error || 'Failed to create session'));
+        alert('Error: ' + (data.error || 'Failed to create test'));
     }
 }
 

@@ -82,9 +82,7 @@
     .type-spelling { background: #9f7aea; }
     .type-fillblank { background: #48bb78; }
 
-    .timer { font-size: 24px; font-weight: bold; color: #667eea; }
     .streak { font-size: 18px; color: #ed8936; }
-    .score-display { font-size: 24px; color: #48bb78; }
 
     .progress-bar-bg {
         width: 100%;
@@ -150,6 +148,7 @@
 
 <!-- SCREEN 2: Flashcard Review -->
 <div id="review-screen" style="display: none;">
+    <a href="/" style="color: #667eea; text-decoration: none;">&larr; Back</a>
     <div style="display: flex; justify-content: space-between; align-items: center;">
         <h2>Review Words</h2>
         <div style="color: #666;">Card <span id="card-num">1</span> of <span id="card-total">0</span></div>
@@ -188,10 +187,9 @@
 
 <!-- SCREEN 3: Test Phase -->
 <div id="test-screen" style="display: none;">
-    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-        <div class="timer"><span id="timer">15</span>s</div>
+    <a href="/" style="color: #667eea; text-decoration: none;">&larr; Back</a>
+    <div style="margin-bottom: 10px;">
         <div class="streak">streak <span id="streak">0</span></div>
-        <div class="score-display"><span id="score">0</span> pts</div>
     </div>
 
     <div class="progress-bar-bg">
@@ -209,6 +207,7 @@
 
 <!-- SCREEN 4: Results / Retry -->
 <div id="results-screen" style="display: none; text-align: center;">
+    <a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none; display: block; text-align: left;">&larr; Back</a>
     <div id="results-content"></div>
 </div>
 {% endblock %}
@@ -240,11 +239,8 @@ let viewedAll = false;
 let testWords = [];
 let questionTypes = [];
 let currentIndex = 0;
-let testScore = 0;
 let testStreak = 0;
 let correctCount = 0;
-let testTimer = null;
-let timeLeft = 15;
 let testResults = [];
 let attemptNumber = 0;
 let currentChoices = [];
@@ -420,7 +416,6 @@ function startTest() {
     // else testWords is already set to wrong words from retry
 
     currentIndex = 0;
-    testScore = 0;
     testStreak = 0;
     correctCount = 0;
     testResults = [];
@@ -446,7 +441,6 @@ function startTest() {
     document.getElementById('results-screen').style.display = 'none';
     document.getElementById('test-screen').style.display = 'block';
     document.getElementById('total-q').textContent = testWords.length;
-    document.getElementById('score').textContent = 0;
     document.getElementById('streak').textContent = 0;
 
     showTestQuestion();
@@ -471,18 +465,6 @@ async function showTestQuestion() {
 
     const badgeClass = 'type-' + qType;
     const badge = `<span class="type-badge ${badgeClass}">${TYPE_ICONS[qType]} ${TYPE_LABELS[qType]}</span>`;
-
-    clearInterval(testTimer);
-    timeLeft = 15;
-    document.getElementById('timer').textContent = timeLeft;
-    testTimer = setInterval(() => {
-        timeLeft--;
-        document.getElementById('timer').textContent = timeLeft;
-        if (timeLeft <= 0) {
-            clearInterval(testTimer);
-            handleTestAnswer(false, word.word, '(timed out)');
-        }
-    }, 1000);
 
     if (qType === 'definition') {
         questionArea.innerHTML = `
@@ -571,7 +553,6 @@ async function showTestQuestion() {
 }
 
 function checkTestAnswer(btn, choiceIndex) {
-    clearInterval(testTimer);
     const selected = currentChoices[choiceIndex];
     const correct = currentCorrectAnswer;
     const isCorrect = selected.toLowerCase() === correct.toLowerCase();
@@ -589,7 +570,6 @@ function checkTestAnswer(btn, choiceIndex) {
 }
 
 function checkTestSpelling(correct) {
-    clearInterval(testTimer);
     const input = document.getElementById('spelling-input');
     const answer = input.value.trim();
     const isCorrect = answer.toLowerCase() === correct.toLowerCase();
@@ -645,13 +625,33 @@ async function handleTestAnswer(isCorrect, correct, childAnswer) {
 }
 
 async function endTest() {
-    clearInterval(testTimer);
     document.getElementById('test-screen').style.display = 'none';
     document.getElementById('test-progress').style.width = '100%';
 
     const wrongResults = testResults.filter(r => !r.is_correct);
     const isPerfect = wrongResults.length === 0;
     const resultsDiv = document.getElementById('results-content');
+
+    // Save test session to history
+    await fetch(`/api/children/${childId}/test/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            test_type: 'study',
+            score: 0,
+            correct_count: correctCount,
+            total_count: testWords.length,
+            time_taken: 0,
+            answers: testResults.map(r => ({
+                word_id: r.word_id,
+                word_text: r.word_text,
+                question_type: r.question_type,
+                child_answer: r.child_answer,
+                correct_answer: r.correct_answer,
+                is_correct: r.is_correct
+            }))
+        })
+    });
 
     if (isPerfect) {
         // Mark session as completed if this is a parent-assigned session
@@ -701,6 +701,7 @@ async function endTest() {
             <button class="btn btn-warning" style="width: 100%; font-size: 16px; padding: 12px; margin-top: 10px;" onclick="reviewThenRetry()">
                 Review Words First, Then Retry
             </button>
+            <a href="/child/{{ child.id }}" style="display: block; margin-top: 15px; color: #667eea; text-decoration: none;">&larr; Back to Dashboard</a>
         `;
     }
 

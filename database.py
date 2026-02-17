@@ -117,6 +117,27 @@ def init_db():
             is_correct BOOLEAN NOT NULL,
             FOREIGN KEY (session_id) REFERENCES test_session(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS parent_test (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id INTEGER NOT NULL,
+            created_by INTEGER NOT NULL,
+            title TEXT,
+            status TEXT DEFAULT 'pending',
+            source_type TEXT NOT NULL,
+            source_id INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE,
+            FOREIGN KEY (created_by) REFERENCES account(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS parent_test_word (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            parent_test_id INTEGER NOT NULL,
+            word_id INTEGER NOT NULL,
+            FOREIGN KEY (parent_test_id) REFERENCES parent_test(id) ON DELETE CASCADE,
+            FOREIGN KEY (word_id) REFERENCES word(id) ON DELETE CASCADE
+        );
     """)
     conn.commit()
 
@@ -133,6 +154,40 @@ def init_db():
         conn.commit()
     except sqlite3.OperationalError:
         pass  # Column already exists
+
+    # Migration: Add created_by and parent_test_id to test_session
+    try:
+        conn.execute("ALTER TABLE test_session ADD COLUMN created_by TEXT DEFAULT 'child'")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        conn.execute("ALTER TABLE test_session ADD COLUMN parent_test_id INTEGER")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    # Migration: Add choices column to test_session_answer
+    try:
+        conn.execute("ALTER TABLE test_session_answer ADD COLUMN choices TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    # Migration: Add question_text column to test_session_answer
+    try:
+        conn.execute("ALTER TABLE test_session_answer ADD COLUMN question_text TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    # Migration: Add source_material_id to word table
+    try:
+        conn.execute("ALTER TABLE word ADD COLUMN source_material_id INTEGER")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
 
     conn.close()
 

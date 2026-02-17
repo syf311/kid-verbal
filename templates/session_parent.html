@@ -21,6 +21,13 @@
         background: #faf089;
         font-weight: bold;
     }
+    .reading-content span.in-vocabulary {
+        background: #c6f6d5;
+        border-bottom: 2px solid #48bb78;
+    }
+    .reading-content span.in-vocabulary:hover {
+        background: #9ae6b4;
+    }
     .control-panel {
         position: fixed;
         bottom: 0;
@@ -42,6 +49,58 @@
         border-radius: 5px;
         transition: width 0.3s;
     }
+    .modal-overlay {
+        display: none;
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 1000;
+        justify-content: center;
+        align-items: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal-box {
+        background: white;
+        border-radius: 12px;
+        padding: 25px;
+        width: 90%;
+        max-width: 500px;
+        max-height: 80vh;
+        overflow-y: auto;
+    }
+    .modal-box h2 { margin-top: 0; }
+    .modal-box label { display: block; font-weight: bold; margin-top: 12px; margin-bottom: 4px; }
+    .modal-box input, .modal-box textarea {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 15px;
+        box-sizing: border-box;
+    }
+    .modal-box textarea { min-height: 80px; resize: vertical; }
+    .modal-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 18px;
+        justify-content: flex-end;
+    }
+    .vocab-legend {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: 15px;
+        font-size: 14px;
+        color: #666;
+    }
+    .vocab-legend-swatch {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border-radius: 3px;
+        background: #c6f6d5;
+        border-bottom: 2px solid #48bb78;
+    }
 </style>
 {% endblock %}
 
@@ -54,7 +113,7 @@
         </div>
         <div>
             <label>Child: </label>
-            <select id="child-select" style="padding: 8px; font-size: 16px;">
+            <select id="child-select" style="padding: 8px; font-size: 16px;" onchange="onChildChanged()">
                 {% for child in children %}
                 <option value="{{ child.id }}">{{ child.name }}</option>
                 {% endfor %}
@@ -65,13 +124,39 @@
     <div style="background: #f0f0f0; padding: 10px; border-radius: 8px; margin-bottom: 20px;">
         <span style="color: #666;">Child's view: </span>
         <a href="/session/{{ material.id }}/child" target="_blank" style="color: #667eea;">
-            Open in new tab →
+            Open in new tab &rarr;
         </a>
         <span style="margin-left: 20px; color: #888;" id="connection-status">Waiting for child to connect...</span>
+        <span class="vocab-legend">
+            <span class="vocab-legend-swatch"></span> In vocabulary
+        </span>
     </div>
 
     <div class="reading-content" id="content">
         <!-- Words will be wrapped in spans -->
+    </div>
+</div>
+
+<!-- Word Edit Modal -->
+<div class="modal-overlay" id="word-modal">
+    <div class="modal-box">
+        <h2 id="modal-title">Word Details</h2>
+        <div id="modal-exists-badge" style="display: none; margin-bottom: 10px;">
+            <span style="background: #fefcbf; color: #975a16; padding: 4px 10px; border-radius: 8px; font-size: 13px; font-weight: bold;">Already in vocabulary</span>
+        </div>
+        <label>Word</label>
+        <input type="text" id="modal-word" readonly style="background: #f7fafc;">
+        <label>Definition</label>
+        <textarea id="modal-definition"></textarea>
+        <label>Example Sentence</label>
+        <textarea id="modal-example"></textarea>
+        <div style="font-size: 13px; color: #999; margin-top: 10px;">
+            Source: <strong>{{ material.title }}</strong>
+        </div>
+        <div class="modal-actions">
+            <button class="btn" style="background: #e2e8f0;" onclick="closeModal()">Close</button>
+            <button class="btn btn-primary" onclick="saveWordDetails()">Save</button>
+        </div>
     </div>
 </div>
 
@@ -102,16 +187,51 @@
 const materialId = {{ material.id }};
 const socket = io();
 let selectedWord = null;
+let childVocab = {}; // { word_lower: word_id }
+let currentWordId = null;
 
 // Wrap each word in a span
 const content = `{{ material.content | e }}`;
 const contentEl = document.getElementById('content');
 contentEl.innerHTML = content.split(/(\s+)/).map((part, i) => {
     if (part.trim()) {
-        return `<span onclick="selectWord(this, '${part.replace(/[^a-zA-Z]/g, '')}')">${part}</span>`;
+        const clean = part.replace(/[^a-zA-Z]/g, '');
+        return `<span data-word="${clean.toLowerCase()}" onclick="selectWord(this, '${clean}')">${part}</span>`;
     }
     return part;
 }).join('');
+
+// Load child's existing vocabulary and highlight words in the article
+function loadChildVocab() {
+    const childId = document.getElementById('child-select').value;
+    fetch(`/api/children/${childId}/words`)
+        .then(r => r.json())
+        .then(words => {
+            childVocab = {};
+            words.forEach(w => {
+                childVocab[w.word.toLowerCase()] = w.id;
+            });
+            highlightVocabWords();
+        });
+}
+
+function highlightVocabWords() {
+    document.querySelectorAll('#content span').forEach(span => {
+        const w = span.getAttribute('data-word');
+        if (w && childVocab[w]) {
+            span.classList.add('in-vocabulary');
+        } else {
+            span.classList.remove('in-vocabulary');
+        }
+    });
+}
+
+function onChildChanged() {
+    loadChildVocab();
+}
+
+// Load vocab on page load
+loadChildVocab();
 
 socket.emit('join_session', { material_id: materialId, role: 'parent' });
 
@@ -131,7 +251,20 @@ socket.on('response_received', (data) => {
 });
 
 socket.on('word_added', (data) => {
-    alert(`Added "${data.word}" to vocabulary!\nDefinition: ${data.definition}`);
+    // Store word_id for saving edits
+    currentWordId = data.word_id;
+
+    // Update local vocab tracking
+    childVocab[data.word.toLowerCase()] = data.word_id;
+    highlightVocabWords();
+
+    // Show modal with definition details
+    document.getElementById('modal-word').value = data.word;
+    document.getElementById('modal-definition').value = data.definition || '';
+    document.getElementById('modal-example').value = data.example || '';
+    document.getElementById('modal-title').textContent = data.already_exists ? 'Edit Word' : 'Word Added';
+    document.getElementById('modal-exists-badge').style.display = data.already_exists ? 'block' : 'none';
+    document.getElementById('word-modal').classList.add('active');
 });
 
 function selectWord(el, word) {
@@ -146,6 +279,14 @@ function selectWord(el, word) {
     document.getElementById('ask-meaning-btn').style.display = 'inline-block';
     document.getElementById('add-word-btn').style.display = 'inline-block';
     document.getElementById('clear-btn').style.display = 'inline-block';
+
+    // If word is already in vocabulary, change button text
+    const btn = document.getElementById('add-word-btn');
+    if (childVocab[word.toLowerCase()]) {
+        btn.textContent = 'Edit Word';
+    } else {
+        btn.textContent = 'Add to Words';
+    }
 
     socket.emit('highlight_word', {
         material_id: materialId,
@@ -198,5 +339,31 @@ function addWord() {
 
     clearHighlight();
 }
+
+function closeModal() {
+    document.getElementById('word-modal').classList.remove('active');
+    currentWordId = null;
+}
+
+function saveWordDetails() {
+    if (!currentWordId) return;
+    const definition = document.getElementById('modal-definition').value.trim();
+    const example = document.getElementById('modal-example').value.trim();
+
+    fetch(`/api/words/${currentWordId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ definition, example_sentence: example })
+    }).then(r => {
+        if (r.ok) {
+            closeModal();
+        }
+    });
+}
+
+// Close modal on overlay click
+document.getElementById('word-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+});
 </script>
 {% endblock %}

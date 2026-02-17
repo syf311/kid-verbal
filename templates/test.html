@@ -20,9 +20,7 @@
     .choice-btn:hover { border-color: #667eea; background: #f7fafc; }
     .choice-btn.correct { border-color: #48bb78; background: #c6f6d5; }
     .choice-btn.wrong { border-color: #f56565; background: #fed7d7; }
-    .timer { font-size: 24px; font-weight: bold; color: #667eea; }
     .streak { font-size: 18px; color: #ed8936; }
-    .score { font-size: 24px; color: #48bb78; }
     .type-badge {
         display: inline-block;
         padding: 4px 12px;
@@ -69,10 +67,8 @@
 </div>
 
 <div id="test-screen" style="display: none;">
-    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-        <div class="timer"><span id="timer">15</span>s</div>
+    <div style="margin-bottom: 10px;">
         <div class="streak">streak <span id="streak">0</span></div>
-        <div class="score"><span id="score">0</span> pts</div>
     </div>
 
     <div class="progress-bar-bg">
@@ -94,11 +90,9 @@
 </div>
 
 <div id="results-screen" style="display: none; text-align: center;">
+    <a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none; display: block; text-align: left;">&larr; Back</a>
     <h1>Test Complete!</h1>
     <div style="font-size: 48px; margin: 30px 0;">
-        <span id="final-score">0</span> points
-    </div>
-    <div style="font-size: 24px; color: #666; margin-bottom: 30px;">
         <span id="final-correct">0</span>/<span id="final-total">25</span> correct
     </div>
     <div id="results-breakdown" style="text-align: left; margin-bottom: 30px;"></div>
@@ -110,6 +104,7 @@
 {% block scripts %}
 <script>
 const childId = {{ child.id }};
+const parentTestId = {{ parent_test_id|default(None)|tojson }};
 const TEST_TYPES = ['definition', 'reverse', 'spelling', 'fillblank'];
 const TYPE_LABELS = {
     definition: 'Definition Quiz',
@@ -126,19 +121,20 @@ const TYPE_ICONS = {
 
 let words = [];
 let currentIndex = 0;
-let score = 0;
 let streak = 0;
 let correctCount = 0;
-let timer = null;
-let timeLeft = 15;
-let startTime = null;
 let questionTypes = []; // assigned type per question
 let results = []; // track each answer
 let currentChoices = [];
 let currentCorrectAnswer = '';
+let currentQuestionText = '';
 
 async function startTest() {
-    const res = await fetch(`/api/children/${childId}/test/words?count=25`);
+    let url = `/api/children/${childId}/test/words?count=25`;
+    if (parentTestId) {
+        url = `/api/parent-tests/${parentTestId}/words`;
+    }
+    const res = await fetch(url);
     words = await res.json();
 
     if (words.length < 4) {
@@ -160,7 +156,6 @@ async function startTest() {
     document.getElementById('test-screen').style.display = 'block';
     document.getElementById('total-q').textContent = words.length;
 
-    startTime = Date.now();
     showQuestion();
 }
 
@@ -185,20 +180,8 @@ async function showQuestion() {
     const badgeClass = 'type-' + qType;
     const badge = `<span class="type-badge ${badgeClass}">${TYPE_ICONS[qType]} ${TYPE_LABELS[qType]}</span>`;
 
-    // Reset timer
-    clearInterval(timer);
-    timeLeft = 15;
-    document.getElementById('timer').textContent = timeLeft;
-    timer = setInterval(() => {
-        timeLeft--;
-        document.getElementById('timer').textContent = timeLeft;
-        if (timeLeft <= 0) {
-            clearInterval(timer);
-            handleAnswer(false, word.word, '(timed out)');
-        }
-    }, 1000);
-
     if (qType === 'definition') {
+        currentQuestionText = `What is the definition of "${word.word}"?`;
         questionArea.innerHTML = `
             ${badge}
             <div style="font-size: 36px; font-weight: bold; text-align: center;">${word.word}</div>
@@ -220,6 +203,7 @@ async function showQuestion() {
         `).join('');
 
     } else if (qType === 'reverse') {
+        currentQuestionText = `Which word means: "${word.definition}"?`;
         questionArea.innerHTML = `
             ${badge}
             <div style="font-size: 20px; text-align: center;">${escapeHtml(word.definition)}</div>
@@ -238,6 +222,7 @@ async function showQuestion() {
         `).join('');
 
     } else if (qType === 'spelling') {
+        currentQuestionText = `Spell the word (hint: ${word.definition || 'No definition'})`;
         questionArea.innerHTML = `
             ${badge}
             <div style="text-align: center;">
@@ -272,6 +257,7 @@ async function showQuestion() {
             new RegExp(word.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'),
             '_____'
         );
+        currentQuestionText = `Fill in the blank: "${sentence}"`;
 
         questionArea.innerHTML = `
             ${badge}
@@ -310,7 +296,6 @@ function speak(word) {
 }
 
 function checkAnswer(btn, choiceIndex) {
-    clearInterval(timer);
     const selected = currentChoices[choiceIndex];
     const correct = currentCorrectAnswer;
     const isCorrect = selected.toLowerCase() === correct.toLowerCase();
@@ -328,7 +313,6 @@ function checkAnswer(btn, choiceIndex) {
 }
 
 function checkSpelling(correct) {
-    clearInterval(timer);
     const input = document.getElementById('spelling-input');
     const answer = input.value.trim();
     const isCorrect = answer.toLowerCase() === correct.toLowerCase();
@@ -348,9 +332,11 @@ async function handleAnswer(isCorrect, correct, childAnswer) {
         word_id: word.id,
         word_text: word.word,
         question_type: questionTypes[currentIndex],
+        question_text: currentQuestionText,
         child_answer: childAnswer || '',
         correct_answer: correct,
-        is_correct: isCorrect
+        is_correct: isCorrect,
+        choices: [...currentChoices]
     });
 
     // Update server
@@ -363,7 +349,6 @@ async function handleAnswer(isCorrect, correct, childAnswer) {
 
     if (isCorrect) {
         correctCount++;
-        score += result.points;
         streak = result.streak;
 
         if (streak >= 3) {
@@ -373,7 +358,6 @@ async function handleAnswer(isCorrect, correct, childAnswer) {
         streak = 0;
     }
 
-    document.getElementById('score').textContent = score;
     document.getElementById('streak').textContent = streak;
 
     // Show feedback
@@ -381,7 +365,7 @@ async function handleAnswer(isCorrect, correct, childAnswer) {
     feedback.style.display = 'block';
     feedback.style.background = isCorrect ? '#c6f6d5' : '#fed7d7';
     feedback.innerHTML = isCorrect
-        ? `\u2713 Correct! +${result.points} points`
+        ? '\u2713 Correct!'
         : `\u2717 The answer was: <strong>${escapeHtml(correct)}</strong>`;
 
     // Next question after delay
@@ -392,26 +376,31 @@ async function handleAnswer(isCorrect, correct, childAnswer) {
 }
 
 function endTest() {
-    clearInterval(timer);
-    const timeTaken = Math.round((Date.now() - startTime) / 1000);
-
     // Save session with detailed answers
+    const payload = {
+        test_type: 'mixed',
+        score: 0,
+        correct_count: correctCount,
+        total_count: words.length,
+        time_taken: 0,
+        answers: results
+    };
+    if (parentTestId) {
+        payload.created_by = 'parent';
+        payload.parent_test_id = parentTestId;
+    }
     fetch(`/api/children/${childId}/test/session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            test_type: 'mixed',
-            score: score,
-            correct_count: correctCount,
-            total_count: words.length,
-            time_taken: timeTaken,
-            answers: results
-        })
+        body: JSON.stringify(payload)
     });
+
+    if (parentTestId) {
+        fetch(`/api/parent-tests/${parentTestId}/complete`, { method: 'POST' });
+    }
 
     document.getElementById('test-screen').style.display = 'none';
     document.getElementById('results-screen').style.display = 'block';
-    document.getElementById('final-score').textContent = score;
     document.getElementById('final-correct').textContent = correctCount;
     document.getElementById('final-total').textContent = words.length;
     document.getElementById('progress-bar').style.width = '100%';
@@ -475,6 +464,11 @@ function showConfetti() {
     }
 
     animate();
+}
+
+// Auto-start if this is a parent-assigned test
+if (parentTestId) {
+    startTest();
 }
 </script>
 {% endblock %}

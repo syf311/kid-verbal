@@ -2,6 +2,23 @@
 
 {% block title %}{{ child.name }} - Test History{% endblock %}
 
+{% block extra_css %}
+<style>
+    .creator-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: bold;
+        color: white;
+        margin-left: 8px;
+    }
+    .badge-parent { background: #667eea; }
+    .badge-kid { background: #a0aec0; }
+    .source-info { font-size: 13px; color: #999; margin-top: 2px; }
+</style>
+{% endblock %}
+
 {% block content %}
 <a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none;">&larr; Back to Dashboard</a>
 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; margin-bottom: 20px;">
@@ -16,14 +33,24 @@
 <a href="/child/{{ child.id }}/tests/{{ s.id }}" class="card" style="display: block; text-decoration: none; color: inherit;">
     <div style="display: flex; justify-content: space-between; align-items: center;">
         <div>
-            <strong style="font-size: 18px;">{{ s.test_type }}</strong>
+            <strong style="font-size: 18px;">Test {{ s.created_at[:10] }}</strong>
+            {% if s.created_by == 'parent' %}
+            <span class="creator-badge badge-parent">Parent</span>
+            {% else %}
+            <span class="creator-badge badge-kid">Kid</span>
+            {% endif %}
             <div style="font-size: 14px; color: #666; margin-top: 4px;">
-                {{ s.correct_count }}/{{ s.total_count }} correct | {{ s.score }} pts
-                {% if s.time_taken %} | {{ s.time_taken }}s{% endif %}
+                {{ s.correct_count }}/{{ s.total_count }} correct
             </div>
+            {% if s.created_by == 'parent' and s.parent_test_source == 'study_session' %}
+            <div class="source-info">From study: {{ s.parent_test_title or 'Study Session' }}</div>
+            {% elif s.created_by == 'parent' %}
+            <div class="source-info">Custom words</div>
+            {% elif s.test_type == 'study' %}
+            <div class="source-info">Study Session</div>
+            {% endif %}
         </div>
         <div style="text-align: right;">
-            <div style="font-size: 14px; color: #666;">{{ s.created_at[:10] }}</div>
             <div style="font-size: 14px; color: #667eea;">View details &rarr;</div>
         </div>
     </div>

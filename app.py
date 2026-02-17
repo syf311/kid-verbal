@@ -210,6 +210,17 @@ def create_study_page(child_id):
     return render_template("create_study.html", child=dict(child))
 
 
+@app.route("/parent/child/<int:child_id>/test/new")
+@parent_required
+def create_test_page(child_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    conn.close()
+    if not child:
+        return "Child not found", 404
+    return render_template("create_test.html", child=dict(child))
+
+
 # ── Study session API ──
 
 @app.route("/api/study-sessions", methods=["POST"])
@@ -300,11 +311,137 @@ def delete_study_session(session_id):
     return "", 204
 
 
+# ── Parent test API ──
+
+@app.route("/api/parent-tests", methods=["POST"])
+@parent_required
+def create_parent_test():
+    data = request.json
+    child_id = data.get("child_id")
+    title = data.get("title", "Test")
+    word_ids = data.get("word_ids", [])
+
+    if not child_id or not word_ids:
+        return jsonify({"error": "child_id and word_ids required"}), 400
+
+    conn = get_db()
+    cursor = conn.execute(
+        "INSERT INTO parent_test (child_id, created_by, title, source_type) VALUES (?, ?, ?, 'custom')",
+        (child_id, session["account_id"], title)
+    )
+    pt_id = cursor.lastrowid
+
+    for wid in word_ids:
+        conn.execute(
+            "INSERT INTO parent_test_word (parent_test_id, word_id) VALUES (?, ?)",
+            (pt_id, wid)
+        )
+
+    conn.commit()
+    conn.close()
+    return jsonify({"id": pt_id}), 201
+
+
+@app.route("/api/parent-tests/from-study/<int:study_id>", methods=["POST"])
+@parent_required
+def create_parent_test_from_study(study_id):
+    conn = get_db()
+    study = conn.execute("SELECT * FROM study_session WHERE id = ?", (study_id,)).fetchone()
+    if not study:
+        conn.close()
+        return jsonify({"error": "Study session not found"}), 404
+
+    # Copy words from study session
+    words = conn.execute(
+        "SELECT word_id FROM study_session_word WHERE session_id = ?", (study_id,)
+    ).fetchall()
+
+    if not words:
+        conn.close()
+        return jsonify({"error": "No words in study session"}), 400
+
+    title = f"Test: {study['title'] or 'Study Session'}"
+    cursor = conn.execute(
+        "INSERT INTO parent_test (child_id, created_by, title, source_type, source_id) VALUES (?, ?, ?, 'study_session', ?)",
+        (study["child_id"], session["account_id"], title, study_id)
+    )
+    pt_id = cursor.lastrowid
+
+    for w in words:
+        conn.execute(
+            "INSERT INTO parent_test_word (parent_test_id, word_id) VALUES (?, ?)",
+            (pt_id, w["word_id"])
+        )
+
+    conn.commit()
+    conn.close()
+    return jsonify({"id": pt_id}), 201
+
+
+@app.route("/api/children/<int:child_id>/parent-tests", methods=["GET"])
+@login_required
+def get_parent_tests(child_id):
+    conn = get_db()
+    tests = conn.execute(
+        """SELECT pt.*, a.username as created_by_name,
+                  (SELECT COUNT(*) FROM parent_test_word WHERE parent_test_id = pt.id) as word_count,
+                  (SELECT id FROM test_session WHERE parent_test_id = pt.id LIMIT 1) as test_session_id
+           FROM parent_test pt
+           JOIN account a ON pt.created_by = a.id
+           WHERE pt.child_id = ?
+           ORDER BY pt.created_at DESC""",
+        (child_id,)
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(t) for t in tests])
+
+
+@app.route("/api/parent-tests/<int:pt_id>/words", methods=["GET"])
+@login_required
+def get_parent_test_words(pt_id):
+    conn = get_db()
+    words = conn.execute(
+        """SELECT w.id, w.word, w.definition, w.example_sentence, w.image_path,
+                  COALESCE(wp.difficulty_level, 1) as difficulty_level
+           FROM parent_test_word ptw
+           JOIN word w ON ptw.word_id = w.id
+           LEFT JOIN word_progress wp ON w.id = wp.word_id AND wp.child_id = w.child_id
+           WHERE ptw.parent_test_id = ?""",
+        (pt_id,)
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(w) for w in words])
+
+
+@app.route("/api/parent-tests/<int:pt_id>/complete", methods=["POST"])
+@login_required
+def complete_parent_test(pt_id):
+    conn = get_db()
+    conn.execute(
+        "UPDATE parent_test SET status = 'completed' WHERE id = ?",
+        (pt_id,)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "completed"})
+
+
+@app.route("/api/parent-tests/<int:pt_id>", methods=["DELETE"])
+@parent_required
+def delete_parent_test(pt_id):
+    conn = get_db()
+    conn.execute("DELETE FROM parent_test_word WHERE parent_test_id = ?", (pt_id,))
+    conn.execute("DELETE FROM parent_test WHERE id = ?", (pt_id,))
+    conn.commit()
+    conn.close()
+    return "", 204
+
+
 @app.route("/api/children", methods=["GET"])
 def get_children():
     conn = get_db()
     children = conn.execute(
-        "SELECT id, name, avatar, total_points, level FROM child ORDER BY name"
+        "SELECT id, name, avatar FROM child ORDER BY name"
     ).fetchall()
     conn.close()
     return jsonify([dict(c) for c in children])
@@ -341,6 +478,8 @@ def get_child(child_id):
 def delete_child(child_id):
     conn = get_db()
     # Delete related data
+    conn.execute("DELETE FROM parent_test_word WHERE parent_test_id IN (SELECT id FROM parent_test WHERE child_id = ?)", (child_id,))
+    conn.execute("DELETE FROM parent_test WHERE child_id = ?", (child_id,))
     conn.execute("DELETE FROM study_session_word WHERE session_id IN (SELECT id FROM study_session WHERE child_id = ?)", (child_id,))
     conn.execute("DELETE FROM study_session WHERE child_id = ?", (child_id,))
     conn.execute("DELETE FROM word_progress WHERE child_id = ?", (child_id,))
@@ -386,6 +525,29 @@ def child_dashboard(child_id):
         (child_id,)
     ).fetchall()
 
+    # Get completed study sessions
+    completed_sessions = conn.execute(
+        """SELECT ss.*, a.username as created_by_name,
+                  (SELECT COUNT(*) FROM study_session_word WHERE session_id = ss.id) as word_count
+           FROM study_session ss
+           JOIN account a ON ss.created_by = a.id
+           WHERE ss.child_id = ? AND ss.status = 'completed'
+           ORDER BY ss.created_at DESC
+           LIMIT 20""",
+        (child_id,)
+    ).fetchall()
+
+    # Get pending parent tests
+    parent_tests = conn.execute(
+        """SELECT pt.*, a.username as created_by_name,
+                  (SELECT COUNT(*) FROM parent_test_word WHERE parent_test_id = pt.id) as word_count
+           FROM parent_test pt
+           JOIN account a ON pt.created_by = a.id
+           WHERE pt.child_id = ? AND pt.status != 'completed'
+           ORDER BY pt.created_at DESC""",
+        (child_id,)
+    ).fetchall()
+
     conn.close()
     return render_template(
         "dashboard.html",
@@ -393,6 +555,8 @@ def child_dashboard(child_id):
         word_count=word_count,
         recent_sessions=[dict(s) for s in recent_sessions],
         study_sessions=[dict(s) for s in study_sessions],
+        completed_sessions=[dict(s) for s in completed_sessions],
+        parent_tests=[dict(t) for t in parent_tests],
         role=session.get("role", "parent")
     )
 
@@ -462,10 +626,16 @@ def add_word(child_id):
 def update_word(word_id):
     data = request.json
     conn = get_db()
-    conn.execute(
-        """UPDATE word SET definition = ?, example_sentence = ? WHERE id = ?""",
-        (data.get("definition", ""), data.get("example_sentence", ""), word_id)
-    )
+    if "word" in data:
+        conn.execute(
+            """UPDATE word SET word = ?, definition = ?, example_sentence = ? WHERE id = ?""",
+            (data.get("word", "").strip().lower(), data.get("definition", ""), data.get("example_sentence", ""), word_id)
+        )
+    else:
+        conn.execute(
+            """UPDATE word SET definition = ?, example_sentence = ? WHERE id = ?""",
+            (data.get("definition", ""), data.get("example_sentence", ""), word_id)
+        )
     conn.commit()
     conn.close()
     return "", 204
@@ -668,23 +838,27 @@ def save_test_session(child_id):
     conn = get_db()
     cursor = conn.execute(
         """INSERT INTO test_session
-           (child_id, test_type, score, correct_count, total_count, time_taken)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (child_id, data["test_type"], data["score"],
-         data["correct_count"], data["total_count"], data["time_taken"])
+           (child_id, test_type, score, correct_count, total_count, time_taken, created_by, parent_test_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (child_id, data["test_type"], data.get("score", 0),
+         data["correct_count"], data["total_count"], data["time_taken"],
+         data.get("created_by", "child"), data.get("parent_test_id"))
     )
     session_id = cursor.lastrowid
 
     # Save individual answers if provided
+    import json as json_mod
     answers = data.get("answers", [])
     for a in answers:
+        choices_json = json_mod.dumps(a.get("choices", [])) if a.get("choices") else None
         conn.execute(
             """INSERT INTO test_session_answer
-               (session_id, word_id, word_text, question_type, child_answer, correct_answer, is_correct)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               (session_id, word_id, word_text, question_type, child_answer, correct_answer, is_correct, choices, question_text)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (session_id, a.get("word_id", 0), a.get("word_text", ""),
              a.get("question_type", ""), a.get("child_answer", ""),
-             a.get("correct_answer", ""), a.get("is_correct", False))
+             a.get("correct_answer", ""), a.get("is_correct", False), choices_json,
+             a.get("question_text", ""))
         )
 
     conn.commit()
@@ -693,13 +867,14 @@ def save_test_session(child_id):
 
 
 @app.route("/child/<int:child_id>/test")
-def test_page(child_id):
+@app.route("/child/<int:child_id>/test/<int:parent_test_id>")
+def test_page(child_id, parent_test_id=None):
     conn = get_db()
     child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
     conn.close()
     if not child:
         return "Child not found", 404
-    return render_template("test.html", child=dict(child))
+    return render_template("test.html", child=dict(child), parent_test_id=parent_test_id)
 
 
 @app.route("/child/<int:child_id>/tests")
@@ -712,9 +887,13 @@ def test_history(child_id):
         return "Child not found", 404
 
     sessions = conn.execute(
-        """SELECT id, test_type, score, correct_count, total_count, time_taken, created_at
-           FROM test_session WHERE child_id = ?
-           ORDER BY created_at DESC""",
+        """SELECT ts.id, ts.test_type, ts.score, ts.correct_count, ts.total_count,
+                  ts.time_taken, ts.created_at, ts.created_by, ts.parent_test_id,
+                  pt.title as parent_test_title, pt.source_type as parent_test_source
+           FROM test_session ts
+           LEFT JOIN parent_test pt ON ts.parent_test_id = pt.id
+           WHERE ts.child_id = ?
+           ORDER BY ts.created_at DESC""",
         (child_id,)
     ).fetchall()
     conn.close()
@@ -736,7 +915,10 @@ def test_detail(child_id, session_id):
         return "Child not found", 404
 
     test_session = conn.execute(
-        "SELECT * FROM test_session WHERE id = ? AND child_id = ?",
+        """SELECT ts.*, pt.title as parent_test_title, pt.source_type as parent_test_source
+           FROM test_session ts
+           LEFT JOIN parent_test pt ON ts.parent_test_id = pt.id
+           WHERE ts.id = ? AND ts.child_id = ?""",
         (session_id, child_id)
     ).fetchone()
     if not test_session:
@@ -744,18 +926,30 @@ def test_detail(child_id, session_id):
         return "Test session not found", 404
 
     answers = conn.execute(
-        """SELECT * FROM test_session_answer
-           WHERE session_id = ?
-           ORDER BY id""",
+        """SELECT tsa.*, w.image_path as word_image
+           FROM test_session_answer tsa
+           LEFT JOIN word w ON tsa.word_id = w.id
+           WHERE tsa.session_id = ?
+           ORDER BY tsa.id""",
         (session_id,)
     ).fetchall()
     conn.close()
+
+    import json as json_mod
+    answers_list = []
+    for a in answers:
+        d = dict(a)
+        if d.get("choices"):
+            d["choices"] = json_mod.loads(d["choices"])
+        else:
+            d["choices"] = []
+        answers_list.append(d)
 
     return render_template(
         "test_detail.html",
         child=dict(child),
         test_session=dict(test_session),
-        answers=[dict(a) for a in answers]
+        answers=answers_list
     )
 
 
@@ -816,7 +1010,8 @@ def progress_page(child_id):
         never_tested=never_tested,
         needs_work=needs_work,
         mastered=mastered,
-        cutoff=cutoff
+        cutoff=cutoff,
+        role=session.get("role", "parent")
     )
 
 
@@ -1004,15 +1199,35 @@ def handle_add_word(data):
     # Add word to child's vocabulary
     word = data["word"].strip().lower()
     child_id = data["child_id"]
+    material_id = data.get("material_id")
+
+    conn = get_db()
+
+    # Check if word already exists for this child
+    existing = conn.execute(
+        "SELECT id, definition, example_sentence FROM word WHERE child_id = ? AND word = ?",
+        (child_id, word)
+    ).fetchone()
+
+    if existing:
+        conn.close()
+        room = f"session_{data['material_id']}"
+        emit("word_added", {
+            "word": word,
+            "word_id": existing["id"],
+            "definition": existing["definition"] or "",
+            "example": existing["example_sentence"] or "",
+            "already_exists": True
+        }, room=room)
+        return
 
     result = fetch_definition(word)
     definition = result["definition"] if result else ""
     example = result.get("example", "") if result else ""
 
-    conn = get_db()
     cursor = conn.execute(
-        "INSERT INTO word (child_id, word, definition, example_sentence) VALUES (?, ?, ?, ?)",
-        (child_id, word, definition, example)
+        "INSERT INTO word (child_id, word, definition, example_sentence, source_material_id) VALUES (?, ?, ?, ?, ?)",
+        (child_id, word, definition, example, material_id)
     )
     word_id = cursor.lastrowid
     conn.execute(
@@ -1023,7 +1238,13 @@ def handle_add_word(data):
     conn.close()
 
     room = f"session_{data['material_id']}"
-    emit("word_added", {"word": word, "definition": definition}, room=room)
+    emit("word_added", {
+        "word": word,
+        "word_id": word_id,
+        "definition": definition,
+        "example": example,
+        "already_exists": False
+    }, room=room)
 
 
 if __name__ == "__main__":

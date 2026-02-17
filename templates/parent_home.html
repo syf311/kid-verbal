@@ -18,12 +18,12 @@
     <div class="card" style="text-align: center;">
         <div style="font-size: 48px; margin-bottom: 10px;">{{ child.avatar or '\ud83d\udc64' }}</div>
         <div style="font-size: 20px; font-weight: bold;">{{ child.name }}</div>
-        <div style="color: #666; margin: 5px 0;">Level {{ child.level }} | {{ child.total_points }} pts</div>
         <div style="margin-top: 15px; display: flex; flex-direction: column; gap: 8px;">
             <a href="/child/{{ child.id }}/words" class="btn btn-primary" style="padding: 8px; font-size: 14px;">Words</a>
             <a href="/child/{{ child.id }}/progress" class="btn btn-warning" style="padding: 8px; font-size: 14px;">Progress</a>
             <a href="/child/{{ child.id }}/tests" class="btn btn-primary" style="padding: 8px; font-size: 14px;">Test History</a>
             <a href="/parent/child/{{ child.id }}/study/new" class="btn btn-success" style="padding: 8px; font-size: 14px;">Create Study</a>
+            <a href="/parent/child/{{ child.id }}/test/new" class="btn btn-warning" style="padding: 8px; font-size: 14px;">Create Test</a>
             <a href="/child/{{ child.id }}" class="btn btn-primary" style="padding: 8px; font-size: 14px;">Dashboard</a>
             <button class="btn btn-danger" style="padding: 8px; font-size: 14px;" onclick="deleteChild({{ child.id }}, '{{ child.name }}')">Delete</button>
         </div>
@@ -78,6 +78,12 @@
 <div class="card" style="margin-top: 20px;">
     <h2>Recent Study Sessions</h2>
     <div id="study-sessions-list">Loading...</div>
+</div>
+
+<!-- Parent tests overview -->
+<div class="card" style="margin-top: 20px;">
+    <h2>Parent-Created Tests</h2>
+    <div id="parent-tests-list">Loading...</div>
 </div>
 
 <div style="margin-top: 20px;">
@@ -152,6 +158,7 @@ async function loadStudySessions() {
                     ? '<span style="color: #48bb78; font-weight: bold;">Completed</span>'
                     : '<span style="color: #ed8936; font-weight: bold;">Pending</span>'}
                 <a href="/child/${s.child_id}/study/${s.id}" class="btn btn-primary" style="padding: 4px 10px; font-size: 12px; margin-left: 8px;">Preview</a>
+                <button class="btn btn-warning" style="padding: 4px 10px; font-size: 12px; margin-left: 4px;" onclick="createTestFromStudy(${s.id})">Create Test</button>
                 <button class="btn btn-danger" style="padding: 4px 10px; font-size: 12px; margin-left: 4px;" onclick="deleteSession(${s.id})">Delete</button>
             </div>
         </div>
@@ -170,6 +177,62 @@ async function deleteChild(id, name) {
     location.reload();
 }
 
+async function createTestFromStudy(studyId) {
+    const res = await fetch(`/api/parent-tests/from-study/${studyId}`, { method: 'POST' });
+    if (res.ok) {
+        alert('Test created from study session!');
+        loadParentTests();
+    } else {
+        const data = await res.json();
+        alert('Error: ' + (data.error || 'Failed to create test'));
+    }
+}
+
+async function loadParentTests() {
+    const container = document.getElementById('parent-tests-list');
+    const children = {{ children|tojson }};
+    let allTests = [];
+
+    for (const child of children) {
+        const res = await fetch(`/api/children/${child.id}/parent-tests`);
+        const tests = await res.json();
+        tests.forEach(t => { t.child_name = child.name; });
+        allTests = allTests.concat(tests);
+    }
+
+    allTests.sort((a, b) => b.created_at.localeCompare(a.created_at));
+
+    if (allTests.length === 0) {
+        container.innerHTML = '<p style="color: #666;">No parent-created tests yet.</p>';
+        return;
+    }
+
+    container.innerHTML = allTests.slice(0, 20).map(t => `
+        <div style="padding: 10px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <strong>${t.title || 'Test'}</strong>
+                <span style="color: #666;"> for ${t.child_name}</span>
+                <div style="font-size: 13px; color: #999;">${t.created_at.slice(0, 10)} | ${t.word_count || '?'} words | ${t.source_type === 'study_session' ? 'From study session' : 'Custom words'}</div>
+            </div>
+            <div>
+                ${t.status === 'completed' && t.test_session_id
+                    ? `<a href="/child/${t.child_id}/tests/${t.test_session_id}" class="btn btn-success" style="padding: 4px 10px; font-size: 12px;">View Result</a>`
+                    : t.status === 'completed'
+                    ? '<span style="color: #48bb78; font-weight: bold;">Completed</span>'
+                    : '<span style="color: #ed8936; font-weight: bold;">Pending</span>'}
+                <button class="btn btn-danger" style="padding: 4px 10px; font-size: 12px; margin-left: 4px;" onclick="deleteParentTest(${t.id})">Delete</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function deleteParentTest(id) {
+    if (!confirm('Delete this test?')) return;
+    await fetch(`/api/parent-tests/${id}`, { method: 'DELETE' });
+    loadParentTests();
+}
+
 loadStudySessions();
+loadParentTests();
 </script>
 {% endblock %}
