@@ -2,100 +2,590 @@
 
 {% block title %}Parent Dashboard - Kid Verbal{% endblock %}
 
+{% block extra_css %}
+<style>
+    /* Override base container for full-width sidebar layout */
+    .container { max-width: 1100px; padding: 0; overflow: hidden; }
+    .dashboard-layout { display: flex; min-height: 80vh; }
+
+    /* Sidebar */
+    .sidebar {
+        width: 200px;
+        min-width: 200px;
+        background: #f0f0f5;
+        border-right: 1px solid #e2e8f0;
+        display: flex;
+        flex-direction: column;
+        padding: 20px 0;
+    }
+    .sidebar-header {
+        padding: 0 16px 16px;
+        font-size: 14px;
+        font-weight: 600;
+        color: #667eea;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .child-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px;
+        cursor: pointer;
+        border-left: 3px solid transparent;
+        transition: background 0.15s, border-color 0.15s;
+    }
+    .child-item:hover { background: #e8e8f0; }
+    .child-item.active {
+        background: #e0e4f5;
+        border-left-color: #667eea;
+        font-weight: 600;
+    }
+    .child-item .avatar { font-size: 24px; }
+    .child-item .name { font-size: 15px; color: #333; }
+    .child-item .delete-btn {
+        margin-left: auto;
+        background: none;
+        border: none;
+        color: #ccc;
+        cursor: pointer;
+        font-size: 14px;
+        padding: 2px 4px;
+        border-radius: 4px;
+        display: none;
+    }
+    .child-item:hover .delete-btn { display: inline; }
+    .child-item .delete-btn:hover { color: #f56565; background: rgba(245,101,101,0.1); }
+
+    /* Add child inline form */
+    .add-child-row {
+        padding: 8px 16px;
+        margin-top: 4px;
+    }
+    .add-child-row form {
+        display: flex;
+        gap: 4px;
+    }
+    .add-child-row input {
+        flex: 1;
+        padding: 6px 8px;
+        font-size: 13px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        margin-bottom: 0;
+        min-width: 0;
+    }
+    .add-child-row button {
+        padding: 6px 10px;
+        font-size: 13px;
+        white-space: nowrap;
+    }
+
+    /* Sidebar footer links */
+    .sidebar-footer {
+        margin-top: auto;
+        border-top: 1px solid #e2e8f0;
+        padding: 12px 16px 0;
+    }
+    .sidebar-footer a, .sidebar-footer .toggle-link {
+        display: block;
+        padding: 8px 0;
+        color: #555;
+        text-decoration: none;
+        font-size: 14px;
+        cursor: pointer;
+    }
+    .sidebar-footer a:hover, .sidebar-footer .toggle-link:hover { color: #667eea; }
+
+    /* Accounts collapsible panel */
+    .accounts-panel {
+        display: none;
+        padding: 12px 16px;
+        border-top: 1px solid #e2e8f0;
+        background: #f7f7fc;
+    }
+    .accounts-panel.open { display: block; }
+    .accounts-panel h3 { font-size: 13px; margin-bottom: 8px; color: #555; }
+    .accounts-panel .acct-row {
+        font-size: 13px;
+        padding: 4px 0;
+        border-bottom: 1px solid #eee;
+    }
+    .accounts-panel form { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .accounts-panel input, .accounts-panel select {
+        padding: 6px 8px;
+        font-size: 13px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        margin-bottom: 0;
+    }
+    .accounts-panel button { font-size: 13px; padding: 6px 10px; }
+
+    /* Main content area */
+    .main-content {
+        flex: 1;
+        padding: 24px 30px;
+        overflow-y: auto;
+    }
+    .main-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    .main-header h1 { font-size: 22px; margin-bottom: 0; }
+
+    /* Subject tabs */
+    .tab-bar {
+        display: flex;
+        gap: 0;
+        border-bottom: 2px solid #e2e8f0;
+        margin-bottom: 20px;
+    }
+    .tab-btn {
+        padding: 10px 20px;
+        font-size: 15px;
+        font-weight: 500;
+        border: none;
+        background: none;
+        cursor: pointer;
+        color: #888;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+        transition: color 0.15s, border-color 0.15s;
+    }
+    .tab-btn:hover { color: #667eea; }
+    .tab-btn.active {
+        color: #667eea;
+        border-bottom-color: #667eea;
+        font-weight: 600;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Content cards inside panels */
+    .dash-card {
+        background: #f7fafc;
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin-bottom: 16px;
+    }
+    .dash-card h3 { font-size: 16px; color: #333; margin-bottom: 12px; }
+    .stat-row {
+        display: flex;
+        gap: 20px;
+        margin-bottom: 16px;
+    }
+    .stat-box {
+        background: white;
+        border-radius: 10px;
+        padding: 14px 18px;
+        text-align: center;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+        flex: 1;
+    }
+    .stat-box .num { font-size: 28px; font-weight: bold; color: #667eea; }
+    .stat-box .label { font-size: 13px; color: #888; margin-top: 2px; }
+
+    /* Quick links */
+    .quick-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 16px;
+    }
+    .quick-links a {
+        padding: 8px 14px;
+        font-size: 14px;
+        border-radius: 8px;
+        text-decoration: none;
+        color: white;
+        display: inline-block;
+    }
+
+    /* List items */
+    .list-item {
+        padding: 10px 0;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .list-item:last-child { border-bottom: none; }
+    .list-item .info strong { font-size: 14px; }
+    .list-item .info .meta { font-size: 12px; color: #999; margin-top: 2px; }
+    .list-item .actions { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
+    .list-item .actions .btn { padding: 4px 10px; font-size: 12px; margin: 0; }
+    .list-item .actions .status-badge {
+        font-size: 12px;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 6px;
+    }
+    .status-completed { color: #48bb78; }
+    .status-pending { color: #ed8936; }
+
+    /* Placeholder panels */
+    .placeholder-panel {
+        text-align: center;
+        padding: 60px 20px;
+        color: #999;
+    }
+    .placeholder-panel .icon { font-size: 48px; margin-bottom: 16px; }
+    .placeholder-panel p { font-size: 16px; }
+
+    .empty-msg { color: #999; font-size: 14px; padding: 12px 0; }
+
+    /* Responsive: mobile */
+    @media (max-width: 600px) {
+        .dashboard-layout { flex-direction: column; }
+        .sidebar {
+            width: 100%;
+            min-width: 100%;
+            flex-direction: row;
+            flex-wrap: wrap;
+            align-items: center;
+            padding: 10px;
+            border-right: none;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .sidebar-header { display: none; }
+        .child-item {
+            padding: 8px 12px;
+            border-left: none;
+            border-bottom: 2px solid transparent;
+            border-radius: 8px;
+        }
+        .child-item.active {
+            border-left: none;
+            border-bottom-color: #667eea;
+            background: #e0e4f5;
+        }
+        .child-item .delete-btn { display: none !important; }
+        .add-child-row { padding: 4px 8px; }
+        .sidebar-footer { display: none; }
+        .accounts-panel { display: none !important; }
+        .main-content { padding: 16px; }
+        .tab-btn { padding: 8px 12px; font-size: 13px; }
+        .stat-row { flex-direction: column; gap: 10px; }
+        .list-item { flex-direction: column; align-items: flex-start; gap: 6px; }
+        .list-item .actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
-    <h1>Parent Dashboard</h1>
-    <div style="color: #666;">
-        {{ account.username }} |
-        <a href="/logout" style="color: #f56565; text-decoration: none;">Logout</a>
-    </div>
-</div>
-
-<!-- Children list -->
-<h2>Children</h2>
-<div id="children-grid" class="grid" style="margin-bottom: 30px;">
-    {% for child in children %}
-    <div class="card" style="text-align: center;">
-        <div style="font-size: 48px; margin-bottom: 10px;">{{ child.avatar or '\ud83d\udc64' }}</div>
-        <div style="font-size: 20px; font-weight: bold;">{{ child.name }}</div>
-        <div style="margin-top: 15px; display: flex; flex-direction: column; gap: 8px;">
-            <a href="/child/{{ child.id }}/words" class="btn btn-primary" style="padding: 8px; font-size: 14px;">Words</a>
-            <a href="/child/{{ child.id }}/progress" class="btn btn-warning" style="padding: 8px; font-size: 14px;">Progress</a>
-            <a href="/child/{{ child.id }}/tests" class="btn btn-primary" style="padding: 8px; font-size: 14px;">Test History</a>
-            <a href="/parent/child/{{ child.id }}/study/new" class="btn btn-success" style="padding: 8px; font-size: 14px;">Create Study</a>
-            <a href="/parent/child/{{ child.id }}/test/new" class="btn btn-warning" style="padding: 8px; font-size: 14px;">Create Test</a>
-            <a href="/child/{{ child.id }}" class="btn btn-primary" style="padding: 8px; font-size: 14px;">Dashboard</a>
-            <button class="btn btn-danger" style="padding: 8px; font-size: 14px;" onclick="deleteChild({{ child.id }}, '{{ child.name }}')">Delete</button>
-        </div>
-    </div>
-    {% endfor %}
-</div>
-
-<!-- Add child profile -->
-<div class="card">
-    <h2>Add Child Profile</h2>
-    <form id="add-child-form" style="display: flex; gap: 10px;">
-        <input type="text" id="child-name" placeholder="Child's name..." required style="flex: 1;">
-        <button type="submit" class="btn btn-success" style="padding: 10px 20px;">Add</button>
-    </form>
-</div>
-
-<!-- Create child account -->
-<div class="card" style="margin-top: 20px;">
-    <h2>Child Accounts</h2>
-    <p style="color: #666; margin-bottom: 15px;">Create login accounts for children so they can log in and do their study sessions.</p>
-
-    {% if child_accounts %}
-    <div style="margin-bottom: 20px;">
-        {% for ca in child_accounts %}
-        <div style="padding: 8px 0; border-bottom: 1px solid #eee;">
-            <strong>{{ ca.username }}</strong>
-            {% if ca.child_name %}
-            <span style="color: #666;"> &rarr; {{ ca.child_name }}</span>
-            {% else %}
-            <span style="color: #f56565;"> (no profile linked)</span>
-            {% endif %}
-        </div>
-        {% endfor %}
-    </div>
-    {% endif %}
-
-    <form id="add-account-form" style="display: flex; flex-direction: column; gap: 10px;">
-        <select id="account-child-id" required style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #ddd; border-radius: 8px;">
-            <option value="">Select child profile...</option>
+<div class="dashboard-layout">
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">Children</div>
+        <div id="child-list">
             {% for child in children %}
-            <option value="{{ child.id }}">{{ child.name }}</option>
+            <div class="child-item" data-id="{{ child.id }}" onclick="selectChild({{ child.id }})">
+                <span class="avatar">{{ child.avatar or '\ud83d\udc64' }}</span>
+                <span class="name">{{ child.name }}</span>
+                <button class="delete-btn" title="Delete" onclick="event.stopPropagation(); deleteChild({{ child.id }}, '{{ child.name|e }}')">&#x2715;</button>
+            </div>
             {% endfor %}
-        </select>
-        <input type="text" id="account-username" placeholder="Username for child..." required>
-        <input type="password" id="account-password" placeholder="Password for child..." required>
-        <button type="submit" class="btn btn-success">Create Child Account</button>
-    </form>
-    <div id="account-status" style="margin-top: 10px;"></div>
-</div>
+        </div>
+        <div class="add-child-row">
+            <form id="add-child-form">
+                <input type="text" id="child-name" placeholder="Name..." required>
+                <button type="submit" class="btn btn-success">+</button>
+            </form>
+        </div>
+        <div class="sidebar-footer">
+            <span class="toggle-link" onclick="toggleAccounts()">Accounts</span>
+            <a href="/materials">Materials</a>
+        </div>
+        <div class="accounts-panel" id="accounts-panel">
+            <h3>Child Accounts</h3>
+            {% for ca in child_accounts %}
+            <div class="acct-row">
+                <strong>{{ ca.username }}</strong>
+                {% if ca.child_name %}
+                <span style="color: #666;"> &rarr; {{ ca.child_name }}</span>
+                {% else %}
+                <span style="color: #f56565;"> (unlinked)</span>
+                {% endif %}
+            </div>
+            {% endfor %}
+            <form id="add-account-form">
+                <select id="account-child-id" required>
+                    <option value="">Select child...</option>
+                    {% for child in children %}
+                    <option value="{{ child.id }}">{{ child.name }}</option>
+                    {% endfor %}
+                </select>
+                <input type="text" id="account-username" placeholder="Username..." required>
+                <input type="password" id="account-password" placeholder="Password..." required>
+                <button type="submit" class="btn btn-success" style="width:100%;">Create Account</button>
+            </form>
+            <div id="account-status" style="margin-top: 6px; font-size: 13px;"></div>
+        </div>
+    </div>
 
-<!-- Study sessions overview -->
-<div class="card" style="margin-top: 20px;">
-    <h2>Recent Study Sessions</h2>
-    <div id="study-sessions-list">Loading...</div>
-</div>
+    <!-- Main content -->
+    <div class="main-content">
+        <div class="main-header">
+            <h1 id="main-title">Parent Dashboard</h1>
+        </div>
 
-<!-- Parent tests overview -->
-<div class="card" style="margin-top: 20px;">
-    <h2>Parent-Created Tests</h2>
-    <div id="parent-tests-list">Loading...</div>
-</div>
+        <!-- Subject tab bar -->
+        <div class="tab-bar">
+            <button class="tab-btn active" data-tab="language-arts" onclick="switchTab('language-arts')">Language Arts</button>
+            <button class="tab-btn" data-tab="math" onclick="switchTab('math')">Math</button>
+            <button class="tab-btn" data-tab="science" onclick="switchTab('science')">Science</button>
+        </div>
 
-<div style="margin-top: 20px;">
-    <a href="/materials" class="btn btn-warning">Reading Materials</a>
+        <!-- No child selected state -->
+        <div id="no-child-msg" class="placeholder-panel" style="display:none;">
+            <div class="icon">&#x1F476;</div>
+            <p>Add a child profile to get started.</p>
+        </div>
+
+        <!-- Language Arts tab -->
+        <div class="tab-panel active" data-panel="language-arts" id="panel-language-arts">
+            <div class="stat-row">
+                <div class="stat-box">
+                    <div class="num" id="word-count">-</div>
+                    <div class="label">Words</div>
+                </div>
+            </div>
+            <div class="quick-links" id="la-links"></div>
+            <div class="dash-card">
+                <h3>Recent Study Sessions</h3>
+                <div id="study-sessions-list"><span class="empty-msg">Loading...</span></div>
+            </div>
+            <div class="dash-card">
+                <h3>Parent-Created Tests</h3>
+                <div id="parent-tests-list"><span class="empty-msg">Loading...</span></div>
+            </div>
+            <div class="dash-card">
+                <h3>Pending Reading Assignments</h3>
+                <div id="pending-assignments-list"><span class="empty-msg">Loading...</span></div>
+            </div>
+            <div class="dash-card">
+                <h3>Completed Reading Assignments</h3>
+                <div id="completed-assignments-list"><span class="empty-msg">Loading...</span></div>
+            </div>
+        </div>
+
+        <!-- Math tab (placeholder) -->
+        <div class="tab-panel" data-panel="math" id="panel-math">
+            <div class="placeholder-panel">
+                <div class="icon">&#x1F4D0;</div>
+                <p><strong>Coming soon</strong></p>
+                <p>Math practice and assignments will appear here.</p>
+            </div>
+        </div>
+
+        <!-- Science tab (placeholder) -->
+        <div class="tab-panel" data-panel="science" id="panel-science">
+            <div class="placeholder-panel">
+                <div class="icon">&#x1F52C;</div>
+                <p><strong>Coming soon</strong></p>
+                <p>Science activities and assignments will appear here.</p>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+const childrenData = {{ children|tojson }};
+let currentChildId = null;
+let currentTab = 'language-arts';
+let dashboardCache = {};
+
+// ── Child selection ──
+
+function selectChild(childId) {
+    currentChildId = childId;
+    // Update sidebar active state
+    document.querySelectorAll('.child-item').forEach(el => {
+        el.classList.toggle('active', parseInt(el.dataset.id) === childId);
+    });
+    // Update title
+    const child = childrenData.find(c => c.id === childId);
+    document.getElementById('main-title').textContent = child ? child.name : 'Parent Dashboard';
+    // Show panels, hide no-child msg
+    document.getElementById('no-child-msg').style.display = 'none';
+    document.querySelector('.tab-bar').style.display = 'flex';
+    // Ensure correct tab panel is visible via class (not inline style)
+    document.querySelectorAll('.tab-panel').forEach(p => {
+        p.classList.toggle('active', p.dataset.panel === currentTab);
+        p.style.display = '';
+    });
+    // Load data
+    loadDashboard(childId);
+}
+
+// ── Tab switching ──
+
+function switchTab(tab) {
+    currentTab = tab;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    document.querySelectorAll('.tab-panel').forEach(p => {
+        p.classList.toggle('active', p.dataset.panel === tab);
+    });
+}
+
+// ── Load dashboard data ──
+
+async function loadDashboard(childId) {
+    // Update quick links immediately
+    updateQuickLinks(childId);
+
+    const res = await fetch(`/api/children/${childId}/dashboard-summary`);
+    if (!res.ok) return;
+    const data = await res.json();
+    dashboardCache[childId] = data;
+
+    // Only render if still selected
+    if (currentChildId !== childId) return;
+
+    renderLanguageArts(childId, data);
+}
+
+function updateQuickLinks(childId) {
+    document.getElementById('la-links').innerHTML = `
+        <a href="/child/${childId}/words" class="btn-primary">View Words</a>
+        <a href="/child/${childId}/progress" class="btn-warning">Word Progress</a>
+        <a href="/parent/child/${childId}/study/new" class="btn-success">Create Study Session</a>
+        <a href="/parent/child/${childId}/test/new" class="btn-warning">Create Test</a>
+        <a href="/materials?child_id=${childId}" class="btn-warning">Reading Materials</a>
+    `;
+}
+
+// ── Render language arts tab ──
+
+function renderLanguageArts(childId, data) {
+    document.getElementById('word-count').textContent = data.word_count;
+
+    // Study sessions
+    const ssList = document.getElementById('study-sessions-list');
+    if (data.study_sessions.length === 0) {
+        ssList.innerHTML = '<span class="empty-msg">No study sessions yet.</span>';
+    } else {
+        ssList.innerHTML = data.study_sessions.map(s => `
+            <div class="list-item">
+                <div class="info">
+                    <strong>${escHtml(s.title || 'Study Session')}</strong>
+                    <div class="meta">${s.created_at.slice(0,10)} &middot; ${s.word_count || '?'} words</div>
+                </div>
+                <div class="actions">
+                    <span class="status-badge ${s.status === 'completed' ? 'status-completed' : 'status-pending'}">${s.status === 'completed' ? 'Done' : 'Pending'}</span>
+                    <a href="/child/${childId}/study/${s.id}" class="btn btn-primary">Preview</a>
+                    <button class="btn btn-warning" onclick="createTestFromStudy(${s.id})">Test</button>
+                    <button class="btn btn-danger" onclick="deleteSession(${s.id})">Del</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Parent tests
+    const ptList = document.getElementById('parent-tests-list');
+    if (data.parent_tests.length === 0) {
+        ptList.innerHTML = '<span class="empty-msg">No parent-created tests yet.</span>';
+    } else {
+        ptList.innerHTML = data.parent_tests.map(t => `
+            <div class="list-item">
+                <div class="info">
+                    <strong>${escHtml(t.title || 'Test')}</strong>
+                    <div class="meta">${t.created_at.slice(0,10)} &middot; ${t.word_count || '?'} words &middot; ${t.source_type === 'study_session' ? 'From study' : 'Custom'}</div>
+                </div>
+                <div class="actions">
+                    ${t.status === 'completed' && t.test_session_id
+                        ? `<a href="/child/${childId}/tests/${t.test_session_id}" class="btn btn-success">Result</a>`
+                        : `<span class="status-badge ${t.status === 'completed' ? 'status-completed' : 'status-pending'}">${t.status === 'completed' ? 'Done' : 'Pending'}</span>`}
+                    <button class="btn btn-danger" onclick="deleteParentTest(${t.id})">Del</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Reading assignments
+    const pendList = document.getElementById('pending-assignments-list');
+    if (data.pending_assignments.length === 0) {
+        pendList.innerHTML = '<span class="empty-msg">No pending assignments.</span>';
+    } else {
+        pendList.innerHTML = data.pending_assignments.map(a => `
+            <div class="list-item">
+                <div class="info">
+                    <strong>${escHtml(a.material_title)}</strong>
+                    <div class="meta">${a.created_at.slice(0,10)} &middot; ${a.question_count} questions</div>
+                </div>
+                <div class="actions">
+                    <a href="/child/${childId}/reading-assignment/${a.id}" class="btn btn-primary">Open</a>
+                    <button class="btn btn-danger" onclick="deleteAssignment(${a.id})">Del</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    const compList = document.getElementById('completed-assignments-list');
+    if (data.completed_assignments.length === 0) {
+        compList.innerHTML = '<span class="empty-msg">No completed assignments yet.</span>';
+    } else {
+        compList.innerHTML = data.completed_assignments.map(a => `
+            <div class="list-item">
+                <div class="info">
+                    <strong>${escHtml(a.material_title)}</strong>
+                    <div class="meta">${(a.completed_at || a.created_at).slice(0,10)} &middot; ${a.question_count} questions</div>
+                </div>
+                <div class="actions">
+                    <a href="/child/${childId}/reading-assignment/${a.id}/review" class="btn btn-success">Review</a>
+                </div>
+            </div>
+        `).join('');
+    }
+}
+
+// ── CRUD actions ──
+
+async function deleteSession(id) {
+    if (!confirm('Delete this study session?')) return;
+    await fetch(`/api/study-sessions/${id}`, { method: 'DELETE' });
+    loadDashboard(currentChildId);
+}
+
+async function createTestFromStudy(studyId) {
+    const res = await fetch(`/api/parent-tests/from-study/${studyId}`, { method: 'POST' });
+    if (res.ok) {
+        loadDashboard(currentChildId);
+    } else {
+        const data = await res.json();
+        alert('Error: ' + (data.error || 'Failed to create test'));
+    }
+}
+
+async function deleteParentTest(id) {
+    if (!confirm('Delete this test?')) return;
+    await fetch(`/api/parent-tests/${id}`, { method: 'DELETE' });
+    loadDashboard(currentChildId);
+}
+
+async function deleteAssignment(id) {
+    if (!confirm('Delete this reading assignment?')) return;
+    await fetch(`/api/reading-assignments/${id}`, { method: 'DELETE' });
+    loadDashboard(currentChildId);
+}
+
+async function deleteChild(id, name) {
+    if (!confirm(`Delete ${name} and all their data? This cannot be undone.`)) return;
+    await fetch(`/api/children/${id}`, { method: 'DELETE' });
+    location.reload();
+}
+
+// ── Add child ──
+
 document.getElementById('add-child-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const name = document.getElementById('child-name').value;
+    const nameInput = document.getElementById('child-name');
+    const name = nameInput.value.trim();
+    if (!name) return;
     await fetch('/api/children', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -103,6 +593,12 @@ document.getElementById('add-child-form').addEventListener('submit', async (e) =
     });
     location.reload();
 });
+
+// ── Accounts panel ──
+
+function toggleAccounts() {
+    document.getElementById('accounts-panel').classList.toggle('open');
+}
 
 document.getElementById('add-account-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -122,117 +618,27 @@ document.getElementById('add-account-form').addEventListener('submit', async (e)
         setTimeout(() => location.reload(), 1000);
     } else {
         const data = await res.json();
-        status.innerHTML = `<span style="color: #f56565;">${data.error}</span>`;
+        status.innerHTML = `<span style="color: #f56565;">${escHtml(data.error)}</span>`;
     }
 });
 
-// Load all study sessions
-async function loadStudySessions() {
-    const container = document.getElementById('study-sessions-list');
-    const children = {{ children|tojson }};
-    let allSessions = [];
+// ── Utils ──
 
-    for (const child of children) {
-        const res = await fetch(`/api/children/${child.id}/study-sessions`);
-        const sessions = await res.json();
-        sessions.forEach(s => { s.child_name = child.name; });
-        allSessions = allSessions.concat(sessions);
-    }
-
-    allSessions.sort((a, b) => b.created_at.localeCompare(a.created_at));
-
-    if (allSessions.length === 0) {
-        container.innerHTML = '<p style="color: #666;">No study sessions created yet.</p>';
-        return;
-    }
-
-    container.innerHTML = allSessions.slice(0, 20).map(s => `
-        <div style="padding: 10px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <strong>${s.title || 'Study Session'}</strong>
-                <span style="color: #666;"> for ${s.child_name}</span>
-                <div style="font-size: 13px; color: #999;">${s.created_at.slice(0, 10)} | ${s.word_count || '?'} words</div>
-            </div>
-            <div>
-                ${s.status === 'completed'
-                    ? '<span style="color: #48bb78; font-weight: bold;">Completed</span>'
-                    : '<span style="color: #ed8936; font-weight: bold;">Pending</span>'}
-                <a href="/child/${s.child_id}/study/${s.id}" class="btn btn-primary" style="padding: 4px 10px; font-size: 12px; margin-left: 8px;">Preview</a>
-                <button class="btn btn-warning" style="padding: 4px 10px; font-size: 12px; margin-left: 4px;" onclick="createTestFromStudy(${s.id})">Create Test</button>
-                <button class="btn btn-danger" style="padding: 4px 10px; font-size: 12px; margin-left: 4px;" onclick="deleteSession(${s.id})">Delete</button>
-            </div>
-        </div>
-    `).join('');
+function escHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
 }
 
-async function deleteSession(id) {
-    if (!confirm('Delete this study session?')) return;
-    await fetch(`/api/study-sessions/${id}`, { method: 'DELETE' });
-    loadStudySessions();
+// ── Init ──
+
+if (childrenData.length > 0) {
+    selectChild(childrenData[0].id);
+} else {
+    document.getElementById('no-child-msg').style.display = 'block';
+    document.querySelector('.tab-bar').style.display = 'none';
+    document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
 }
-
-async function deleteChild(id, name) {
-    if (!confirm(`Delete ${name} and all their data (words, progress, study sessions, account)? This cannot be undone.`)) return;
-    await fetch(`/api/children/${id}`, { method: 'DELETE' });
-    location.reload();
-}
-
-async function createTestFromStudy(studyId) {
-    const res = await fetch(`/api/parent-tests/from-study/${studyId}`, { method: 'POST' });
-    if (res.ok) {
-        alert('Test created from study session!');
-        loadParentTests();
-    } else {
-        const data = await res.json();
-        alert('Error: ' + (data.error || 'Failed to create test'));
-    }
-}
-
-async function loadParentTests() {
-    const container = document.getElementById('parent-tests-list');
-    const children = {{ children|tojson }};
-    let allTests = [];
-
-    for (const child of children) {
-        const res = await fetch(`/api/children/${child.id}/parent-tests`);
-        const tests = await res.json();
-        tests.forEach(t => { t.child_name = child.name; });
-        allTests = allTests.concat(tests);
-    }
-
-    allTests.sort((a, b) => b.created_at.localeCompare(a.created_at));
-
-    if (allTests.length === 0) {
-        container.innerHTML = '<p style="color: #666;">No parent-created tests yet.</p>';
-        return;
-    }
-
-    container.innerHTML = allTests.slice(0, 20).map(t => `
-        <div style="padding: 10px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <strong>${t.title || 'Test'}</strong>
-                <span style="color: #666;"> for ${t.child_name}</span>
-                <div style="font-size: 13px; color: #999;">${t.created_at.slice(0, 10)} | ${t.word_count || '?'} words | ${t.source_type === 'study_session' ? 'From study session' : 'Custom words'}</div>
-            </div>
-            <div>
-                ${t.status === 'completed' && t.test_session_id
-                    ? `<a href="/child/${t.child_id}/tests/${t.test_session_id}" class="btn btn-success" style="padding: 4px 10px; font-size: 12px;">View Result</a>`
-                    : t.status === 'completed'
-                    ? '<span style="color: #48bb78; font-weight: bold;">Completed</span>'
-                    : '<span style="color: #ed8936; font-weight: bold;">Pending</span>'}
-                <button class="btn btn-danger" style="padding: 4px 10px; font-size: 12px; margin-left: 4px;" onclick="deleteParentTest(${t.id})">Delete</button>
-            </div>
-        </div>
-    `).join('');
-}
-
-async function deleteParentTest(id) {
-    if (!confirm('Delete this test?')) return;
-    await fetch(`/api/parent-tests/${id}`, { method: 'DELETE' });
-    loadParentTests();
-}
-
-loadStudySessions();
-loadParentTests();
 </script>
 {% endblock %}

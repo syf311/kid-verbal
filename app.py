@@ -181,6 +181,67 @@ def parent_home():
     )
 
 
+@app.route("/api/children/<int:child_id>/dashboard-summary", methods=["GET"])
+@parent_required
+def child_dashboard_summary(child_id):
+    conn = get_db()
+
+    word_count = conn.execute(
+        "SELECT COUNT(*) FROM word WHERE child_id = ?", (child_id,)
+    ).fetchone()[0]
+
+    study_sessions = conn.execute(
+        """SELECT ss.id, ss.title, ss.status, ss.created_at,
+                  (SELECT COUNT(*) FROM study_session_word WHERE session_id = ss.id) as word_count
+           FROM study_session ss
+           WHERE ss.child_id = ?
+           ORDER BY ss.created_at DESC
+           LIMIT 10""",
+        (child_id,)
+    ).fetchall()
+
+    parent_tests = conn.execute(
+        """SELECT pt.id, pt.title, pt.status, pt.created_at, pt.source_type,
+                  (SELECT COUNT(*) FROM parent_test_word WHERE parent_test_id = pt.id) as word_count,
+                  (SELECT id FROM test_session WHERE parent_test_id = pt.id LIMIT 1) as test_session_id
+           FROM parent_test pt
+           WHERE pt.child_id = ?
+           ORDER BY pt.created_at DESC
+           LIMIT 10""",
+        (child_id,)
+    ).fetchall()
+
+    pending_assignments = conn.execute(
+        """SELECT ra.id, ra.material_id, ra.status, ra.created_at, rm.title as material_title,
+                  (SELECT COUNT(*) FROM material_question WHERE material_id = ra.material_id) as question_count
+           FROM reading_assignment ra
+           JOIN reading_material rm ON ra.material_id = rm.id
+           WHERE ra.child_id = ? AND ra.status = 'pending'
+           ORDER BY ra.created_at DESC""",
+        (child_id,)
+    ).fetchall()
+
+    completed_assignments = conn.execute(
+        """SELECT ra.id, ra.material_id, ra.status, ra.created_at, ra.completed_at, rm.title as material_title,
+                  (SELECT COUNT(*) FROM material_question WHERE material_id = ra.material_id) as question_count
+           FROM reading_assignment ra
+           JOIN reading_material rm ON ra.material_id = rm.id
+           WHERE ra.child_id = ? AND ra.status = 'completed'
+           ORDER BY ra.completed_at DESC
+           LIMIT 10""",
+        (child_id,)
+    ).fetchall()
+
+    conn.close()
+    return jsonify({
+        "word_count": word_count,
+        "study_sessions": [dict(s) for s in study_sessions],
+        "parent_tests": [dict(t) for t in parent_tests],
+        "pending_assignments": [dict(a) for a in pending_assignments],
+        "completed_assignments": [dict(a) for a in completed_assignments],
+    })
+
+
 @app.route("/api/child-accounts", methods=["POST"])
 @parent_required
 def create_child_account():
