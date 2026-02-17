@@ -569,7 +569,7 @@ function renderMathTab(childId, data) {
                     <div class="meta">${t.created_at.slice(0,10)} &middot; ${t.total_questions} questions</div>
                 </div>
                 <div class="actions">
-                    <a href="/child/${childId}/math-test/${t.id}" class="btn btn-primary">Open</a>
+                    <a href="/parent/child/${childId}/math-test/${t.id}/manage" class="btn btn-primary">Manage</a>
                     <button class="btn btn-danger" onclick="deleteMathTest(${t.id})">Del</button>
                 </div>
             </div>

@@ -11,7 +11,7 @@ from database import init_db, get_db
 from dictionary import fetch_definition
 from test_engine import get_test_words, generate_choices, generate_word_choices, update_progress, record_test_session
 from ocr import extract_text
-from pdf_parser import parse_answer_pdf, parse_grid_answer_pdf, extract_row_answers
+from pdf_parser import parse_answer_pdf, parse_grid_answer_pdf, extract_row_answers, pdf_page_to_png
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -2085,10 +2085,36 @@ def preview_grid_answers():
     finally:
         os.remove(temp_path)
 
+    if error == "SCANNED":
+        return jsonify({"scanned": True})
     if error:
         return jsonify({"error": error}), 400
     rows_summary = {name: len(answers) for name, answers in rows_dict.items()}
     return jsonify({"rows": rows_summary})
+
+
+@app.route("/api/math-tests/pdf-preview-image", methods=["POST"])
+@parent_required
+def pdf_preview_image():
+    if "answer_pdf" not in request.files:
+        return jsonify({"error": "No answer PDF uploaded"}), 400
+    f = request.files["answer_pdf"]
+    if not f.filename:
+        return jsonify({"error": "No file selected"}), 400
+
+    filename = secure_filename(f.filename)
+    temp_path = os.path.join(UPLOAD_FOLDER, "temp_" + filename)
+    f.save(temp_path)
+    try:
+        png_bytes, error = pdf_page_to_png(temp_path)
+    finally:
+        os.remove(temp_path)
+
+    if error:
+        return jsonify({"error": error}), 400
+
+    from flask import Response
+    return Response(png_bytes, mimetype="image/png")
 
 
 @app.route("/api/math-tests", methods=["POST"])
@@ -2117,8 +2143,12 @@ def create_math_test():
     a_file.save(a_path)
 
     # Parse answer key
+    manual_answers = request.form.get("manual_answers", "").strip()
     row = request.form.get("row", "").strip()
-    if row:
+    if manual_answers:
+        answers = json.loads(manual_answers)
+        error = None
+    elif row:
         rows_dict, error = parse_grid_answer_pdf(a_path)
         if not error:
             answers, error = extract_row_answers(rows_dict, row)
@@ -2249,6 +2279,40 @@ def get_math_test_submission(submission_id):
     result["answer_pdf"] = test["answer_pdf"]
     result["title"] = test["title"]
     return jsonify(result)
+
+
+@app.route("/parent/child/<int:child_id>/math-test/<int:test_id>/manage")
+@parent_required
+def manage_math_test(child_id, test_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    test = conn.execute("SELECT * FROM math_test WHERE id = ?", (test_id,)).fetchone()
+    conn.close()
+    if not child or not test:
+        return "Not found", 404
+    return render_template("manage_math_test.html", child=dict(child), test=dict(test))
+
+
+@app.route("/api/math-tests/<int:test_id>/answers", methods=["PUT"])
+@parent_required
+def update_math_test_answers(test_id):
+    conn = get_db()
+    test = conn.execute("SELECT * FROM math_test WHERE id = ?", (test_id,)).fetchone()
+    if not test:
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+    data = request.json
+    answers = data.get("answers", {})
+    if not answers:
+        conn.close()
+        return jsonify({"error": "No answers provided"}), 400
+    conn.execute(
+        "UPDATE math_test SET answer_key = ?, total_questions = ? WHERE id = ?",
+        (json.dumps(answers), len(answers), test_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"total_questions": len(answers)})
 
 
 @app.route("/child/<int:child_id>/math-test/<int:test_id>")

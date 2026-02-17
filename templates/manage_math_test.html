@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+
+{% block title %}Manage: {{ test.title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .container { max-width: 100%; margin: 0; border-radius: 0; padding: 15px 20px; }
+    .manage-layout {
+        display: grid;
+        grid-template-columns: 1fr 1fr 340px;
+        gap: 15px;
+        height: calc(100vh - 140px);
+    }
+    .pdf-col {
+        background: #f7fafc;
+        border-radius: 12px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+    .pdf-col h3 {
+        padding: 8px 15px;
+        margin: 0;
+        background: #edf2f7;
+        font-size: 14px;
+        color: #555;
+        flex-shrink: 0;
+    }
+    .pdf-col iframe {
+        width: 100%;
+        flex: 1;
+        border: none;
+        min-height: 400px;
+    }
+    .answer-panel {
+        overflow-y: auto;
+    }
+    .answer-panel .card {
+        margin-bottom: 0;
+    }
+    .answer-scroll {
+        max-height: calc(100vh - 320px);
+        overflow-y: auto;
+        padding-right: 4px;
+    }
+    .question-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 8px;
+    }
+    .q-label {
+        font-weight: 700;
+        color: #333;
+        min-width: 32px;
+        font-size: 14px;
+    }
+    .choice-btn {
+        width: 36px;
+        height: 36px;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px;
+        background: white;
+        font-weight: 700;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.15s;
+        color: #555;
+    }
+    .choice-btn:hover {
+        border-color: #667eea;
+        background: #eef2ff;
+    }
+    .choice-btn.selected {
+        background: #667eea;
+        color: white;
+        border-color: #667eea;
+    }
+    .btn-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+    }
+    .status-msg {
+        font-size: 13px;
+        margin-top: 8px;
+        font-weight: 600;
+    }
+    .status-msg.success { color: #38a169; }
+    .status-msg.error { color: #e53e3e; }
+    @media (max-width: 1000px) {
+        .manage-layout {
+            grid-template-columns: 1fr;
+            height: auto;
+        }
+        .pdf-col iframe { min-height: 350px; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+    <a href="/parent" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back to Dashboard</a>
+    <h2 style="margin: 0;">{{ test.title }}</h2>
+    <span style="font-size: 13px; color: #888;">{{ test.total_questions }} questions</span>
+</div>
+
+<div class="manage-layout">
+    <div class="pdf-col">
+        <h3>Question PDF</h3>
+        <iframe src="/uploads/{{ test.question_pdf }}"></iframe>
+    </div>
+    <div class="pdf-col">
+        <h3>Answer Key PDF</h3>
+        <iframe src="/uploads/{{ test.answer_pdf }}"></iframe>
+    </div>
+
+    <div class="answer-panel">
+        <div class="card">
+            <h3 style="margin-bottom: 10px;">Answer Key</h3>
+            <div style="margin-bottom: 10px; font-size: 13px; color: #666;">
+                Click letters to set/change answers. Use +/- to add or remove questions.
+            </div>
+            <div class="answer-scroll" id="answerGrid"></div>
+            <div class="btn-row">
+                <button class="btn btn-success" onclick="addQuestion()">+ Question</button>
+                <button class="btn btn-danger" onclick="removeQuestion()">- Question</button>
+            </div>
+            <div class="btn-row">
+                <button class="btn btn-primary" id="saveBtn" onclick="saveAnswers()">Save Changes</button>
+            </div>
+            <div class="status-msg" id="statusMsg"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const testId = {{ test.id }};
+const childId = {{ child.id }};
+const answerKey = JSON.parse('{{ test.answer_key | safe }}');
+let totalQuestions = {{ test.total_questions }};
+
+function buildGrid() {
+    const grid = document.getElementById('answerGrid');
+    let html = '';
+    for (let i = 1; i <= totalQuestions; i++) {
+        const current = answerKey[String(i)] || '';
+        html += `<div class="question-row" id="qrow_${i}">
+            <span class="q-label">${i}.</span>`;
+        for (const ch of ['A','B','C','D','E']) {
+            const sel = current.toUpperCase() === ch ? ' selected' : '';
+            html += `<button class="choice-btn${sel}" data-q="${i}" data-ch="${ch}" onclick="selectAnswer(${i},'${ch}',this)">${ch}</button>`;
+        }
+        html += `</div>`;
+    }
+    grid.innerHTML = html;
+}
+
+function selectAnswer(q, ch, btn) {
+    const row = document.getElementById('qrow_' + q);
+    row.querySelectorAll('.choice-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    answerKey[String(q)] = ch;
+}
+
+function addQuestion() {
+    totalQuestions++;
+    answerKey[String(totalQuestions)] = '';
+    buildGrid();
+    const grid = document.getElementById('answerGrid');
+    grid.scrollTop = grid.scrollHeight;
+}
+
+function removeQuestion() {
+    if (totalQuestions <= 1) return;
+    delete answerKey[String(totalQuestions)];
+    totalQuestions--;
+    buildGrid();
+}
+
+async function saveAnswers() {
+    const btn = document.getElementById('saveBtn');
+    const msg = document.getElementById('statusMsg');
+    msg.textContent = '';
+
+    // Filter out empty answers
+    const cleaned = {};
+    for (let i = 1; i <= totalQuestions; i++) {
+        const val = answerKey[String(i)];
+        if (val) cleaned[String(i)] = val;
+    }
+    if (Object.keys(cleaned).length === 0) {
+        msg.textContent = 'Please set at least one answer.';
+        msg.className = 'status-msg error';
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+        const res = await fetch(`/api/math-tests/${testId}/answers`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ answers: cleaned })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            msg.textContent = `Saved! ${data.total_questions} questions.`;
+            msg.className = 'status-msg success';
+        } else {
+            msg.textContent = data.error || 'Failed to save.';
+            msg.className = 'status-msg error';
+        }
+    } catch (e) {
+        msg.textContent = 'Network error.';
+        msg.className = 'status-msg error';
+    }
+    btn.disabled = false;
+    btn.textContent = 'Save Changes';
+}
+
+buildGrid();
+</script>
+{% endblock %}
