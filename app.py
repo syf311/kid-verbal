@@ -490,6 +490,8 @@ def get_child(child_id):
 def delete_child(child_id):
     conn = get_db()
     # Delete related data
+    conn.execute("DELETE FROM reading_assignment_answer WHERE assignment_id IN (SELECT id FROM reading_assignment WHERE child_id = ?)", (child_id,))
+    conn.execute("DELETE FROM reading_assignment WHERE child_id = ?", (child_id,))
     conn.execute("DELETE FROM parent_test_word WHERE parent_test_id IN (SELECT id FROM parent_test WHERE child_id = ?)", (child_id,))
     conn.execute("DELETE FROM parent_test WHERE child_id = ?", (child_id,))
     conn.execute("DELETE FROM study_session_word WHERE session_id IN (SELECT id FROM study_session WHERE child_id = ?)", (child_id,))
@@ -560,6 +562,29 @@ def child_dashboard(child_id):
         (child_id,)
     ).fetchall()
 
+    # Get pending reading assignments
+    pending_assignments = conn.execute(
+        """SELECT ra.*, rm.title as material_title,
+                  (SELECT COUNT(*) FROM material_question WHERE material_id = ra.material_id) as question_count
+           FROM reading_assignment ra
+           JOIN reading_material rm ON ra.material_id = rm.id
+           WHERE ra.child_id = ? AND ra.status = 'pending'
+           ORDER BY ra.created_at DESC""",
+        (child_id,)
+    ).fetchall()
+
+    # Get completed reading assignments
+    completed_assignments = conn.execute(
+        """SELECT ra.*, rm.title as material_title,
+                  (SELECT COUNT(*) FROM material_question WHERE material_id = ra.material_id) as question_count
+           FROM reading_assignment ra
+           JOIN reading_material rm ON ra.material_id = rm.id
+           WHERE ra.child_id = ? AND ra.status = 'completed'
+           ORDER BY ra.completed_at DESC
+           LIMIT 20""",
+        (child_id,)
+    ).fetchall()
+
     conn.close()
     return render_template(
         "dashboard.html",
@@ -569,6 +594,8 @@ def child_dashboard(child_id):
         study_sessions=[dict(s) for s in study_sessions],
         completed_sessions=[dict(s) for s in completed_sessions],
         parent_tests=[dict(t) for t in parent_tests],
+        pending_assignments=[dict(a) for a in pending_assignments],
+        completed_assignments=[dict(a) for a in completed_assignments],
         role=session.get("role", "parent")
     )
 
@@ -1198,6 +1225,8 @@ def update_material(material_id):
 @app.route("/api/materials/<int:material_id>", methods=["DELETE"])
 def delete_material(material_id):
     conn = get_db()
+    conn.execute("DELETE FROM reading_assignment_answer WHERE assignment_id IN (SELECT id FROM reading_assignment WHERE material_id = ?)", (material_id,))
+    conn.execute("DELETE FROM reading_assignment WHERE material_id = ?", (material_id,))
     conn.execute("DELETE FROM material_question WHERE material_id = ?", (material_id,))
     conn.execute("DELETE FROM reading_material WHERE id = ?", (material_id,))
     conn.commit()
@@ -1604,6 +1633,203 @@ def handle_add_word(data):
         "example": example,
         "already_exists": False
     }, room=room)
+
+
+# ── Reading Assignment API ──
+
+@app.route("/api/reading-assignments", methods=["POST"])
+@parent_required
+def create_reading_assignment():
+    data = request.json
+    material_id = data.get("material_id")
+    child_id = data.get("child_id")
+
+    if not material_id or not child_id:
+        return jsonify({"error": "material_id and child_id required"}), 400
+
+    conn = get_db()
+
+    # Verify material has questions
+    qcount = conn.execute(
+        "SELECT COUNT(*) FROM material_question WHERE material_id = ?", (material_id,)
+    ).fetchone()[0]
+    if qcount == 0:
+        conn.close()
+        return jsonify({"error": "Material has no questions"}), 400
+
+    cursor = conn.execute(
+        "INSERT INTO reading_assignment (material_id, child_id) VALUES (?, ?)",
+        (material_id, child_id)
+    )
+    assignment_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({"id": assignment_id}), 201
+
+
+@app.route("/api/children/<int:child_id>/reading-assignments", methods=["GET"])
+@login_required
+def get_reading_assignments(child_id):
+    conn = get_db()
+    assignments = conn.execute(
+        """SELECT ra.*, rm.title as material_title,
+                  (SELECT COUNT(*) FROM material_question WHERE material_id = ra.material_id) as question_count
+           FROM reading_assignment ra
+           JOIN reading_material rm ON ra.material_id = rm.id
+           WHERE ra.child_id = ?
+           ORDER BY ra.created_at DESC""",
+        (child_id,)
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(a) for a in assignments])
+
+
+@app.route("/api/reading-assignments/<int:assignment_id>", methods=["GET"])
+@login_required
+def get_reading_assignment(assignment_id):
+    conn = get_db()
+    assignment = conn.execute(
+        """SELECT ra.*, rm.title as material_title, rm.content as material_content,
+                  rm.image_path as material_image, c.name as child_name
+           FROM reading_assignment ra
+           JOIN reading_material rm ON ra.material_id = rm.id
+           JOIN child c ON ra.child_id = c.id
+           WHERE ra.id = ?""",
+        (assignment_id,)
+    ).fetchone()
+    if not assignment:
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+
+    questions = conn.execute(
+        """SELECT mq.id as question_id, mq.question_text, mq.answer_text,
+                  raa.child_answer, raa.evidence_text
+           FROM material_question mq
+           LEFT JOIN reading_assignment_answer raa
+               ON raa.question_id = mq.id AND raa.assignment_id = ?
+           WHERE mq.material_id = ?
+           ORDER BY mq.id""",
+        (assignment_id, assignment["material_id"])
+    ).fetchall()
+    conn.close()
+
+    result = dict(assignment)
+    result["questions"] = [dict(q) for q in questions]
+    return jsonify(result)
+
+
+@app.route("/api/reading-assignments/<int:assignment_id>/submit", methods=["POST"])
+@login_required
+def submit_reading_assignment(assignment_id):
+    data = request.json
+    answers = data.get("answers", [])
+
+    conn = get_db()
+    assignment = conn.execute(
+        "SELECT * FROM reading_assignment WHERE id = ?", (assignment_id,)
+    ).fetchone()
+    if not assignment:
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+
+    for a in answers:
+        conn.execute(
+            "INSERT INTO reading_assignment_answer (assignment_id, question_id, child_answer, evidence_text) VALUES (?, ?, ?, ?)",
+            (assignment_id, a["question_id"], a.get("child_answer", ""), a.get("evidence_text", ""))
+        )
+
+    conn.execute(
+        "UPDATE reading_assignment SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (assignment_id,)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "completed"})
+
+
+@app.route("/api/reading-assignments/<int:assignment_id>", methods=["DELETE"])
+@parent_required
+def delete_reading_assignment(assignment_id):
+    conn = get_db()
+    conn.execute("DELETE FROM reading_assignment_answer WHERE assignment_id = ?", (assignment_id,))
+    conn.execute("DELETE FROM reading_assignment WHERE id = ?", (assignment_id,))
+    conn.commit()
+    conn.close()
+    return "", 204
+
+
+@app.route("/child/<int:child_id>/reading-assignment/<int:assignment_id>")
+@login_required
+def reading_assignment_page(child_id, assignment_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    if not child:
+        conn.close()
+        return "Child not found", 404
+
+    assignment = conn.execute(
+        """SELECT ra.*, rm.title, rm.content, rm.image_path
+           FROM reading_assignment ra
+           JOIN reading_material rm ON ra.material_id = rm.id
+           WHERE ra.id = ? AND ra.child_id = ?""",
+        (assignment_id, child_id)
+    ).fetchone()
+    if not assignment:
+        conn.close()
+        return "Assignment not found", 404
+
+    questions = conn.execute(
+        "SELECT * FROM material_question WHERE material_id = ? ORDER BY id",
+        (assignment["material_id"],)
+    ).fetchall()
+    conn.close()
+
+    return render_template(
+        "reading_assignment.html",
+        child=dict(child),
+        assignment=dict(assignment),
+        questions=[dict(q) for q in questions]
+    )
+
+
+@app.route("/child/<int:child_id>/reading-assignment/<int:assignment_id>/review")
+@login_required
+def reading_assignment_review_page(child_id, assignment_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    if not child:
+        conn.close()
+        return "Child not found", 404
+
+    assignment = conn.execute(
+        """SELECT ra.*, rm.title, rm.content
+           FROM reading_assignment ra
+           JOIN reading_material rm ON ra.material_id = rm.id
+           WHERE ra.id = ? AND ra.child_id = ?""",
+        (assignment_id, child_id)
+    ).fetchone()
+    if not assignment:
+        conn.close()
+        return "Assignment not found", 404
+
+    questions = conn.execute(
+        """SELECT mq.question_text, mq.answer_text,
+                  raa.child_answer, raa.evidence_text
+           FROM material_question mq
+           LEFT JOIN reading_assignment_answer raa
+               ON raa.question_id = mq.id AND raa.assignment_id = ?
+           WHERE mq.material_id = ?
+           ORDER BY mq.id""",
+        (assignment_id, assignment["material_id"])
+    ).fetchall()
+    conn.close()
+
+    return render_template(
+        "reading_assignment_review.html",
+        child=dict(child),
+        assignment=dict(assignment),
+        questions=[dict(q) for q in questions]
+    )
 
 
 if __name__ == "__main__":

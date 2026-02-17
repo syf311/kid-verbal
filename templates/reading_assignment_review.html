@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}Review - {{ assignment.title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .review-card {
+        padding: 15px;
+        border-radius: 12px;
+        margin-bottom: 15px;
+        border-left: 4px solid #667eea;
+        background: #f7fafc;
+    }
+    .question-text {
+        font-size: 16px;
+        font-weight: 500;
+        line-height: 1.6;
+        white-space: pre-line;
+        margin-bottom: 12px;
+    }
+    .answer-block {
+        padding: 10px 15px;
+        border-radius: 8px;
+        margin-bottom: 8px;
+        font-size: 15px;
+    }
+    .expected-answer {
+        background: #c6f6d5;
+        border: 1px solid #9ae6b4;
+    }
+    .child-answer {
+        background: #ebf8ff;
+        border: 1px solid #bee3f8;
+    }
+    .child-answer.no-answer {
+        background: #fed7d7;
+        border: 1px solid #feb2b2;
+        color: #c53030;
+        font-style: italic;
+    }
+    .evidence-block {
+        background: #fffff0;
+        border: 1px solid #ecc94b;
+        padding: 10px 15px;
+        border-radius: 8px;
+        margin-bottom: 8px;
+        font-size: 14px;
+    }
+    .answer-label {
+        font-size: 12px;
+        font-weight: bold;
+        color: #666;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none;">&larr; Back to Dashboard</a>
+<h1 style="margin-top: 10px;">Review: {{ assignment.title }}</h1>
+
+<div class="card" style="margin-bottom: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div>
+            <strong style="font-size: 18px;">{{ child.name }}</strong>
+            <div style="font-size: 14px; color: #666; margin-top: 4px;">
+                {% if assignment.completed_at %}
+                Completed {{ assignment.completed_at[:16] }}
+                {% else %}
+                Status: {{ assignment.status }}
+                {% endif %}
+            </div>
+        </div>
+        <div style="font-size: 14px; color: #666;">
+            {{ questions|length }} questions
+        </div>
+    </div>
+</div>
+
+<h2 style="margin-bottom: 15px;">Questions & Answers</h2>
+
+{% for q in questions %}
+<div class="review-card">
+    <div style="margin-bottom: 8px;">
+        <span style="display: inline-block; background: #667eea; color: white; width: 28px; height: 28px; border-radius: 50%; text-align: center; line-height: 28px; font-size: 14px; font-weight: bold; margin-right: 8px;">{{ loop.index }}</span>
+    </div>
+    <div class="question-text">{{ q.question_text }}</div>
+
+    {% if q.answer_text %}
+    <div class="answer-block expected-answer">
+        <div class="answer-label">Expected Answer</div>
+        {{ q.answer_text }}
+    </div>
+    {% endif %}
+
+    {% if q.child_answer %}
+    <div class="answer-block child-answer">
+        <div class="answer-label">Child's Answer</div>
+        {{ q.child_answer }}
+    </div>
+    {% else %}
+    <div class="answer-block child-answer no-answer">
+        <div class="answer-label">Child's Answer</div>
+        No answer provided
+    </div>
+    {% endif %}
+
+    {% if q.evidence_text %}
+    <div class="evidence-block">
+        <div class="answer-label" style="color: #b7791f;">Why (Evidence)</div>
+        {{ q.evidence_text }}
+    </div>
+    {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

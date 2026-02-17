@@ -348,6 +348,7 @@ socket.on('response_received', (data) => {
     toast.innerHTML = `
         <div style="font-size: 13px; color: #888; margin-bottom: 6px;">Q: ${data.question || ''}</div>
         <div style="font-size: 16px;"><strong>Answer:</strong> ${data.response}</div>
+        ${data.evidence ? `<div style="font-size: 14px; margin-top: 8px; padding: 8px 12px; background: #fffff0; border: 1px solid #ecc94b; border-radius: 8px;"><strong style="color: #b7791f;">Why:</strong> ${data.evidence}</div>` : ''}
         <button onclick="this.parentElement.remove()" style="position: absolute; top: 8px; right: 12px; background: none; border: none; font-size: 18px; cursor: pointer; color: #999;">&times;</button>
     `;
     document.body.appendChild(toast);

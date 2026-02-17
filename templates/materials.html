@@ -116,6 +116,14 @@
                     onclick="editMaterial(this)">
                     Edit
                 </button>
+                {% if material.question_count > 0 %}
+                <button class="btn" style="padding: 8px 15px; background: #e9d8fd; color: #553c9a;"
+                    data-id="{{ material.id }}"
+                    data-title="{{ material.title | e }}"
+                    onclick="showAssignModal(this)">
+                    Assign
+                </button>
+                {% endif %}
                 <a href="/session/{{ material.id }}/parent" class="btn btn-primary" style="padding: 8px 15px;">
                     Start Session
                 </a>
@@ -176,6 +184,25 @@
         <div style="display: flex; gap: 10px; justify-content: flex-end;">
             <button class="btn" style="background: #e2e8f0;" onclick="closeEditMaterial()">Cancel</button>
             <button class="btn btn-primary" onclick="saveEditMaterial()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Assign Material Modal -->
+<div id="assign-material-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100;">
+    <div style="background: white; max-width: 400px; margin: 50px auto; padding: 25px; border-radius: 16px;">
+        <h2 style="margin-top: 0;">Assign Reading</h2>
+        <p id="assign-material-title" style="color: #666; margin-bottom: 15px;"></p>
+        <input type="hidden" id="assign-material-id">
+        <label style="display: block; font-weight: 600; margin-bottom: 4px;">Assign to:</label>
+        <select id="assign-child-select" style="width: 100%; padding: 10px; margin-bottom: 15px;">
+            {% for child in children %}
+            <option value="{{ child.id }}">{{ child.name }}</option>
+            {% endfor %}
+        </select>
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+            <button class="btn" style="background: #e2e8f0;" onclick="closeAssignModal()">Cancel</button>
+            <button class="btn btn-success" onclick="submitAssignment()">Assign</button>
         </div>
     </div>
 </div>
@@ -607,6 +634,37 @@ async function clearAllQuestions(materialId) {
     if (!confirm('Delete all questions for this material?')) return;
     await fetch(`/api/materials/${materialId}/questions`, { method: 'DELETE' });
     await loadQuestions(materialId);
+}
+
+// ── Assign Material ──
+
+function showAssignModal(btn) {
+    document.getElementById('assign-material-id').value = btn.dataset.id;
+    document.getElementById('assign-material-title').textContent = btn.dataset.title;
+    document.getElementById('assign-material-modal').style.display = 'block';
+}
+
+function closeAssignModal() {
+    document.getElementById('assign-material-modal').style.display = 'none';
+}
+
+async function submitAssignment() {
+    const materialId = document.getElementById('assign-material-id').value;
+    const childId = document.getElementById('assign-child-select').value;
+
+    const res = await fetch('/api/reading-assignments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ material_id: parseInt(materialId), child_id: parseInt(childId) })
+    });
+
+    if (res.ok) {
+        closeAssignModal();
+        alert('Assignment created!');
+    } else {
+        const data = await res.json();
+        alert('Error: ' + (data.error || 'Failed to create assignment'));
+    }
 }
 </script>
 {% endblock %}

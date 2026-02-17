@@ -65,6 +65,29 @@
         outline: none;
         border-color: #667eea;
     }
+    .evidence-input {
+        width: 100%;
+        padding: 10px;
+        font-size: 14px;
+        border: 2px solid #ecc94b;
+        border-radius: 12px;
+        box-sizing: border-box;
+        min-height: 50px;
+        resize: vertical;
+        margin-top: 8px;
+        background: #fffff0;
+    }
+    .evidence-input:focus {
+        outline: none;
+        border-color: #d69e2e;
+    }
+    .evidence-label {
+        font-size: 13px;
+        color: #b7791f;
+        font-weight: 600;
+        margin-top: 10px;
+        display: block;
+    }
 </style>
 {% endblock %}
 
@@ -97,6 +120,8 @@
         <h2 style="margin-top: 0;">Question</h2>
         <div class="question-display" id="question-text"></div>
         <textarea class="answer-input" id="answer-input" placeholder="Type your answer here..."></textarea>
+        <label class="evidence-label">Why?</label>
+        <textarea class="evidence-input" id="evidence-input" placeholder="Explain why or show evidence..."></textarea>
         <div style="display: flex; gap: 10px; margin-top: 15px;">
             <button class="btn btn-success" style="flex: 1; font-size: 18px; padding: 15px;" onclick="submitAnswer()">
                 Submit Answer
@@ -159,6 +184,7 @@ socket.on('question_asked', (data) => {
         questionEl.textContent = data.question;
     }
     document.getElementById('answer-input').value = '';
+    document.getElementById('evidence-input').value = '';
     document.getElementById('question-modal').style.display = 'block';
     document.getElementById('answer-input').focus();
 });
@@ -178,9 +204,11 @@ function submitAnswer() {
         document.getElementById('answer-input').focus();
         return;
     }
+    const evidence = document.getElementById('evidence-input').value.trim();
     socket.emit('child_response', {
         material_id: materialId,
         response: answer,
+        evidence: evidence,
         question: currentQuestion?.question,
         word: currentQuestion?.word
     });

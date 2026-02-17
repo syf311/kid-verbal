@@ -33,6 +33,54 @@
 </div>
 {% endif %}
 
+{% if pending_assignments %}
+<div style="margin-bottom: 30px;">
+    <h2>Reading Assignments</h2>
+    {% for ra in pending_assignments %}
+    <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong style="font-size: 18px;">{{ ra.material_title }}</strong>
+            <div style="font-size: 14px; color: #666;">
+                {{ ra.question_count }} questions | Assigned {{ ra.created_at[:10] }}
+            </div>
+        </div>
+        <div style="display: flex; gap: 5px; align-items: center;">
+            <a href="/child/{{ child.id }}/reading-assignment/{{ ra.id }}" class="btn btn-success" style="padding: 10px 25px;">
+                Start
+            </a>
+            {% if role == 'parent' %}
+            <button class="btn btn-danger" style="padding: 10px 15px;" onclick="deleteAssignment({{ ra.id }})">Delete</button>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if completed_assignments %}
+<div style="margin-bottom: 30px;">
+    <h2>Completed Reading Assignments</h2>
+    {% for ra in completed_assignments %}
+    <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong style="font-size: 18px;">{{ ra.material_title }}</strong>
+            <div style="font-size: 14px; color: #666;">
+                {{ ra.question_count }} questions | Completed {{ ra.completed_at[:10] if ra.completed_at else '' }}
+            </div>
+        </div>
+        <div style="display: flex; gap: 5px; align-items: center;">
+            <a href="/child/{{ child.id }}/reading-assignment/{{ ra.id }}/review" class="btn btn-primary" style="padding: 10px 25px;">
+                Review
+            </a>
+            {% if role == 'parent' %}
+            <button class="btn btn-danger" style="padding: 10px 15px;" onclick="deleteAssignment({{ ra.id }})">Delete</button>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
 {% if role != 'parent' %}
 <div id="active-reading-sessions" style="margin-bottom: 30px; display: none;">
     <h2>Active Reading Sessions</h2>
@@ -130,6 +178,13 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+async function deleteAssignment(id) {
+    if (!confirm('Delete this reading assignment?')) return;
+    await fetch(`/api/reading-assignments/${id}`, { method: 'DELETE' });
+    location.reload();
+}
+</script>
 {% if role != 'parent' %}
 <script>
 function loadActiveSessions() {

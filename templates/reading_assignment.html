@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block title %}{{ assignment.title }} - Reading Assignment{% endblock %}
+
+{% block extra_css %}
+<style>
+    .reading-content {
+        font-size: 20px;
+        line-height: 1.8;
+        white-space: pre-wrap;
+        padding: 20px;
+        background: #f7fafc;
+        border-radius: 12px;
+        max-height: 500px;
+        overflow-y: auto;
+        margin-bottom: 20px;
+    }
+    .question-card {
+        background: #f7fafc;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 15px;
+        border-left: 4px solid #667eea;
+    }
+    .question-number {
+        display: inline-block;
+        background: #667eea;
+        color: white;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        text-align: center;
+        line-height: 28px;
+        font-size: 14px;
+        font-weight: bold;
+        margin-right: 10px;
+    }
+    .question-text {
+        font-size: 16px;
+        line-height: 1.6;
+        white-space: pre-line;
+        margin-bottom: 10px;
+    }
+    .answer-textarea {
+        width: 100%;
+        padding: 12px;
+        font-size: 16px;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px;
+        min-height: 60px;
+        resize: vertical;
+        box-sizing: border-box;
+    }
+    .answer-textarea:focus {
+        outline: none;
+        border-color: #667eea;
+    }
+    .evidence-textarea {
+        width: 100%;
+        padding: 12px;
+        font-size: 14px;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px;
+        min-height: 50px;
+        resize: vertical;
+        box-sizing: border-box;
+        margin-top: 8px;
+        background: #fffff0;
+    }
+    .evidence-textarea:focus {
+        outline: none;
+        border-color: #d69e2e;
+    }
+    .evidence-label {
+        font-size: 13px;
+        color: #b7791f;
+        font-weight: 600;
+        margin-top: 8px;
+        display: block;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none;">&larr; Back to Dashboard</a>
+<h1 style="margin-top: 10px;">{{ assignment.title }}</h1>
+
+{% if assignment.image_path %}
+<div style="margin-bottom: 15px;">
+    <img src="/uploads/{{ assignment.image_path }}" style="max-width: 100%; border-radius: 12px;">
+</div>
+{% endif %}
+
+<div class="reading-content" id="reading-content">{{ assignment.content }}</div>
+
+<div id="questions-section" style="display: none;">
+    <h2>Questions</h2>
+    <form id="assignment-form">
+        {% for q in questions %}
+        <div class="question-card">
+            <div style="margin-bottom: 8px;">
+                <span class="question-number">{{ loop.index }}</span>
+                <strong>Question {{ loop.index }}</strong>
+            </div>
+            <div class="question-text">{{ q.question_text }}</div>
+            <textarea class="answer-textarea" name="answer-{{ q.id }}" data-question-id="{{ q.id }}" placeholder="Type your answer here..." required></textarea>
+            <label class="evidence-label">Why?</label>
+            <textarea class="evidence-textarea" name="evidence-{{ q.id }}" data-question-id="{{ q.id }}" placeholder="Explain why or show evidence..."></textarea>
+        </div>
+        {% endfor %}
+
+        <button type="submit" class="btn btn-success" style="width: 100%; padding: 15px; font-size: 18px; margin-top: 10px;">
+            Submit All Answers
+        </button>
+    </form>
+</div>
+
+<div id="start-section" style="text-align: center; margin-top: 20px;">
+    <p style="color: #666; margin-bottom: 15px;">Read the material above, then click below to answer questions.</p>
+    <button class="btn btn-primary" style="padding: 15px 40px; font-size: 18px;" onclick="showQuestions()">
+        Start Questions ({{ questions|length }})
+    </button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const childId = {{ child.id }};
+const assignmentId = {{ assignment.id }};
+
+function showQuestions() {
+    document.getElementById('start-section').style.display = 'none';
+    document.getElementById('questions-section').style.display = 'block';
+    document.getElementById('questions-section').scrollIntoView({ behavior: 'smooth' });
+}
+
+document.getElementById('assignment-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const textareas = document.querySelectorAll('.answer-textarea');
+    const answers = [];
+    for (const ta of textareas) {
+        const qid = parseInt(ta.dataset.questionId);
+        const evidenceEl = document.querySelector(`.evidence-textarea[data-question-id="${qid}"]`);
+        answers.push({
+            question_id: qid,
+            child_answer: ta.value.trim(),
+            evidence_text: evidenceEl ? evidenceEl.value.trim() : ''
+        });
+    }
+
+    const res = await fetch(`/api/reading-assignments/${assignmentId}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answers })
+    });
+
+    if (res.ok) {
+        window.location.href = `/child/${childId}`;
+    } else {
+        alert('Error submitting answers. Please try again.');
+    }
+});
+</script>
+{% endblock %}
