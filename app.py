@@ -1123,6 +1123,22 @@ def delete_material(material_id):
     return "", 204
 
 
+@app.route("/api/active-reading-sessions", methods=["GET"])
+@login_required
+def get_active_reading_sessions():
+    if not active_sessions:
+        return jsonify([])
+    material_ids = list(active_sessions.keys())
+    conn = get_db()
+    placeholders = ",".join("?" * len(material_ids))
+    materials = conn.execute(
+        f"SELECT id, title FROM reading_material WHERE id IN ({placeholders})",
+        material_ids
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(m) for m in materials])
+
+
 @app.route("/session/<int:material_id>/parent")
 def session_parent(material_id):
     conn = get_db()
@@ -1162,6 +1178,21 @@ def handle_join(data):
     room = f"session_{data['material_id']}"
     join_room(room)
     emit("user_joined", {"role": data["role"]}, room=room)
+
+    # Track active parent sessions
+    if data["role"] == "parent":
+        active_sessions[data["material_id"]] = {
+            "material_id": data["material_id"],
+            "sid": request.sid
+        }
+
+
+@socketio.on("disconnect")
+def handle_disconnect():
+    # Remove any sessions owned by this socket
+    to_remove = [mid for mid, info in active_sessions.items() if info.get("sid") == request.sid]
+    for mid in to_remove:
+        del active_sessions[mid]
 
 
 @socketio.on("highlight_word")

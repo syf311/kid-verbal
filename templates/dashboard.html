@@ -33,6 +33,13 @@
 </div>
 {% endif %}
 
+{% if role != 'parent' %}
+<div id="active-reading-sessions" style="margin-bottom: 30px; display: none;">
+    <h2>Active Reading Sessions</h2>
+    <div id="reading-session-list"></div>
+</div>
+{% endif %}
+
 {% if study_sessions %}
 <div style="margin-bottom: 30px;">
     <h2>Assigned Study Sessions</h2>
@@ -119,5 +126,36 @@
     </a>
     {% endfor %}
 </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if role != 'parent' %}
+<script>
+function loadActiveSessions() {
+    fetch('/api/active-reading-sessions')
+        .then(r => r.json())
+        .then(sessions => {
+            const container = document.getElementById('active-reading-sessions');
+            const list = document.getElementById('reading-session-list');
+            if (sessions.length === 0) {
+                container.style.display = 'none';
+                return;
+            }
+            container.style.display = 'block';
+            list.innerHTML = sessions.map(s => `
+                <a href="/session/${s.id}/child" class="card" style="display: flex; justify-content: space-between; align-items: center; text-decoration: none; color: inherit;">
+                    <div>
+                        <strong style="font-size: 18px;">${s.title}</strong>
+                        <div style="font-size: 14px; color: #48bb78;">Live now</div>
+                    </div>
+                    <span class="btn btn-success" style="padding: 10px 25px;">Join</span>
+                </a>
+            `).join('');
+        });
+}
+loadActiveSessions();
+setInterval(loadActiveSessions, 10000);
+</script>
 {% endif %}
 {% endblock %}

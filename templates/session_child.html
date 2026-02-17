@@ -19,19 +19,50 @@
         display: none;
         position: fixed;
         top: 0;
-        left: 0;
         right: 0;
         bottom: 0;
-        background: rgba(0,0,0,0.7);
+        width: 380px;
+        background: rgba(0,0,0,0.3);
         z-index: 100;
     }
     .question-box {
         background: white;
-        max-width: 500px;
-        margin: 100px auto;
-        padding: 30px;
-        border-radius: 20px;
-        text-align: center;
+        height: 100%;
+        padding: 25px;
+        box-shadow: -5px 0 20px rgba(0,0,0,0.2);
+        display: flex;
+        flex-direction: column;
+    }
+    .question-display {
+        font-size: 18px;
+        line-height: 1.6;
+        margin-bottom: 15px;
+        padding: 15px;
+        background: #f7fafc;
+        border-radius: 12px;
+        border-left: 4px solid #667eea;
+        overflow-y: auto;
+        flex: 1;
+    }
+    .question-display img {
+        max-width: 100%;
+        max-height: 300px;
+        border-radius: 8px;
+        margin: 4px 0;
+    }
+    .answer-input {
+        width: 100%;
+        padding: 12px;
+        font-size: 16px;
+        border: 2px solid #e2e8f0;
+        border-radius: 12px;
+        box-sizing: border-box;
+        min-height: 60px;
+        resize: vertical;
+    }
+    .answer-input:focus {
+        outline: none;
+        border-color: #667eea;
     }
 </style>
 {% endblock %}
@@ -59,16 +90,17 @@
 
 <div class="question-modal" id="question-modal">
     <div class="question-box">
-        <h2 id="question-text">Question</h2>
-        <div style="margin: 30px 0;">
-            <button class="btn btn-success" style="font-size: 24px; padding: 20px 40px;" onclick="respond('I know it!')">
-                I Know It!
+        <h2 style="margin-top: 0;">Question</h2>
+        <div class="question-display" id="question-text"></div>
+        <textarea class="answer-input" id="answer-input" placeholder="Type your answer here..."></textarea>
+        <div style="display: flex; gap: 10px; margin-top: 15px;">
+            <button class="btn btn-success" style="flex: 1; font-size: 18px; padding: 15px;" onclick="submitAnswer()">
+                Submit Answer
             </button>
-            <button class="btn btn-warning" style="font-size: 24px; padding: 20px 40px; margin-left: 10px;" onclick="respond('I don\'t know')">
-                I Don't Know
+            <button class="btn" style="background: #e2e8f0; padding: 15px;" onclick="closeQuestion()">
+                Skip
             </button>
         </div>
-        <button class="btn btn-primary" onclick="closeQuestion()">Close</button>
     </div>
 </div>
 {% endblock %}
@@ -80,7 +112,7 @@ const materialId = {{ material.id }};
 const socket = io();
 let currentQuestion = null;
 
-// Wrap each word in a span
+// Wrap each word in a span, preserving newlines
 const content = `{{ material.content | e }}`;
 const contentEl = document.getElementById('content');
 contentEl.innerHTML = content.split(/(\s+)/).map((part, i) => {
@@ -115,23 +147,36 @@ socket.on('highlight_cleared', () => {
 
 socket.on('question_asked', (data) => {
     currentQuestion = data;
-    document.getElementById('question-text').textContent = data.question;
+    const questionEl = document.getElementById('question-text');
+    // Use HTML content if available, otherwise plain text
+    if (data.question_html) {
+        questionEl.innerHTML = data.question_html;
+    } else {
+        questionEl.textContent = data.question;
+    }
+    document.getElementById('answer-input').value = '';
     document.getElementById('question-modal').style.display = 'block';
+    document.getElementById('answer-input').focus();
 });
 
 socket.on('word_added', (data) => {
     // Show brief notification
     const el = document.createElement('div');
-    el.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #48bb78; color: white; padding: 15px 25px; border-radius: 10px; z-index: 200;';
+    el.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #48bb78; color: white; padding: 15px 25px; border-radius: 10px; z-index: 200; font-size: 16px;';
     el.textContent = `"${data.word}" added to your words!`;
     document.body.appendChild(el);
     setTimeout(() => el.remove(), 3000);
 });
 
-function respond(response) {
+function submitAnswer() {
+    const answer = document.getElementById('answer-input').value.trim();
+    if (!answer) {
+        document.getElementById('answer-input').focus();
+        return;
+    }
     socket.emit('child_response', {
         material_id: materialId,
-        response: response,
+        response: answer,
         question: currentQuestion?.question,
         word: currentQuestion?.word
     });
@@ -142,6 +187,14 @@ function closeQuestion() {
     document.getElementById('question-modal').style.display = 'none';
     currentQuestion = null;
 }
+
+// Allow Enter key to submit (Shift+Enter for newline)
+document.getElementById('answer-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submitAnswer();
+    }
+});
 
 // Track scroll position
 let lastScroll = 0;

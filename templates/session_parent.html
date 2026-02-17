@@ -93,7 +93,34 @@
         font-size: 14px;
         color: #666;
     }
-    .vocab-legend-swatch {
+    .richtext-input {
+        flex: 1;
+        min-width: 200px;
+        min-height: 38px;
+        max-height: 200px;
+        overflow-y: auto;
+        padding: 8px 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 15px;
+        background: white;
+        outline: none;
+        line-height: 1.5;
+    }
+    .richtext-input:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+    }
+    .richtext-input:empty::before {
+        content: attr(data-placeholder);
+        color: #a0aec0;
+    }
+    .richtext-input img {
+        max-width: 100%;
+        max-height: 300px;
+        border-radius: 8px;
+        margin: 4px 0;
+    }
         display: inline-block;
         width: 16px;
         height: 16px;
@@ -175,7 +202,8 @@
         <button class="btn btn-warning" id="clear-btn" style="display: none;" onclick="clearHighlight()">
             Clear
         </button>
-        <input type="text" id="custom-question" placeholder="Type a question..." style="flex: 1; min-width: 200px;">
+        <input type="text" id="custom-question" placeholder="Type a question..." style="flex: 1; min-width: 200px; display: none;">
+        <div class="richtext-input" id="rich-question" contenteditable="true" data-placeholder="Type or paste a question..."></div>
         <button class="btn btn-primary" onclick="askCustom()">Ask</button>
     </div>
 </div>
@@ -247,7 +275,16 @@ socket.on('scroll_updated', (data) => {
 });
 
 socket.on('response_received', (data) => {
-    alert(`Child responded: ${data.response}`);
+    // Show response as a toast notification
+    const toast = document.createElement('div');
+    toast.style.cssText = 'position: fixed; top: 20px; right: 20px; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index: 200; max-width: 400px; border-left: 4px solid #667eea;';
+    toast.innerHTML = `
+        <div style="font-size: 13px; color: #888; margin-bottom: 6px;">Q: ${data.question || ''}</div>
+        <div style="font-size: 16px;"><strong>Answer:</strong> ${data.response}</div>
+        <button onclick="this.parentElement.remove()" style="position: absolute; top: 8px; right: 12px; background: none; border: none; font-size: 18px; cursor: pointer; color: #999;">&times;</button>
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => { if (toast.parentElement) toast.remove(); }, 10000);
 });
 
 socket.on('word_added', (data) => {
@@ -316,15 +353,17 @@ function askMeaning() {
 }
 
 function askCustom() {
-    const question = document.getElementById('custom-question').value.trim();
-    if (!question) return;
+    const richEl = document.getElementById('rich-question');
+    const questionHtml = richEl.innerHTML.trim();
+    if (!questionHtml || questionHtml === '<br>') return;
 
     socket.emit('ask_question', {
         material_id: materialId,
-        question: question,
+        question: richEl.innerText.trim(),
+        question_html: questionHtml,
         word: selectedWord
     });
-    document.getElementById('custom-question').value = '';
+    richEl.innerHTML = '';
 }
 
 function addWord() {
@@ -364,6 +403,14 @@ function saveWordDetails() {
 // Close modal on overlay click
 document.getElementById('word-modal').addEventListener('click', function(e) {
     if (e.target === this) closeModal();
+});
+
+// Rich text: Enter to send, Shift+Enter for newline
+document.getElementById('rich-question').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        askCustom();
+    }
 });
 </script>
 {% endblock %}
