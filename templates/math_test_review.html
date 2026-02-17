@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block title %}Review: {{ test.title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    {% if role == 'parent' %}
+    .container { max-width: 100%; margin: 0; border-radius: 0; padding: 15px 20px; }
+    .review-layout {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0;
+        height: calc(100vh - 180px);
+    }
+    .review-layout.sidebar-open {
+        grid-template-columns: 1fr 380px;
+        gap: 15px;
+    }
+    .pdf-area {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        min-height: 0;
+    }
+    .pdf-col {
+        background: #f7fafc;
+        border-radius: 12px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+    .pdf-col h3 {
+        padding: 8px 15px;
+        margin: 0;
+        background: #edf2f7;
+        font-size: 14px;
+        color: #555;
+        flex-shrink: 0;
+    }
+    .pdf-col iframe {
+        width: 100%;
+        flex: 1;
+        border: none;
+        min-height: 400px;
+    }
+    .details-panel {
+        display: none;
+        overflow-y: auto;
+    }
+    .review-layout.sidebar-open .details-panel {
+        display: block;
+    }
+    .toggle-sidebar {
+        position: fixed;
+        right: 20px;
+        top: 80px;
+        z-index: 100;
+        background: #667eea;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 8px 14px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .toggle-sidebar:hover { background: #5a6fd6; }
+    {% else %}
+    .container { max-width: 900px; }
+    {% endif %}
+
+    .score-banner {
+        text-align: center;
+        padding: 20px;
+        border-radius: 12px;
+        margin-bottom: 20px;
+    }
+    .score-banner.high { background: linear-gradient(135deg, #c6f6d5, #9ae6b4); }
+    .score-banner.mid { background: linear-gradient(135deg, #fefcbf, #fbd38d); }
+    .score-banner.low { background: linear-gradient(135deg, #fed7d7, #feb2b2); }
+    .score-big {
+        font-size: 48px;
+        font-weight: 800;
+        color: #333;
+    }
+    .score-detail {
+        font-size: 16px;
+        color: #555;
+        margin-top: 4px;
+    }
+    .answer-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+    }
+    .answer-table th {
+        background: #667eea;
+        color: white;
+        padding: 10px 14px;
+        text-align: center;
+        font-size: 14px;
+    }
+    .answer-table td {
+        padding: 10px 14px;
+        text-align: center;
+        border-bottom: 1px solid #e2e8f0;
+        font-size: 15px;
+    }
+    .answer-table tr:nth-child(even) { background: #f7fafc; }
+    .correct { color: #38a169; font-weight: 700; }
+    .wrong { color: #e53e3e; font-weight: 700; }
+    .icon-correct::after { content: ' \2713'; }
+    .icon-wrong::after { content: ' \2717'; }
+    @media (max-width: 800px) {
+        .pdf-area { grid-template-columns: 1fr; }
+        .pdf-col iframe { min-height: 350px; }
+        {% if role == 'parent' %}
+        .review-layout, .review-layout.sidebar-open { grid-template-columns: 1fr; }
+        {% endif %}
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back to Dashboard</a>
+<h2 style="margin-top: 10px;">{{ test.title }} - Review</h2>
+
+{% set score = submission.score %}
+<div class="score-banner {{ 'high' if score >= 80 else ('mid' if score >= 50 else 'low') }}">
+    <div class="score-big">{{ score }}%</div>
+    <div class="score-detail">{{ submission.correct_count }} / {{ submission.total_count }} correct</div>
+</div>
+
+{% if role == 'parent' %}
+{# ── Parent view: large PDFs + collapsible details sidebar ── #}
+<button class="toggle-sidebar" id="toggleBtn" onclick="toggleSidebar()">Details &rsaquo;</button>
+
+<div class="review-layout" id="reviewLayout">
+    <div class="pdf-area">
+        <div class="pdf-col">
+            <h3>Question PDF</h3>
+            <iframe src="/uploads/{{ test.question_pdf }}"></iframe>
+        </div>
+        <div class="pdf-col">
+            <h3>Answer Key PDF</h3>
+            <iframe src="/uploads/{{ test.answer_pdf }}"></iframe>
+        </div>
+    </div>
+
+    <div class="details-panel">
+        <div class="card">
+            <h3>Answer Comparison</h3>
+            <table class="answer-table">
+                <thead>
+                    <tr>
+                        <th>Q#</th>
+                        <th>Child</th>
+                        <th>Correct</th>
+                        <th>Result</th>
+                    </tr>
+                </thead>
+                <tbody id="answerBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% else %}
+{# ── Child view: score + their answers only, no correct answers or answer PDF ── #}
+<div class="card">
+    <h3>Your Answers</h3>
+    <table class="answer-table">
+        <thead>
+            <tr>
+                <th>Q#</th>
+                <th>Your Answer</th>
+                <th>Result</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in results %}
+            <tr>
+                <td><strong>{{ r.q }}</strong></td>
+                <td>{{ r.child_answer }}</td>
+                <td class="{{ 'correct icon-correct' if r.is_correct else 'wrong icon-wrong' }}">{{ 'Correct' if r.is_correct else 'Wrong' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if role == 'parent' %}
+<script>
+const answerKey = {{ test.answer_key | safe }};
+const childAnswers = {{ submission.answers | safe }};
+
+const tbody = document.getElementById('answerBody');
+const totalQ = Object.keys(answerKey).length;
+for (let i = 1; i <= totalQ; i++) {
+    const key = String(i);
+    const correct = answerKey[key] || '?';
+    const child = childAnswers[key] || '-';
+    const isCorrect = child.toUpperCase() === correct.toUpperCase();
+    tbody.innerHTML += `<tr>
+        <td><strong>${i}</strong></td>
+        <td>${child}</td>
+        <td>${correct}</td>
+        <td class="${isCorrect ? 'correct icon-correct' : 'wrong icon-wrong'}">${isCorrect ? 'Correct' : 'Wrong'}</td>
+    </tr>`;
+}
+
+let sidebarOpen = false;
+function toggleSidebar() {
+    sidebarOpen = !sidebarOpen;
+    document.getElementById('reviewLayout').classList.toggle('sidebar-open', sidebarOpen);
+    document.getElementById('toggleBtn').innerHTML = sidebarOpen ? 'Details &lsaquo;' : 'Details &rsaquo;';
+}
+</script>
+{% endif %}
+{% endblock %}

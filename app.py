@@ -1,5 +1,7 @@
+import json
 import os
 import time
+from datetime import datetime
 from functools import wraps
 from flask import Flask, render_template, request, jsonify, send_from_directory, session, redirect, url_for
 from flask_socketio import SocketIO, emit, join_room, leave_room
@@ -9,6 +11,7 @@ from database import init_db, get_db
 from dictionary import fetch_definition
 from test_engine import get_test_words, generate_choices, generate_word_choices, update_progress, record_test_session
 from ocr import extract_text
+from pdf_parser import parse_answer_pdf, parse_grid_answer_pdf, extract_row_answers
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -232,6 +235,17 @@ def child_dashboard_summary(child_id):
         (child_id,)
     ).fetchall()
 
+    math_tests = conn.execute(
+        """SELECT mt.id, mt.title, mt.status, mt.total_questions, mt.created_at,
+                  (SELECT id FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as submission_id,
+                  (SELECT score FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as score
+           FROM math_test mt
+           WHERE mt.child_id = ?
+           ORDER BY mt.created_at DESC
+           LIMIT 20""",
+        (child_id,)
+    ).fetchall()
+
     conn.close()
     return jsonify({
         "word_count": word_count,
@@ -239,6 +253,7 @@ def child_dashboard_summary(child_id):
         "parent_tests": [dict(t) for t in parent_tests],
         "pending_assignments": [dict(a) for a in pending_assignments],
         "completed_assignments": [dict(a) for a in completed_assignments],
+        "math_tests": [dict(t) for t in math_tests],
     })
 
 
@@ -301,7 +316,7 @@ def create_test_page(child_id):
 def create_study_session():
     data = request.json
     child_id = data.get("child_id")
-    title = data.get("title", "Study Session")
+    title = data.get("title") or datetime.now().strftime("%m/%d/%Y")
     word_ids = data.get("word_ids", [])
 
     if not child_id or not word_ids:
@@ -391,7 +406,7 @@ def delete_study_session(session_id):
 def create_parent_test():
     data = request.json
     child_id = data.get("child_id")
-    title = data.get("title", "Test")
+    title = data.get("title") or datetime.now().strftime("%m/%d/%Y")
     word_ids = data.get("word_ids", [])
 
     if not child_id or not word_ids:
@@ -433,7 +448,7 @@ def create_parent_test_from_study(study_id):
         conn.close()
         return jsonify({"error": "No words in study session"}), 400
 
-    title = f"Test: {study['title'] or 'Study Session'}"
+    title = f"Test: {study['title'] or datetime.now().strftime('%m/%d/%Y')}"
     cursor = conn.execute(
         "INSERT INTO parent_test (child_id, created_by, title, source_type, source_id) VALUES (?, ?, ?, 'study_session', ?)",
         (study["child_id"], session["account_id"], title, study_id)
@@ -551,6 +566,8 @@ def get_child(child_id):
 def delete_child(child_id):
     conn = get_db()
     # Delete related data
+    conn.execute("DELETE FROM math_test_submission WHERE math_test_id IN (SELECT id FROM math_test WHERE child_id = ?)", (child_id,))
+    conn.execute("DELETE FROM math_test WHERE child_id = ?", (child_id,))
     conn.execute("DELETE FROM reading_assignment_answer WHERE assignment_id IN (SELECT id FROM reading_assignment WHERE child_id = ?)", (child_id,))
     conn.execute("DELETE FROM reading_assignment WHERE child_id = ?", (child_id,))
     conn.execute("DELETE FROM parent_test_word WHERE parent_test_id IN (SELECT id FROM parent_test WHERE child_id = ?)", (child_id,))
@@ -646,6 +663,15 @@ def child_dashboard(child_id):
         (child_id,)
     ).fetchall()
 
+    # Get pending math tests
+    math_tests = conn.execute(
+        """SELECT mt.id, mt.title, mt.total_questions, mt.status, mt.created_at
+           FROM math_test mt
+           WHERE mt.child_id = ? AND mt.status = 'pending'
+           ORDER BY mt.created_at DESC""",
+        (child_id,)
+    ).fetchall()
+
     conn.close()
     return render_template(
         "dashboard.html",
@@ -657,6 +683,7 @@ def child_dashboard(child_id):
         parent_tests=[dict(t) for t in parent_tests],
         pending_assignments=[dict(a) for a in pending_assignments],
         completed_assignments=[dict(a) for a in completed_assignments],
+        math_tests=[dict(t) for t in math_tests],
         role=session.get("role", "parent")
     )
 
@@ -1794,9 +1821,17 @@ def submit_reading_assignment(assignment_id):
         return jsonify({"error": "Not found"}), 404
 
     for a in answers:
+        # Look up the correct answer for this question
+        question = conn.execute(
+            "SELECT answer_text FROM material_question WHERE id = ?",
+            (a["question_id"],)
+        ).fetchone()
+        child_answer = a.get("child_answer", "").strip().upper()
+        correct_answer = (question["answer_text"] or "").strip().upper() if question else ""
+        is_correct = child_answer == correct_answer and child_answer != ""
         conn.execute(
-            "INSERT INTO reading_assignment_answer (assignment_id, question_id, child_answer, evidence_text) VALUES (?, ?, ?, ?)",
-            (assignment_id, a["question_id"], a.get("child_answer", ""), a.get("evidence_text", ""))
+            "INSERT INTO reading_assignment_answer (assignment_id, question_id, child_answer, is_correct) VALUES (?, ?, ?, ?)",
+            (assignment_id, a["question_id"], a.get("child_answer", ""), is_correct)
         )
 
     unknown_words = data.get("unknown_words", [])
@@ -1947,7 +1982,7 @@ def reading_assignment_review_page(child_id, assignment_id):
 
     questions = conn.execute(
         """SELECT mq.question_text, mq.answer_text,
-                  raa.child_answer, raa.evidence_text
+                  raa.child_answer, raa.is_correct
            FROM material_question mq
            LEFT JOIN reading_assignment_answer raa
                ON raa.question_id = mq.id AND raa.assignment_id = ?
@@ -1969,14 +2004,303 @@ def reading_assignment_review_page(child_id, assignment_id):
 
     existing_word_set = {row["word"].lower() for row in existing_words}
 
+    # Compute score
+    questions_list = [dict(q) for q in questions]
+    total_count = len(questions_list)
+    correct_count = sum(1 for q in questions_list if q.get("is_correct"))
+    score = round(correct_count / total_count * 100) if total_count > 0 else 0
+
     return render_template(
         "reading_assignment_review.html",
         child=dict(child),
         assignment=dict(assignment),
-        questions=[dict(q) for q in questions],
+        questions=questions_list,
         unknown_words=[row["word"] for row in unknown_words],
-        existing_word_set=existing_word_set
+        existing_word_set=existing_word_set,
+        score=score,
+        correct_count=correct_count,
+        total_count=total_count,
+        role=session.get("role", "parent")
     )
+
+
+# ── Math Tests ──
+
+@app.route("/parent/child/<int:child_id>/math-test/new")
+@parent_required
+def create_math_test_page(child_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    conn.close()
+    if not child:
+        return "Child not found", 404
+    return render_template("create_math_test.html", child=dict(child))
+
+
+@app.route("/api/math-tests/preview-answers", methods=["POST"])
+@parent_required
+def preview_math_answers():
+    if "answer_pdf" not in request.files:
+        return jsonify({"error": "No answer PDF uploaded"}), 400
+    f = request.files["answer_pdf"]
+    if not f.filename:
+        return jsonify({"error": "No file selected"}), 400
+
+    row = request.form.get("row", "").strip()
+
+    # Save to temp file, parse, then delete
+    filename = secure_filename(f.filename)
+    temp_path = os.path.join(UPLOAD_FOLDER, "temp_" + filename)
+    f.save(temp_path)
+    try:
+        if row:
+            rows_dict, error = parse_grid_answer_pdf(temp_path)
+            if error:
+                return jsonify({"error": error}), 400
+            answers, error = extract_row_answers(rows_dict, row)
+        else:
+            answers, error = parse_answer_pdf(temp_path)
+    finally:
+        os.remove(temp_path)
+
+    if error:
+        return jsonify({"error": error}), 400
+    return jsonify({"answers": answers, "total": len(answers)})
+
+
+@app.route("/api/math-tests/preview-grid-answers", methods=["POST"])
+@parent_required
+def preview_grid_answers():
+    if "answer_pdf" not in request.files:
+        return jsonify({"error": "No answer PDF uploaded"}), 400
+    f = request.files["answer_pdf"]
+    if not f.filename:
+        return jsonify({"error": "No file selected"}), 400
+
+    filename = secure_filename(f.filename)
+    temp_path = os.path.join(UPLOAD_FOLDER, "temp_" + filename)
+    f.save(temp_path)
+    try:
+        rows_dict, error = parse_grid_answer_pdf(temp_path)
+    finally:
+        os.remove(temp_path)
+
+    if error:
+        return jsonify({"error": error}), 400
+    rows_summary = {name: len(answers) for name, answers in rows_dict.items()}
+    return jsonify({"rows": rows_summary})
+
+
+@app.route("/api/math-tests", methods=["POST"])
+@parent_required
+def create_math_test():
+    title = request.form.get("title", "").strip()
+    child_id = request.form.get("child_id", type=int)
+    if not title or not child_id:
+        return jsonify({"error": "Title and child are required"}), 400
+
+    if "question_pdf" not in request.files or "answer_pdf" not in request.files:
+        return jsonify({"error": "Both question and answer PDFs are required"}), 400
+
+    q_file = request.files["question_pdf"]
+    a_file = request.files["answer_pdf"]
+    if not q_file.filename or not a_file.filename:
+        return jsonify({"error": "Both PDF files must be selected"}), 400
+
+    # Save PDFs
+    ts = int(time.time())
+    q_filename = f"math_q_{child_id}_{ts}_{secure_filename(q_file.filename)}"
+    a_filename = f"math_a_{child_id}_{ts}_{secure_filename(a_file.filename)}"
+    q_path = os.path.join(UPLOAD_FOLDER, q_filename)
+    a_path = os.path.join(UPLOAD_FOLDER, a_filename)
+    q_file.save(q_path)
+    a_file.save(a_path)
+
+    # Parse answer key
+    row = request.form.get("row", "").strip()
+    if row:
+        rows_dict, error = parse_grid_answer_pdf(a_path)
+        if not error:
+            answers, error = extract_row_answers(rows_dict, row)
+    else:
+        answers, error = parse_answer_pdf(a_path)
+    if error:
+        os.remove(q_path)
+        os.remove(a_path)
+        return jsonify({"error": f"Failed to parse answer PDF: {error}"}), 400
+
+    account = get_current_account()
+    conn = get_db()
+    cursor = conn.execute(
+        """INSERT INTO math_test (child_id, created_by, title, question_pdf, answer_pdf, answer_key, total_questions)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (child_id, account["id"], title, q_filename, a_filename, json.dumps(answers), len(answers))
+    )
+    test_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({"id": test_id, "total_questions": len(answers)}), 201
+
+
+@app.route("/api/children/<int:child_id>/math-tests", methods=["GET"])
+@login_required
+def list_math_tests(child_id):
+    conn = get_db()
+    tests = conn.execute(
+        """SELECT mt.id, mt.title, mt.status, mt.total_questions, mt.created_at,
+                  (SELECT id FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as submission_id,
+                  (SELECT score FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as score
+           FROM math_test mt
+           WHERE mt.child_id = ?
+           ORDER BY mt.created_at DESC""",
+        (child_id,)
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(t) for t in tests])
+
+
+@app.route("/api/math-tests/<int:test_id>", methods=["GET"])
+@login_required
+def get_math_test(test_id):
+    conn = get_db()
+    test = conn.execute("SELECT * FROM math_test WHERE id = ?", (test_id,)).fetchone()
+    conn.close()
+    if not test:
+        return jsonify({"error": "Not found"}), 404
+    result = dict(test)
+    # Don't expose answer key to child role
+    if session.get("role") != "parent":
+        result.pop("answer_key", None)
+    return jsonify(result)
+
+
+@app.route("/api/math-tests/<int:test_id>", methods=["DELETE"])
+@parent_required
+def delete_math_test(test_id):
+    conn = get_db()
+    test = conn.execute("SELECT * FROM math_test WHERE id = ?", (test_id,)).fetchone()
+    if not test:
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+
+    # Delete PDF files
+    for fname in [test["question_pdf"], test["answer_pdf"]]:
+        fpath = os.path.join(UPLOAD_FOLDER, fname)
+        if os.path.exists(fpath):
+            os.remove(fpath)
+
+    conn.execute("DELETE FROM math_test_submission WHERE math_test_id = ?", (test_id,))
+    conn.execute("DELETE FROM math_test WHERE id = ?", (test_id,))
+    conn.commit()
+    conn.close()
+    return "", 204
+
+
+@app.route("/api/math-tests/<int:test_id>/submit", methods=["POST"])
+@login_required
+def submit_math_test(test_id):
+    conn = get_db()
+    test = conn.execute("SELECT * FROM math_test WHERE id = ?", (test_id,)).fetchone()
+    if not test:
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+
+    data = request.json
+    child_answers = data.get("answers", {})
+    answer_key = json.loads(test["answer_key"])
+
+    correct_count = 0
+    total_count = len(answer_key)
+    for q_num, correct_ans in answer_key.items():
+        if child_answers.get(q_num, "").upper() == correct_ans.upper():
+            correct_count += 1
+
+    score = round(correct_count / total_count * 100) if total_count > 0 else 0
+
+    cursor = conn.execute(
+        """INSERT INTO math_test_submission (math_test_id, child_id, answers, score, correct_count, total_count)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (test_id, test["child_id"], json.dumps(child_answers), score, correct_count, total_count)
+    )
+    submission_id = cursor.lastrowid
+
+    # Mark test as completed
+    conn.execute("UPDATE math_test SET status = 'completed' WHERE id = ?", (test_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"submission_id": submission_id, "score": score, "correct_count": correct_count, "total_count": total_count})
+
+
+@app.route("/api/math-test-submissions/<int:submission_id>", methods=["GET"])
+@login_required
+def get_math_test_submission(submission_id):
+    conn = get_db()
+    sub = conn.execute("SELECT * FROM math_test_submission WHERE id = ?", (submission_id,)).fetchone()
+    if not sub:
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+    test = conn.execute("SELECT * FROM math_test WHERE id = ?", (sub["math_test_id"],)).fetchone()
+    conn.close()
+    if not test:
+        return jsonify({"error": "Test not found"}), 404
+    result = dict(sub)
+    result["answer_key"] = json.loads(test["answer_key"])
+    result["question_pdf"] = test["question_pdf"]
+    result["answer_pdf"] = test["answer_pdf"]
+    result["title"] = test["title"]
+    return jsonify(result)
+
+
+@app.route("/child/<int:child_id>/math-test/<int:test_id>")
+@login_required
+def take_math_test(child_id, test_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    test = conn.execute("SELECT * FROM math_test WHERE id = ?", (test_id,)).fetchone()
+    conn.close()
+    if not child or not test:
+        return "Not found", 404
+    return render_template("math_test.html", child=dict(child), test={
+        "id": test["id"], "title": test["title"],
+        "question_pdf": test["question_pdf"], "total_questions": test["total_questions"]
+    })
+
+
+@app.route("/child/<int:child_id>/math-test/<int:test_id>/review")
+@login_required
+def review_math_test(child_id, test_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    test = conn.execute("SELECT * FROM math_test WHERE id = ?", (test_id,)).fetchone()
+    if not child or not test:
+        conn.close()
+        return "Not found", 404
+    sub = conn.execute(
+        "SELECT * FROM math_test_submission WHERE math_test_id = ? ORDER BY submitted_at DESC LIMIT 1",
+        (test_id,)
+    ).fetchone()
+    conn.close()
+    if not sub:
+        return "No submission found", 404
+
+    role = session.get("role", "parent")
+    test_data = dict(test)
+
+    # For child role, compute results server-side and strip answer key
+    if role != "parent":
+        answer_key = json.loads(test["answer_key"])
+        child_answers = json.loads(sub["answers"])
+        results = []
+        for i in range(1, len(answer_key) + 1):
+            key = str(i)
+            child_ans = child_answers.get(key, "-")
+            correct_ans = answer_key.get(key, "?")
+            results.append({"q": i, "child_answer": child_ans, "is_correct": child_ans.upper() == correct_ans.upper()})
+        test_data.pop("answer_key", None)
+        test_data.pop("answer_pdf", None)
+        return render_template("math_test_review.html", child=dict(child), test=test_data, submission=dict(sub), role=role, results=results)
+
+    return render_template("math_test_review.html", child=dict(child), test=test_data, submission=dict(sub), role=role)
 
 
 if __name__ == "__main__":

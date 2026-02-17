@@ -176,6 +176,34 @@ def init_db():
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (assignment_id) REFERENCES reading_assignment(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS math_test (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id INTEGER NOT NULL,
+            created_by INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            question_pdf TEXT NOT NULL,
+            answer_pdf TEXT NOT NULL,
+            answer_key TEXT NOT NULL,
+            total_questions INTEGER NOT NULL,
+            status TEXT DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE,
+            FOREIGN KEY (created_by) REFERENCES account(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS math_test_submission (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            math_test_id INTEGER NOT NULL,
+            child_id INTEGER NOT NULL,
+            answers TEXT NOT NULL,
+            score INTEGER NOT NULL,
+            correct_count INTEGER NOT NULL,
+            total_count INTEGER NOT NULL,
+            submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (math_test_id) REFERENCES math_test(id) ON DELETE CASCADE,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE
+        );
     """)
     conn.commit()
 
@@ -244,6 +272,13 @@ def init_db():
     # Migration: Add evidence_text to reading_assignment_answer
     try:
         conn.execute("ALTER TABLE reading_assignment_answer ADD COLUMN evidence_text TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    # Migration: Add is_correct to reading_assignment_answer
+    try:
+        conn.execute("ALTER TABLE reading_assignment_answer ADD COLUMN is_correct BOOLEAN")
         conn.commit()
     except sqlite3.OperationalError:
         pass

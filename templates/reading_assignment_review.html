@@ -4,25 +4,113 @@
 
 {% block extra_css %}
 <style>
-    .review-card {
+    .container { max-width: 100%; margin: 0; border-radius: 0; padding: 15px 20px; }
+    .review-layout {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0;
+        height: calc(100vh - 120px);
+    }
+    .review-layout.sidebar-open {
+        grid-template-columns: 1fr 400px;
+        gap: 15px;
+    }
+    .reading-area {
+        background: #f7fafc;
+        border-radius: 12px;
+        overflow-y: auto;
+        padding: 20px;
+        min-height: 0;
+    }
+    .reading-text {
+        font-size: 20px;
+        line-height: 1.8;
+        white-space: pre-wrap;
+    }
+    .details-panel {
+        display: none;
+        overflow-y: auto;
+    }
+    .review-layout.sidebar-open .details-panel {
+        display: block;
+    }
+    .toggle-sidebar {
+        position: fixed;
+        right: 20px;
+        top: 80px;
+        z-index: 100;
+        background: #667eea;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 8px 14px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .toggle-sidebar:hover { background: #5a6fd6; }
+
+    .score-banner {
+        text-align: center;
         padding: 15px;
         border-radius: 12px;
-        margin-bottom: 15px;
-        border-left: 4px solid #667eea;
-        background: #f7fafc;
-    }
-    .question-text {
-        font-size: 16px;
-        font-weight: 500;
-        line-height: 1.6;
-        white-space: pre-line;
         margin-bottom: 12px;
     }
-    .answer-block {
-        padding: 10px 15px;
-        border-radius: 8px;
+    .score-banner.high { background: linear-gradient(135deg, #c6f6d5, #9ae6b4); }
+    .score-banner.mid { background: linear-gradient(135deg, #fefcbf, #fbd38d); }
+    .score-banner.low { background: linear-gradient(135deg, #fed7d7, #feb2b2); }
+    .score-big {
+        font-size: 40px;
+        font-weight: 800;
+        color: #333;
+    }
+    .score-detail {
+        font-size: 14px;
+        color: #555;
+        margin-top: 2px;
+    }
+    .review-card {
+        padding: 12px;
+        border-radius: 10px;
+        margin-bottom: 10px;
+        border-left: 4px solid #667eea;
+        background: white;
+    }
+    .review-card.correct {
+        border-left-color: #38a169;
+    }
+    .review-card.wrong {
+        border-left-color: #e53e3e;
+    }
+    .question-text {
+        font-size: 14px;
+        font-weight: 500;
+        line-height: 1.5;
+        white-space: pre-line;
         margin-bottom: 8px;
-        font-size: 15px;
+    }
+    .result-indicator {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 700;
+        margin-left: 8px;
+    }
+    .result-indicator.correct {
+        background: #c6f6d5;
+        color: #276749;
+    }
+    .result-indicator.wrong {
+        background: #fed7d7;
+        color: #c53030;
+    }
+    .answer-block {
+        padding: 8px 12px;
+        border-radius: 8px;
+        margin-bottom: 6px;
+        font-size: 14px;
     }
     .expected-answer {
         background: #c6f6d5;
@@ -38,23 +126,20 @@
         color: #c53030;
         font-style: italic;
     }
-    .evidence-block {
-        background: #fffff0;
-        border: 1px solid #ecc94b;
-        padding: 10px 15px;
-        border-radius: 8px;
-        margin-bottom: 8px;
-        font-size: 14px;
-    }
     .answer-label {
-        font-size: 12px;
+        font-size: 11px;
         font-weight: bold;
         color: #666;
         text-transform: uppercase;
-        margin-bottom: 4px;
+        margin-bottom: 2px;
+    }
+    .details-scroll {
+        max-height: calc(100vh - 200px);
+        overflow-y: auto;
+        padding-right: 4px;
     }
     .unknown-word-item {
-        padding: 12px 15px;
+        padding: 10px 12px;
         background: #fffff0;
         border: 1px solid #ecc94b;
         border-radius: 8px;
@@ -70,7 +155,7 @@
         align-items: center;
     }
     .unknown-word-item .word-text {
-        font-size: 16px;
+        font-size: 15px;
         font-weight: 600;
     }
     .unknown-word-item .word-def {
@@ -138,26 +223,8 @@
         cursor: pointer;
         white-space: nowrap;
     }
-    .btn-add-word:hover {
-        background: #5a67d8;
-    }
-    .btn-add-word:disabled {
-        background: #9ae6b4;
-        cursor: default;
-    }
-    .btn-edit-word {
-        background: none;
-        border: 1px solid #cbd5e0;
-        padding: 4px 10px;
-        border-radius: 6px;
-        font-size: 12px;
-        cursor: pointer;
-        color: #4a5568;
-        margin-left: 6px;
-    }
-    .btn-edit-word:hover {
-        background: #edf2f7;
-    }
+    .btn-add-word:hover { background: #5a67d8; }
+    .btn-add-word:disabled { background: #9ae6b4; cursor: default; }
     .btn-fetch {
         background: #ecc94b;
         color: #744210;
@@ -169,132 +236,158 @@
         cursor: pointer;
         white-space: nowrap;
     }
-    .btn-fetch:hover {
-        background: #d69e2e;
-    }
-    .btn-fetch:disabled {
-        opacity: 0.6;
-        cursor: default;
+    .btn-fetch:hover { background: #d69e2e; }
+    .btn-fetch:disabled { opacity: 0.6; cursor: default; }
+
+    @media (max-width: 800px) {
+        .review-layout, .review-layout.sidebar-open {
+            grid-template-columns: 1fr;
+            height: auto;
+        }
+        .review-layout.sidebar-open .details-panel {
+            display: block;
+        }
+        .reading-area {
+            max-height: 50vh;
+        }
+        .details-scroll {
+            max-height: none;
+        }
+        .toggle-sidebar { right: 10px; top: 70px; }
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none;">&larr; Back to Dashboard</a>
-<h1 style="margin-top: 10px;">Review: {{ assignment.title }}</h1>
-
-<div class="card" style="margin-bottom: 20px;">
-    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-        <div>
-            <strong style="font-size: 18px;">{{ child.name }}</strong>
-            <div style="font-size: 14px; color: #666; margin-top: 4px;">
-                {% if assignment.completed_at %}
-                Completed {{ assignment.completed_at[:16] }}
-                {% else %}
-                Status: {{ assignment.status }}
-                {% endif %}
-            </div>
-        </div>
-        <div style="font-size: 14px; color: #666;">
-            {{ questions|length }} questions
-        </div>
-    </div>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+    <a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back</a>
+    <h2 style="margin: 0;">Review: {{ assignment.title }}</h2>
+    <span></span>
 </div>
 
-<h2 style="margin-bottom: 15px;">Questions & Answers</h2>
+<button class="toggle-sidebar" id="toggleBtn" onclick="toggleSidebar()">Results &rsaquo;</button>
 
-{% for q in questions %}
-<div class="review-card">
-    <div style="margin-bottom: 8px;">
-        <span style="display: inline-block; background: #667eea; color: white; width: 28px; height: 28px; border-radius: 50%; text-align: center; line-height: 28px; font-size: 14px; font-weight: bold; margin-right: 8px;">{{ loop.index }}</span>
-    </div>
-    <div class="question-text">{{ q.question_text }}</div>
-
-    {% if q.answer_text %}
-    <div class="answer-block expected-answer">
-        <div class="answer-label">Expected Answer</div>
-        {{ q.answer_text }}
-    </div>
-    {% endif %}
-
-    {% if q.child_answer %}
-    <div class="answer-block child-answer">
-        <div class="answer-label">Child's Answer</div>
-        {{ q.child_answer }}
-    </div>
-    {% else %}
-    <div class="answer-block child-answer no-answer">
-        <div class="answer-label">Child's Answer</div>
-        No answer provided
-    </div>
-    {% endif %}
-
-    {% if q.evidence_text %}
-    <div class="evidence-block">
-        <div class="answer-label" style="color: #b7791f;">Why (Evidence)</div>
-        {{ q.evidence_text }}
-    </div>
-    {% endif %}
-</div>
-{% endfor %}
-
-{% if unknown_words %}
-<h2 style="margin-top: 25px; margin-bottom: 15px;">Words Marked as Unknown</h2>
-<div style="margin-bottom: 10px; display: flex; gap: 8px;">
-    <button class="btn-fetch" id="fetch-all-btn" onclick="fetchAllDefinitions()" style="padding: 8px 20px; font-size: 14px;">
-        Fetch All Definitions
-    </button>
-    <button class="btn-add-word" id="add-all-btn" onclick="addAllNewWords()" style="padding: 8px 20px; font-size: 14px;">
-        Add All New to Vocabulary
-    </button>
-</div>
-<div id="unknown-words-list">
-    {% for word in unknown_words %}
-    {% set in_vocab = word.lower() in existing_word_set %}
-    <div class="unknown-word-item {{ 'in-vocab' if in_vocab }}" id="uw-{{ loop.index0 }}" data-word="{{ word }}" data-in-vocab="{{ 'true' if in_vocab else 'false' }}">
-        <div class="word-header">
-            <div>
-                <span class="word-text">{{ word }}</span>
-                {% if in_vocab %}
-                <span class="vocab-badge exists">In vocabulary</span>
-                {% else %}
-                <span class="vocab-badge new" id="uw-badge-{{ loop.index0 }}">New</span>
-                {% endif %}
-            </div>
-            <div>
-                {% if not in_vocab %}
-                <button class="btn-fetch" id="uw-fetch-{{ loop.index0 }}" onclick="fetchDefinition({{ loop.index0 }})">
-                    Fetch Definition
-                </button>
-                <button class="btn-add-word" id="uw-btn-{{ loop.index0 }}" onclick="addWord({{ loop.index0 }})" style="display:none;">
-                    Add to Words
-                </button>
-                {% endif %}
-            </div>
-        </div>
-        {% if not in_vocab %}
-        <div class="word-edit-fields" id="uw-edit-{{ loop.index0 }}" style="display:none;">
-            <label style="font-size: 12px; font-weight: 600; color: #555;">Definition</label>
-            <textarea id="uw-definition-{{ loop.index0 }}" placeholder="Definition" rows="2"></textarea>
-            <label style="font-size: 12px; font-weight: 600; color: #555;">Example sentence</label>
-            <textarea id="uw-example-{{ loop.index0 }}" placeholder="Example sentence (optional)" rows="1"></textarea>
-            <div class="word-image-zone" id="uw-imgzone-{{ loop.index0 }}" onclick="document.getElementById('uw-imgfile-{{ loop.index0 }}').click()">
-                Click to select or paste image (optional)
-                <div id="uw-imgpreview-{{ loop.index0 }}" style="display:none;"></div>
-            </div>
-            <input type="file" id="uw-imgfile-{{ loop.index0 }}" accept="image/*" style="display:none;" onchange="previewImage({{ loop.index0 }}, this)">
+<div class="review-layout" id="reviewLayout">
+    <div class="reading-area">
+        {% if assignment.image_path %}
+        <div style="margin-bottom: 15px;">
+            <img src="/uploads/{{ assignment.image_path }}" style="max-width: 100%; border-radius: 12px;">
         </div>
         {% endif %}
+        <div class="reading-text">{{ assignment.content }}</div>
     </div>
-    {% endfor %}
+
+    <div class="details-panel">
+        <div class="score-banner {{ 'high' if score >= 80 else ('mid' if score >= 50 else 'low') }}">
+            <div class="score-big">{{ score }}%</div>
+            <div class="score-detail">{{ correct_count }} / {{ total_count }} correct</div>
+        </div>
+
+        <div class="details-scroll">
+            {% for q in questions %}
+            <div class="review-card {{ 'correct' if q.is_correct else 'wrong' }}">
+                <div style="margin-bottom: 6px; display: flex; align-items: center;">
+                    <span style="display: inline-block; background: #667eea; color: white; width: 24px; height: 24px; border-radius: 50%; text-align: center; line-height: 24px; font-size: 12px; font-weight: bold; margin-right: 8px;">{{ loop.index }}</span>
+                    {% if q.is_correct %}
+                    <span class="result-indicator correct">&#10003; Correct</span>
+                    {% else %}
+                    <span class="result-indicator wrong">&#10007; Wrong</span>
+                    {% endif %}
+                </div>
+                <div class="question-text">{{ q.question_text }}</div>
+
+                {% if q.child_answer %}
+                <div class="answer-block child-answer">
+                    <div class="answer-label">Child's Answer</div>
+                    {{ q.child_answer }}
+                </div>
+                {% else %}
+                <div class="answer-block child-answer no-answer">
+                    <div class="answer-label">Child's Answer</div>
+                    No answer provided
+                </div>
+                {% endif %}
+
+                {% if role == 'parent' and q.answer_text %}
+                <div class="answer-block expected-answer">
+                    <div class="answer-label">Correct Answer</div>
+                    {{ q.answer_text }}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+
+            {% if unknown_words %}
+            <h3 style="margin-top: 15px; margin-bottom: 10px; font-size: 15px;">Words Marked as Unknown</h3>
+            <div style="margin-bottom: 8px; display: flex; gap: 6px;">
+                <button class="btn-fetch" id="fetch-all-btn" onclick="fetchAllDefinitions()" style="padding: 6px 14px; font-size: 13px;">
+                    Fetch All Definitions
+                </button>
+                <button class="btn-add-word" id="add-all-btn" onclick="addAllNewWords()" style="padding: 6px 14px; font-size: 13px;">
+                    Add All New to Vocabulary
+                </button>
+            </div>
+            <div id="unknown-words-list">
+                {% for word in unknown_words %}
+                {% set in_vocab = word.lower() in existing_word_set %}
+                <div class="unknown-word-item {{ 'in-vocab' if in_vocab }}" id="uw-{{ loop.index0 }}" data-word="{{ word }}" data-in-vocab="{{ 'true' if in_vocab else 'false' }}">
+                    <div class="word-header">
+                        <div>
+                            <span class="word-text">{{ word }}</span>
+                            {% if in_vocab %}
+                            <span class="vocab-badge exists">In vocabulary</span>
+                            {% else %}
+                            <span class="vocab-badge new" id="uw-badge-{{ loop.index0 }}">New</span>
+                            {% endif %}
+                        </div>
+                        <div>
+                            {% if not in_vocab %}
+                            <button class="btn-fetch" id="uw-fetch-{{ loop.index0 }}" onclick="fetchDefinition({{ loop.index0 }})">
+                                Fetch Definition
+                            </button>
+                            <button class="btn-add-word" id="uw-btn-{{ loop.index0 }}" onclick="addWord({{ loop.index0 }})" style="display:none;">
+                                Add to Words
+                            </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% if not in_vocab %}
+                    <div class="word-edit-fields" id="uw-edit-{{ loop.index0 }}" style="display:none;">
+                        <label style="font-size: 12px; font-weight: 600; color: #555;">Definition</label>
+                        <textarea id="uw-definition-{{ loop.index0 }}" placeholder="Definition" rows="2"></textarea>
+                        <label style="font-size: 12px; font-weight: 600; color: #555;">Example sentence</label>
+                        <textarea id="uw-example-{{ loop.index0 }}" placeholder="Example sentence (optional)" rows="1"></textarea>
+                        <div class="word-image-zone" id="uw-imgzone-{{ loop.index0 }}" onclick="document.getElementById('uw-imgfile-{{ loop.index0 }}').click()">
+                            Click to select or paste image (optional)
+                            <div id="uw-imgpreview-{{ loop.index0 }}" style="display:none;"></div>
+                        </div>
+                        <input type="file" id="uw-imgfile-{{ loop.index0 }}" accept="image/*" style="display:none;" onchange="previewImage({{ loop.index0 }}, this)">
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
 </div>
-{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
 const assignmentId = {{ assignment.id }};
 const imageFiles = {};
+let sidebarOpen = true;
+
+// Open sidebar by default
+document.getElementById('reviewLayout').classList.add('sidebar-open');
+document.getElementById('toggleBtn').innerHTML = 'Results &lsaquo;';
+
+function toggleSidebar() {
+    sidebarOpen = !sidebarOpen;
+    document.getElementById('reviewLayout').classList.toggle('sidebar-open', sidebarOpen);
+    document.getElementById('toggleBtn').innerHTML = sidebarOpen ? 'Results &lsaquo;' : 'Results &rsaquo;';
+}
 
 function previewImage(idx, input) {
     const file = input.files[0];
@@ -344,13 +437,11 @@ async function fetchDefinition(idx) {
         const res = await fetch(`/api/dictionary/${encodeURIComponent(word)}`);
         const data = await res.json();
 
-        // Show edit fields with fetched data
         const editEl = document.getElementById('uw-edit-' + idx);
         editEl.style.display = 'block';
         document.getElementById('uw-definition-' + idx).value = data.definition || '';
         document.getElementById('uw-example-' + idx).value = data.example || '';
 
-        // Show the Add button, hide fetch button
         fetchBtn.style.display = 'none';
         document.getElementById('uw-btn-' + idx).style.display = '';
     } catch (e) {
@@ -399,7 +490,6 @@ async function addWord(idx) {
         const data = await res.json();
         btn.textContent = 'Added';
 
-        // Upload image if selected
         const wordId = data.word_id;
         if (wordId && imageFiles[idx]) {
             const formData = new FormData();
@@ -410,7 +500,6 @@ async function addWord(idx) {
             });
         }
 
-        // Hide edit fields, mark as in-vocab
         const editEl = document.getElementById('uw-edit-' + idx);
         if (editEl) editEl.style.display = 'none';
         item.classList.add('in-vocab');
@@ -432,7 +521,6 @@ async function addAllNewWords() {
     for (const item of items) {
         if (item.dataset.inVocab === 'true') continue;
         const idx = parseInt(item.id.replace('uw-', ''));
-        // Fetch definition first if not yet fetched
         const fetchBtn = document.getElementById('uw-fetch-' + idx);
         if (fetchBtn && fetchBtn.style.display !== 'none') {
             await fetchDefinition(idx);

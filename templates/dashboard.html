@@ -33,6 +33,25 @@
 </div>
 {% endif %}
 
+{% if math_tests %}
+<div style="margin-bottom: 30px;">
+    <h2>Math Tests</h2>
+    {% for mt in math_tests %}
+    <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong style="font-size: 18px;">{{ mt.title }}</strong>
+            <div style="font-size: 14px; color: #666;">
+                {{ mt.total_questions }} questions | Created {{ mt.created_at[:10] }}
+            </div>
+        </div>
+        <a href="/child/{{ child.id }}/math-test/{{ mt.id }}" class="btn btn-success" style="padding: 10px 25px;">
+            Start
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
 {% if pending_assignments %}
 <div style="margin-bottom: 30px;">
     <h2>Reading Assignments</h2>

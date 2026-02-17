@@ -142,7 +142,7 @@ function deselectAll() {
 
 async function createTest() {
     const wordIds = [...selectedIds];
-    const title = document.getElementById('test-title').value.trim() || 'Test';
+    const title = document.getElementById('test-title').value.trim() || new Date().toLocaleDateString();
 
     const res = await fetch('/api/parent-tests', {
         method: 'POST',

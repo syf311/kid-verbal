@@ -1,0 +1,377 @@
+{% extends "base.html" %}
+
+{% block title %}Create Math Test - {{ child.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .step-indicator {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 25px;
+    }
+    .step {
+        flex: 1;
+        text-align: center;
+        padding: 10px;
+        border-radius: 8px;
+        background: #e2e8f0;
+        color: #666;
+        font-weight: 600;
+        font-size: 14px;
+    }
+    .step.active {
+        background: #667eea;
+        color: white;
+    }
+    .step.done {
+        background: #48bb78;
+        color: white;
+    }
+    .form-group {
+        margin-bottom: 20px;
+    }
+    .form-group label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 6px;
+        color: #333;
+    }
+    .file-input-wrap {
+        border: 2px dashed #cbd5e0;
+        border-radius: 10px;
+        padding: 20px;
+        text-align: center;
+        cursor: pointer;
+        transition: border-color 0.2s;
+    }
+    .file-input-wrap:hover {
+        border-color: #667eea;
+    }
+    .file-input-wrap input[type="file"] {
+        display: none;
+    }
+    .file-input-wrap .file-name {
+        margin-top: 8px;
+        font-size: 14px;
+        color: #48bb78;
+        font-weight: 600;
+    }
+    .answer-preview {
+        display: none;
+        margin-top: 20px;
+    }
+    .answer-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+        gap: 8px;
+        margin-top: 10px;
+    }
+    .answer-item {
+        background: #f7fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 8px 12px;
+        text-align: center;
+        font-size: 14px;
+    }
+    .answer-item .q-num {
+        font-weight: 700;
+        color: #667eea;
+    }
+    .error-msg {
+        color: #f56565;
+        background: #fff5f5;
+        border: 1px solid #fed7d7;
+        border-radius: 8px;
+        padding: 12px;
+        margin-top: 10px;
+        display: none;
+    }
+    .btn-row {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+    }
+    .grid-row-picker {
+        display: none;
+        margin-top: 15px;
+        padding: 15px;
+        background: #f7fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+    }
+    .grid-row-picker label {
+        font-weight: 600;
+        margin-bottom: 8px;
+        display: block;
+        color: #333;
+    }
+    .grid-row-picker select {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid #cbd5e0;
+        border-radius: 8px;
+        font-size: 14px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="/parent" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back to Dashboard</a>
+<h1 style="margin-top: 10px;">Create Math Test for {{ child.name }}</h1>
+
+<div class="step-indicator">
+    <div class="step active" id="step1">1. Upload</div>
+    <div class="step" id="step2">2. Preview</div>
+    <div class="step" id="step3">3. Create</div>
+</div>
+
+<div class="form-group">
+    <label for="title">Test Title</label>
+    <input type="text" id="title" placeholder="e.g. Chapter 5 Quiz" maxlength="200">
+</div>
+
+<div class="form-group">
+    <label>Question PDF</label>
+    <div class="file-input-wrap" onclick="document.getElementById('questionPdf').click()">
+        <div>Click to upload question PDF</div>
+        <div class="file-name" id="qFileName"></div>
+        <input type="file" id="questionPdf" accept=".pdf" onchange="onFileSelect('q')">
+    </div>
+</div>
+
+<div class="form-group">
+    <label>Answer Key PDF</label>
+    <div class="file-input-wrap" onclick="document.getElementById('answerPdf').click()">
+        <div>Click to upload answer key PDF</div>
+        <div class="file-name" id="aFileName"></div>
+        <input type="file" id="answerPdf" accept=".pdf" onchange="onFileSelect('a')">
+    </div>
+</div>
+
+<div class="btn-row">
+    <button class="btn btn-warning" onclick="previewAnswers()" id="previewBtn" disabled>Parse Standard</button>
+    <button class="btn btn-warning" onclick="previewGrid()" id="gridBtn" disabled style="background:#805ad5;">Parse Kangaroo</button>
+    <button class="btn btn-primary" onclick="createTest()" id="createBtn" disabled style="display:none;">Create Test</button>
+</div>
+
+<div class="grid-row-picker" id="gridRowPicker">
+    <label for="rowSelect">Select competition level:</label>
+    <select id="rowSelect" onchange="onRowSelect()">
+        <option value="">-- pick a row --</option>
+    </select>
+</div>
+
+<div class="error-msg" id="errorMsg"></div>
+
+<div class="answer-preview" id="answerPreview">
+    <h3>Parsed Answers (<span id="answerCount"></span> questions)</h3>
+    <div class="answer-grid" id="answerGrid"></div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const childId = {{ child.id }};
+let parsedAnswers = null;
+let selectedRow = null;
+
+function onFileSelect(type) {
+    const input = type === 'q' ? document.getElementById('questionPdf') : document.getElementById('answerPdf');
+    const label = type === 'q' ? document.getElementById('qFileName') : document.getElementById('aFileName');
+    label.textContent = input.files[0] ? input.files[0].name : '';
+    if (type === 'a') {
+        // Reset grid state when a new answer PDF is selected
+        document.getElementById('gridRowPicker').style.display = 'none';
+        document.getElementById('answerPreview').style.display = 'none';
+        parsedAnswers = null;
+        selectedRow = null;
+    }
+    updateButtons();
+}
+
+function updateButtons() {
+    const hasQ = document.getElementById('questionPdf').files.length > 0;
+    const hasA = document.getElementById('answerPdf').files.length > 0;
+    document.getElementById('previewBtn').disabled = !hasA;
+    document.getElementById('gridBtn').disabled = !hasA;
+    const canCreate = hasQ && parsedAnswers;
+    document.getElementById('createBtn').style.display = canCreate ? '' : 'none';
+    document.getElementById('createBtn').disabled = !canCreate;
+}
+
+function showAnswerPreview(answers) {
+    parsedAnswers = answers;
+    document.getElementById('answerCount').textContent = Object.keys(answers).length;
+    const grid = document.getElementById('answerGrid');
+    grid.innerHTML = '';
+    for (const [num, ans] of Object.entries(answers)) {
+        grid.innerHTML += `<div class="answer-item"><span class="q-num">Q${num}</span> ${ans}</div>`;
+    }
+    document.getElementById('answerPreview').style.display = 'block';
+    document.getElementById('step1').className = 'step done';
+    document.getElementById('step2').className = 'step active';
+    updateButtons();
+}
+
+async function previewAnswers() {
+    const btn = document.getElementById('previewBtn');
+    const errEl = document.getElementById('errorMsg');
+    errEl.style.display = 'none';
+    document.getElementById('gridRowPicker').style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = 'Parsing...';
+    selectedRow = null;
+
+    const fd = new FormData();
+    fd.append('answer_pdf', document.getElementById('answerPdf').files[0]);
+
+    try {
+        const res = await fetch('/api/math-tests/preview-answers', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) {
+            errEl.textContent = data.error || 'Failed to parse answers';
+            errEl.style.display = 'block';
+            parsedAnswers = null;
+        } else {
+            showAnswerPreview(data.answers);
+        }
+    } catch (e) {
+        errEl.textContent = 'Network error';
+        errEl.style.display = 'block';
+        parsedAnswers = null;
+    }
+    btn.disabled = false;
+    btn.textContent = 'Parse Standard';
+    updateButtons();
+}
+
+async function previewGrid() {
+    const btn = document.getElementById('gridBtn');
+    const errEl = document.getElementById('errorMsg');
+    errEl.style.display = 'none';
+    document.getElementById('answerPreview').style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = 'Detecting rows...';
+    parsedAnswers = null;
+    selectedRow = null;
+
+    const fd = new FormData();
+    fd.append('answer_pdf', document.getElementById('answerPdf').files[0]);
+
+    try {
+        const res = await fetch('/api/math-tests/preview-grid-answers', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) {
+            errEl.textContent = data.error || 'Failed to parse grid';
+            errEl.style.display = 'block';
+        } else {
+            const select = document.getElementById('rowSelect');
+            select.innerHTML = '<option value="">-- pick a row --</option>';
+            for (const [name, count] of Object.entries(data.rows)) {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = `${name} (${count} questions)`;
+                select.appendChild(opt);
+            }
+            document.getElementById('gridRowPicker').style.display = 'block';
+            // Auto-select Écolier if available
+            const ecolierOpt = Array.from(select.options).find(o => o.value === 'Écolier');
+            if (ecolierOpt) {
+                select.value = 'Écolier';
+                onRowSelect();
+            }
+        }
+    } catch (e) {
+        errEl.textContent = 'Network error';
+        errEl.style.display = 'block';
+    }
+    btn.disabled = false;
+    btn.textContent = 'Parse Kangaroo';
+    updateButtons();
+}
+
+async function onRowSelect() {
+    const select = document.getElementById('rowSelect');
+    const row = select.value;
+    if (!row) {
+        document.getElementById('answerPreview').style.display = 'none';
+        parsedAnswers = null;
+        selectedRow = null;
+        updateButtons();
+        return;
+    }
+
+    const errEl = document.getElementById('errorMsg');
+    errEl.style.display = 'none';
+    select.disabled = true;
+
+    const fd = new FormData();
+    fd.append('answer_pdf', document.getElementById('answerPdf').files[0]);
+    fd.append('row', row);
+
+    try {
+        const res = await fetch('/api/math-tests/preview-answers', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) {
+            errEl.textContent = data.error || 'Failed to extract row answers';
+            errEl.style.display = 'block';
+            parsedAnswers = null;
+            selectedRow = null;
+        } else {
+            selectedRow = row;
+            showAnswerPreview(data.answers);
+        }
+    } catch (e) {
+        errEl.textContent = 'Network error';
+        errEl.style.display = 'block';
+        parsedAnswers = null;
+        selectedRow = null;
+    }
+    select.disabled = false;
+    updateButtons();
+}
+
+async function createTest() {
+    const title = document.getElementById('title').value.trim();
+    if (!title) { alert('Please enter a test title'); return; }
+
+    const btn = document.getElementById('createBtn');
+    const errEl = document.getElementById('errorMsg');
+    errEl.style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = 'Creating...';
+
+    const fd = new FormData();
+    fd.append('title', title);
+    fd.append('child_id', childId);
+    fd.append('question_pdf', document.getElementById('questionPdf').files[0]);
+    fd.append('answer_pdf', document.getElementById('answerPdf').files[0]);
+    if (selectedRow) {
+        fd.append('row', selectedRow);
+    }
+
+    try {
+        const res = await fetch('/api/math-tests', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) {
+            errEl.textContent = data.error || 'Failed to create test';
+            errEl.style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = 'Create Test';
+        } else {
+            document.getElementById('step2').className = 'step done';
+            document.getElementById('step3').className = 'step active';
+            alert('Math test created with ' + data.total_questions + ' questions!');
+            window.location.href = '/parent';
+        }
+    } catch (e) {
+        errEl.textContent = 'Network error';
+        errEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Create Test';
+    }
+}
+</script>
+{% endblock %}

@@ -4,89 +4,140 @@
 
 {% block extra_css %}
 <style>
-    .reading-content {
+    .container { max-width: 100%; margin: 0; border-radius: 0; padding: 15px 20px; }
+    .assignment-layout {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0;
+        height: calc(100vh - 120px);
+    }
+    .assignment-layout.sidebar-open {
+        grid-template-columns: 1fr 380px;
+        gap: 15px;
+    }
+    .reading-area {
+        background: #f7fafc;
+        border-radius: 12px;
+        overflow-y: auto;
+        padding: 20px;
+        min-height: 0;
+    }
+    .reading-text {
         font-size: 20px;
         line-height: 1.8;
         white-space: pre-wrap;
-        padding: 20px;
-        background: #f7fafc;
-        border-radius: 12px;
-        max-height: 500px;
-        overflow-y: auto;
-        margin-bottom: 20px;
     }
+    .answer-panel {
+        display: none;
+        overflow-y: auto;
+    }
+    .assignment-layout.sidebar-open .answer-panel {
+        display: block;
+    }
+    .toggle-sidebar {
+        position: fixed;
+        right: 20px;
+        top: 80px;
+        z-index: 100;
+        background: #667eea;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 8px 14px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .toggle-sidebar:hover { background: #5a6fd6; }
     .question-card {
-        background: #f7fafc;
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 15px;
+        background: white;
+        border-radius: 10px;
+        padding: 14px;
+        margin-bottom: 10px;
         border-left: 4px solid #667eea;
     }
     .question-number {
         display: inline-block;
         background: #667eea;
         color: white;
-        width: 28px;
-        height: 28px;
+        width: 24px;
+        height: 24px;
         border-radius: 50%;
         text-align: center;
-        line-height: 28px;
-        font-size: 14px;
+        line-height: 24px;
+        font-size: 12px;
         font-weight: bold;
-        margin-right: 10px;
+        margin-right: 8px;
     }
     .question-text {
-        font-size: 16px;
-        line-height: 1.6;
+        font-size: 14px;
+        line-height: 1.5;
         white-space: pre-line;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
     }
-    .answer-textarea {
-        width: 100%;
-        padding: 12px;
-        font-size: 16px;
+    .choice-btn {
+        width: 42px;
+        height: 42px;
         border: 2px solid #e2e8f0;
         border-radius: 8px;
-        min-height: 60px;
-        resize: vertical;
-        box-sizing: border-box;
+        background: white;
+        font-weight: 700;
+        font-size: 15px;
+        cursor: pointer;
+        transition: all 0.15s;
+        color: #555;
     }
-    .answer-textarea:focus {
-        outline: none;
+    .choice-btn:hover {
+        border-color: #667eea;
+        background: #eef2ff;
+    }
+    .choice-btn.selected {
+        background: #667eea;
+        color: white;
         border-color: #667eea;
     }
-    .evidence-textarea {
-        width: 100%;
-        padding: 12px;
+    .choices-row {
+        display: flex;
+        gap: 8px;
+    }
+    .progress-bar-wrap {
+        background: #e2e8f0;
+        border-radius: 20px;
+        height: 12px;
+        margin-bottom: 10px;
+        overflow: hidden;
+    }
+    .progress-bar-fill {
+        background: linear-gradient(90deg, #667eea, #48bb78);
+        height: 100%;
+        border-radius: 20px;
+        transition: width 0.3s;
+    }
+    .progress-text {
+        text-align: center;
         font-size: 14px;
-        border: 2px solid #e2e8f0;
-        border-radius: 8px;
-        min-height: 50px;
-        resize: vertical;
-        box-sizing: border-box;
-        margin-top: 8px;
-        background: #fffff0;
+        color: #666;
+        margin-bottom: 10px;
     }
-    .evidence-textarea:focus {
-        outline: none;
-        border-color: #d69e2e;
+    .questions-scroll {
+        max-height: calc(100vh - 300px);
+        overflow-y: auto;
+        padding-right: 4px;
     }
-    .evidence-label {
-        font-size: 13px;
-        color: #b7791f;
-        font-weight: 600;
-        margin-top: 8px;
-        display: block;
+    .submit-area {
+        margin-top: 12px;
+        text-align: center;
     }
-    .reading-content span.word {
+    .reading-text span.word {
         cursor: pointer;
         border-radius: 3px;
         transition: background 0.15s;
     }
-    .reading-content span.word:hover {
+    .reading-text span.word:hover {
         background: #fefcbf;
     }
-    .reading-content span.word.marked {
+    .reading-text span.word.marked {
         background: #fefcbf;
         border-bottom: 2px solid #d69e2e;
     }
@@ -104,51 +155,77 @@
         text-align: center;
         margin-bottom: 10px;
     }
+    @media (max-width: 800px) {
+        .assignment-layout, .assignment-layout.sidebar-open {
+            grid-template-columns: 1fr;
+            height: auto;
+        }
+        .assignment-layout.sidebar-open .answer-panel {
+            display: block;
+        }
+        .reading-area {
+            max-height: 50vh;
+        }
+        .questions-scroll {
+            max-height: none;
+        }
+        .toggle-sidebar { right: 10px; top: 70px; }
+    }
 </style>
 {% endblock %}
 
 {% block content %}
-<a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none;">&larr; Back to Dashboard</a>
-<h1 style="margin-top: 10px;">{{ assignment.title }}</h1>
-
-{% if assignment.image_path %}
-<div style="margin-bottom: 15px;">
-    <img src="/uploads/{{ assignment.image_path }}" style="max-width: 100%; border-radius: 12px;">
-</div>
-{% endif %}
-
-<div class="reading-content" id="reading-content">
-    <div class="marked-count-badge" id="marked-badge"></div>
-    {{ assignment.content }}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+    <a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back</a>
+    <h2 style="margin: 0;">{{ assignment.title }}</h2>
+    <span></span>
 </div>
 
-<div id="questions-section" style="display: none;">
-    <h2>Questions</h2>
-    <form id="assignment-form">
-        {% for q in questions %}
-        <div class="question-card">
-            <div style="margin-bottom: 8px;">
-                <span class="question-number">{{ loop.index }}</span>
-                <strong>Question {{ loop.index }}</strong>
-            </div>
-            <div class="question-text">{{ q.question_text }}</div>
-            <textarea class="answer-textarea" name="answer-{{ q.id }}" data-question-id="{{ q.id }}" placeholder="Type your answer here..." required></textarea>
-            <label class="evidence-label">Why?</label>
-            <textarea class="evidence-textarea" name="evidence-{{ q.id }}" data-question-id="{{ q.id }}" placeholder="Explain why or show evidence..."></textarea>
+<button class="toggle-sidebar" id="toggleBtn" onclick="toggleSidebar()">Questions &rsaquo;</button>
+
+<div class="assignment-layout" id="assignmentLayout">
+    <div class="reading-area">
+        {% if assignment.image_path %}
+        <div style="margin-bottom: 15px;">
+            <img src="/uploads/{{ assignment.image_path }}" style="max-width: 100%; border-radius: 12px;">
         </div>
-        {% endfor %}
+        {% endif %}
+        <div class="reading-text" id="reading-content">
+            <div class="marked-count-badge" id="marked-badge"></div>
+            {{ assignment.content }}
+        </div>
+    </div>
 
-        <button type="submit" class="btn btn-success" style="width: 100%; padding: 15px; font-size: 18px; margin-top: 10px;">
-            Submit All Answers
-        </button>
-    </form>
-</div>
-
-<div id="start-section" style="text-align: center; margin-top: 20px;">
-    <p style="color: #666; margin-bottom: 15px;">Read the material above, then click below to answer questions.</p>
-    <button class="btn btn-primary" style="padding: 15px 40px; font-size: 18px;" onclick="showQuestions()">
-        Start Questions ({{ questions|length }})
-    </button>
+    <div class="answer-panel">
+        <div class="card">
+            <h3 style="margin-bottom: 10px;">Questions</h3>
+            <div class="progress-text" id="progressText">0 / {{ questions|length }} answered</div>
+            <div class="progress-bar-wrap">
+                <div class="progress-bar-fill" id="progressBar" style="width: 0%"></div>
+            </div>
+            <div class="questions-scroll">
+                {% for q in questions %}
+                <div class="question-card" id="qcard-{{ q.id }}">
+                    <div style="margin-bottom: 6px;">
+                        <span class="question-number">{{ loop.index }}</span>
+                        <strong style="font-size: 13px;">Q{{ loop.index }}</strong>
+                    </div>
+                    <div class="question-text">{{ q.question_text }}</div>
+                    <div class="choices-row">
+                        {% for letter in ['A', 'B', 'C', 'D'] %}
+                        <button type="button" class="choice-btn" data-qid="{{ q.id }}" data-ch="{{ letter }}" onclick="selectAnswer({{ q.id }}, '{{ letter }}', this)">{{ letter }}</button>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="submit-area">
+                <button type="button" class="btn btn-success" id="submitBtn" style="width: 100%; padding: 12px; font-size: 16px;" onclick="submitAnswers()" disabled>
+                    Submit All Answers
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -156,15 +233,25 @@
 <script>
 const childId = {{ child.id }};
 const assignmentId = {{ assignment.id }};
+const totalQuestions = {{ questions|length }};
+const selectedAnswers = {};
 const markedWords = new Set();
+let sidebarOpen = true;
+
+// Open sidebar by default
+document.getElementById('assignmentLayout').classList.add('sidebar-open');
+document.getElementById('toggleBtn').innerHTML = 'Questions &lsaquo;';
+
+function toggleSidebar() {
+    sidebarOpen = !sidebarOpen;
+    document.getElementById('assignmentLayout').classList.toggle('sidebar-open', sidebarOpen);
+    document.getElementById('toggleBtn').innerHTML = sidebarOpen ? 'Questions &lsaquo;' : 'Questions &rsaquo;';
+}
 
 // Wrap each word in the reading content with a clickable span
 (function() {
     const contentEl = document.getElementById('reading-content');
-    const badge = document.getElementById('marked-badge');
-    // Get text nodes only (skip the badge element)
     const text = `{{ assignment.content | e }}`;
-    // Build word-wrapped HTML
     const html = text.split(/(\s+)/).map(part => {
         if (part.trim()) {
             const clean = part.replace(/[^a-zA-Z'-]/g, '').toLowerCase();
@@ -175,7 +262,6 @@ const markedWords = new Set();
         }
         return part;
     }).join('');
-    // Keep the badge, replace the rest
     contentEl.innerHTML = '<div class="marked-count-badge" id="marked-badge"></div>' + html;
 })();
 
@@ -201,38 +287,55 @@ function updateBadge() {
     }
 }
 
-function showQuestions() {
-    document.getElementById('start-section').style.display = 'none';
-    document.getElementById('questions-section').style.display = 'block';
-    document.getElementById('questions-section').scrollIntoView({ behavior: 'smooth' });
+function selectAnswer(qid, letter, btn) {
+    btn.parentElement.querySelectorAll('.choice-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    selectedAnswers[qid] = letter;
+    updateProgress();
 }
 
-document.getElementById('assignment-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
+function updateProgress() {
+    const count = Object.keys(selectedAnswers).length;
+    document.getElementById('progressText').textContent = count + ' / ' + totalQuestions + ' answered';
+    document.getElementById('progressBar').style.width = (count / totalQuestions * 100) + '%';
+    document.getElementById('submitBtn').disabled = count < totalQuestions;
+}
 
-    const textareas = document.querySelectorAll('.answer-textarea');
-    const answers = [];
-    for (const ta of textareas) {
-        const qid = parseInt(ta.dataset.questionId);
-        const evidenceEl = document.querySelector(`.evidence-textarea[data-question-id="${qid}"]`);
-        answers.push({
-            question_id: qid,
-            child_answer: ta.value.trim(),
-            evidence_text: evidenceEl ? evidenceEl.value.trim() : ''
+async function submitAnswers() {
+    if (Object.keys(selectedAnswers).length < totalQuestions) {
+        alert('Please answer all questions before submitting.');
+        return;
+    }
+    if (!confirm('Submit your answers? You cannot change them after submitting.')) return;
+
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
+
+    const answers = Object.entries(selectedAnswers).map(([qid, letter]) => ({
+        question_id: parseInt(qid),
+        child_answer: letter
+    }));
+
+    try {
+        const res = await fetch(`/api/reading-assignments/${assignmentId}/submit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ answers, unknown_words: Array.from(markedWords) })
         });
-    }
 
-    const res = await fetch(`/api/reading-assignments/${assignmentId}/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers, unknown_words: Array.from(markedWords) })
-    });
-
-    if (res.ok) {
-        window.location.href = `/child/${childId}`;
-    } else {
-        alert('Error submitting answers. Please try again.');
+        if (res.ok) {
+            window.location.href = `/child/${childId}/reading-assignment/${assignmentId}/review`;
+        } else {
+            alert('Error submitting answers. Please try again.');
+            btn.disabled = false;
+            btn.textContent = 'Submit All Answers';
+        }
+    } catch (e) {
+        alert('Network error. Please try again.');
+        btn.disabled = false;
+        btn.textContent = 'Submit All Answers';
     }
-});
+}
 </script>
 {% endblock %}

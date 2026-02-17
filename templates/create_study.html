@@ -142,7 +142,7 @@ function deselectAll() {
 
 async function createSession() {
     const wordIds = [...selectedIds];
-    const title = document.getElementById('session-title').value.trim() || 'Study Session';
+    const title = document.getElementById('session-title').value.trim() || new Date().toLocaleDateString();
 
     const res = await fetch('/api/study-sessions', {
         method: 'POST',
