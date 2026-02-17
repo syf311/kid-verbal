@@ -168,6 +168,14 @@ def init_db():
             FOREIGN KEY (assignment_id) REFERENCES reading_assignment(id) ON DELETE CASCADE,
             FOREIGN KEY (question_id) REFERENCES material_question(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS reading_assignment_unknown_word (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            assignment_id INTEGER NOT NULL,
+            word TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (assignment_id) REFERENCES reading_assignment(id) ON DELETE CASCADE
+        );
     """)
     conn.commit()
 

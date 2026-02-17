@@ -53,6 +53,129 @@
         text-transform: uppercase;
         margin-bottom: 4px;
     }
+    .unknown-word-item {
+        padding: 12px 15px;
+        background: #fffff0;
+        border: 1px solid #ecc94b;
+        border-radius: 8px;
+        margin-bottom: 8px;
+    }
+    .unknown-word-item.in-vocab {
+        background: #f0fff4;
+        border-color: #9ae6b4;
+    }
+    .unknown-word-item .word-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .unknown-word-item .word-text {
+        font-size: 16px;
+        font-weight: 600;
+    }
+    .unknown-word-item .word-def {
+        font-size: 13px;
+        color: #666;
+        margin-top: 2px;
+    }
+    .vocab-badge {
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 10px;
+        margin-left: 8px;
+    }
+    .vocab-badge.exists {
+        background: #c6f6d5;
+        color: #276749;
+    }
+    .vocab-badge.new {
+        background: #fefcbf;
+        color: #975a16;
+    }
+    .word-edit-fields {
+        margin-top: 8px;
+        display: none;
+    }
+    .word-edit-fields input,
+    .word-edit-fields textarea {
+        width: 100%;
+        padding: 8px;
+        font-size: 13px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        box-sizing: border-box;
+        margin-bottom: 6px;
+    }
+    .word-edit-fields textarea {
+        min-height: 40px;
+        resize: vertical;
+    }
+    .word-image-zone {
+        border: 2px dashed #ccc;
+        padding: 10px;
+        text-align: center;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        color: #666;
+        margin-bottom: 6px;
+    }
+    .word-image-zone img {
+        max-width: 120px;
+        max-height: 80px;
+        border-radius: 6px;
+        margin-top: 4px;
+    }
+    .btn-add-word {
+        background: #667eea;
+        color: white;
+        border: none;
+        padding: 6px 14px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .btn-add-word:hover {
+        background: #5a67d8;
+    }
+    .btn-add-word:disabled {
+        background: #9ae6b4;
+        cursor: default;
+    }
+    .btn-edit-word {
+        background: none;
+        border: 1px solid #cbd5e0;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 12px;
+        cursor: pointer;
+        color: #4a5568;
+        margin-left: 6px;
+    }
+    .btn-edit-word:hover {
+        background: #edf2f7;
+    }
+    .btn-fetch {
+        background: #ecc94b;
+        color: #744210;
+        border: none;
+        padding: 6px 14px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .btn-fetch:hover {
+        background: #d69e2e;
+    }
+    .btn-fetch:disabled {
+        opacity: 0.6;
+        cursor: default;
+    }
 </style>
 {% endblock %}
 
@@ -114,4 +237,212 @@
     {% endif %}
 </div>
 {% endfor %}
+
+{% if unknown_words %}
+<h2 style="margin-top: 25px; margin-bottom: 15px;">Words Marked as Unknown</h2>
+<div style="margin-bottom: 10px; display: flex; gap: 8px;">
+    <button class="btn-fetch" id="fetch-all-btn" onclick="fetchAllDefinitions()" style="padding: 8px 20px; font-size: 14px;">
+        Fetch All Definitions
+    </button>
+    <button class="btn-add-word" id="add-all-btn" onclick="addAllNewWords()" style="padding: 8px 20px; font-size: 14px;">
+        Add All New to Vocabulary
+    </button>
+</div>
+<div id="unknown-words-list">
+    {% for word in unknown_words %}
+    {% set in_vocab = word.lower() in existing_word_set %}
+    <div class="unknown-word-item {{ 'in-vocab' if in_vocab }}" id="uw-{{ loop.index0 }}" data-word="{{ word }}" data-in-vocab="{{ 'true' if in_vocab else 'false' }}">
+        <div class="word-header">
+            <div>
+                <span class="word-text">{{ word }}</span>
+                {% if in_vocab %}
+                <span class="vocab-badge exists">In vocabulary</span>
+                {% else %}
+                <span class="vocab-badge new" id="uw-badge-{{ loop.index0 }}">New</span>
+                {% endif %}
+            </div>
+            <div>
+                {% if not in_vocab %}
+                <button class="btn-fetch" id="uw-fetch-{{ loop.index0 }}" onclick="fetchDefinition({{ loop.index0 }})">
+                    Fetch Definition
+                </button>
+                <button class="btn-add-word" id="uw-btn-{{ loop.index0 }}" onclick="addWord({{ loop.index0 }})" style="display:none;">
+                    Add to Words
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        {% if not in_vocab %}
+        <div class="word-edit-fields" id="uw-edit-{{ loop.index0 }}" style="display:none;">
+            <label style="font-size: 12px; font-weight: 600; color: #555;">Definition</label>
+            <textarea id="uw-definition-{{ loop.index0 }}" placeholder="Definition" rows="2"></textarea>
+            <label style="font-size: 12px; font-weight: 600; color: #555;">Example sentence</label>
+            <textarea id="uw-example-{{ loop.index0 }}" placeholder="Example sentence (optional)" rows="1"></textarea>
+            <div class="word-image-zone" id="uw-imgzone-{{ loop.index0 }}" onclick="document.getElementById('uw-imgfile-{{ loop.index0 }}').click()">
+                Click to select or paste image (optional)
+                <div id="uw-imgpreview-{{ loop.index0 }}" style="display:none;"></div>
+            </div>
+            <input type="file" id="uw-imgfile-{{ loop.index0 }}" accept="image/*" style="display:none;" onchange="previewImage({{ loop.index0 }}, this)">
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const assignmentId = {{ assignment.id }};
+const imageFiles = {};
+
+function previewImage(idx, input) {
+    const file = input.files[0];
+    if (!file) return;
+    imageFiles[idx] = file;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const preview = document.getElementById('uw-imgpreview-' + idx);
+        preview.innerHTML = `<img src="${e.target.result}">`;
+        preview.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+}
+
+document.addEventListener('paste', function(e) {
+    const openEdits = document.querySelectorAll('.word-edit-fields[style*="display: block"], .word-edit-fields[style*="display:block"]');
+    if (openEdits.length === 0) return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let item of items) {
+        if (item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (!file) break;
+            const panel = openEdits[openEdits.length - 1];
+            const idx = parseInt(panel.id.replace('uw-edit-', ''));
+            imageFiles[idx] = file;
+            const reader = new FileReader();
+            reader.onload = function(ev) {
+                const preview = document.getElementById('uw-imgpreview-' + idx);
+                preview.innerHTML = `<img src="${ev.target.result}">`;
+                preview.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+            break;
+        }
+    }
+});
+
+async function fetchDefinition(idx) {
+    const item = document.getElementById('uw-' + idx);
+    const word = item.dataset.word;
+    const fetchBtn = document.getElementById('uw-fetch-' + idx);
+    fetchBtn.disabled = true;
+    fetchBtn.textContent = 'Fetching...';
+
+    try {
+        const res = await fetch(`/api/dictionary/${encodeURIComponent(word)}`);
+        const data = await res.json();
+
+        // Show edit fields with fetched data
+        const editEl = document.getElementById('uw-edit-' + idx);
+        editEl.style.display = 'block';
+        document.getElementById('uw-definition-' + idx).value = data.definition || '';
+        document.getElementById('uw-example-' + idx).value = data.example || '';
+
+        // Show the Add button, hide fetch button
+        fetchBtn.style.display = 'none';
+        document.getElementById('uw-btn-' + idx).style.display = '';
+    } catch (e) {
+        fetchBtn.textContent = 'Error - Retry';
+        fetchBtn.disabled = false;
+    }
+}
+
+async function fetchAllDefinitions() {
+    const btn = document.getElementById('fetch-all-btn');
+    btn.disabled = true;
+    btn.textContent = 'Fetching...';
+
+    const items = document.querySelectorAll('.unknown-word-item');
+    for (const item of items) {
+        if (item.dataset.inVocab === 'true') continue;
+        const idx = parseInt(item.id.replace('uw-', ''));
+        const fetchBtn = document.getElementById('uw-fetch-' + idx);
+        if (fetchBtn && fetchBtn.style.display !== 'none') {
+            await fetchDefinition(idx);
+        }
+    }
+    btn.textContent = 'All Fetched';
+}
+
+async function addWord(idx) {
+    const item = document.getElementById('uw-' + idx);
+    const word = item.dataset.word;
+    const btn = document.getElementById('uw-btn-' + idx);
+    btn.disabled = true;
+    btn.textContent = 'Adding...';
+
+    const defInput = document.getElementById('uw-definition-' + idx);
+    const exInput = document.getElementById('uw-example-' + idx);
+
+    try {
+        const res = await fetch(`/api/reading-assignments/${assignmentId}/add-word`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                word,
+                definition: defInput ? defInput.value.trim() : '',
+                example_sentence: exInput ? exInput.value.trim() : ''
+            })
+        });
+        const data = await res.json();
+        btn.textContent = 'Added';
+
+        // Upload image if selected
+        const wordId = data.word_id;
+        if (wordId && imageFiles[idx]) {
+            const formData = new FormData();
+            formData.append('image', imageFiles[idx]);
+            await fetch(`/api/words/${wordId}/image`, {
+                method: 'POST',
+                body: formData
+            });
+        }
+
+        // Hide edit fields, mark as in-vocab
+        const editEl = document.getElementById('uw-edit-' + idx);
+        if (editEl) editEl.style.display = 'none';
+        item.classList.add('in-vocab');
+        item.dataset.inVocab = 'true';
+        const badge = document.getElementById('uw-badge-' + idx);
+        if (badge) { badge.className = 'vocab-badge exists'; badge.textContent = 'In vocabulary'; }
+    } catch (e) {
+        btn.textContent = 'Error';
+        btn.disabled = false;
+    }
+}
+
+async function addAllNewWords() {
+    const addAllBtn = document.getElementById('add-all-btn');
+    addAllBtn.disabled = true;
+    addAllBtn.textContent = 'Adding...';
+
+    const items = document.querySelectorAll('.unknown-word-item');
+    for (const item of items) {
+        if (item.dataset.inVocab === 'true') continue;
+        const idx = parseInt(item.id.replace('uw-', ''));
+        // Fetch definition first if not yet fetched
+        const fetchBtn = document.getElementById('uw-fetch-' + idx);
+        if (fetchBtn && fetchBtn.style.display !== 'none') {
+            await fetchDefinition(idx);
+        }
+        const btn = document.getElementById('uw-btn-' + idx);
+        if (btn && !btn.disabled) {
+            await addWord(idx);
+        }
+    }
+    addAllBtn.textContent = 'All Added';
+}
+</script>
 {% endblock %}

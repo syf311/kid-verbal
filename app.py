@@ -1738,6 +1738,15 @@ def submit_reading_assignment(assignment_id):
             (assignment_id, a["question_id"], a.get("child_answer", ""), a.get("evidence_text", ""))
         )
 
+    unknown_words = data.get("unknown_words", [])
+    for word in unknown_words:
+        w = word.strip()
+        if w:
+            conn.execute(
+                "INSERT INTO reading_assignment_unknown_word (assignment_id, word) VALUES (?, ?)",
+                (assignment_id, w)
+            )
+
     conn.execute(
         "UPDATE reading_assignment SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
         (assignment_id,)
@@ -1752,10 +1761,73 @@ def submit_reading_assignment(assignment_id):
 def delete_reading_assignment(assignment_id):
     conn = get_db()
     conn.execute("DELETE FROM reading_assignment_answer WHERE assignment_id = ?", (assignment_id,))
+    conn.execute("DELETE FROM reading_assignment_unknown_word WHERE assignment_id = ?", (assignment_id,))
     conn.execute("DELETE FROM reading_assignment WHERE id = ?", (assignment_id,))
     conn.commit()
     conn.close()
     return "", 204
+
+
+@app.route("/api/reading-assignments/<int:assignment_id>/add-word", methods=["POST"])
+@parent_required
+def add_unknown_word_to_vocab(assignment_id):
+    data = request.json
+    word = data.get("word", "").strip().lower()
+    if not word:
+        return jsonify({"error": "No word provided"}), 400
+
+    conn = get_db()
+    assignment = conn.execute(
+        "SELECT child_id FROM reading_assignment WHERE id = ?", (assignment_id,)
+    ).fetchone()
+    if not assignment:
+        conn.close()
+        return jsonify({"error": "Assignment not found"}), 404
+
+    child_id = assignment["child_id"]
+
+    # Check if word already exists for this child
+    existing = conn.execute(
+        "SELECT id FROM word WHERE child_id = ? AND word = ?", (child_id, word)
+    ).fetchone()
+    if existing:
+        conn.close()
+        return jsonify({"status": "exists", "word_id": existing["id"]}), 200
+
+    # Fetch definition (use provided values if given)
+    definition = data.get("definition", "").strip()
+    example = data.get("example_sentence", "").strip()
+
+    if not definition:
+        result = fetch_definition(word)
+        if result:
+            definition = result["definition"]
+            if not example:
+                example = result.get("example", "")
+
+    cursor = conn.execute(
+        "INSERT INTO word (child_id, word, definition, example_sentence) VALUES (?, ?, ?, ?)",
+        (child_id, word, definition, example)
+    )
+    word_id = cursor.lastrowid
+    conn.execute(
+        "INSERT INTO word_progress (child_id, word_id, difficulty_level) VALUES (?, ?, 1)",
+        (child_id, word_id)
+    )
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "added", "word_id": word_id, "definition": definition, "example": example}), 201
+
+
+@app.route("/api/dictionary/<word>")
+@login_required
+def dictionary_lookup(word):
+    word = word.strip().lower()
+    result = fetch_definition(word)
+    if result:
+        return jsonify({"definition": result["definition"], "example": result.get("example", "")})
+    return jsonify({"definition": "", "example": ""})
 
 
 @app.route("/child/<int:child_id>/reading-assignment/<int:assignment_id>")
@@ -1822,13 +1894,27 @@ def reading_assignment_review_page(child_id, assignment_id):
            ORDER BY mq.id""",
         (assignment_id, assignment["material_id"])
     ).fetchall()
+
+    unknown_words = conn.execute(
+        "SELECT word FROM reading_assignment_unknown_word WHERE assignment_id = ? ORDER BY id",
+        (assignment_id,)
+    ).fetchall()
+
+    # Get child's existing vocabulary for checking overlap
+    existing_words = conn.execute(
+        "SELECT word FROM word WHERE child_id = ?", (child_id,)
+    ).fetchall()
     conn.close()
+
+    existing_word_set = {row["word"].lower() for row in existing_words}
 
     return render_template(
         "reading_assignment_review.html",
         child=dict(child),
         assignment=dict(assignment),
-        questions=[dict(q) for q in questions]
+        questions=[dict(q) for q in questions],
+        unknown_words=[row["word"] for row in unknown_words],
+        existing_word_set=existing_word_set
     )
 
 

@@ -78,6 +78,32 @@
         margin-top: 8px;
         display: block;
     }
+    .reading-content span.word {
+        cursor: pointer;
+        border-radius: 3px;
+        transition: background 0.15s;
+    }
+    .reading-content span.word:hover {
+        background: #fefcbf;
+    }
+    .reading-content span.word.marked {
+        background: #fefcbf;
+        border-bottom: 2px solid #d69e2e;
+    }
+    .marked-count-badge {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #d69e2e;
+        color: white;
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 13px;
+        font-weight: 600;
+        display: none;
+        text-align: center;
+        margin-bottom: 10px;
+    }
 </style>
 {% endblock %}
 
@@ -91,7 +117,10 @@
 </div>
 {% endif %}
 
-<div class="reading-content" id="reading-content">{{ assignment.content }}</div>
+<div class="reading-content" id="reading-content">
+    <div class="marked-count-badge" id="marked-badge"></div>
+    {{ assignment.content }}
+</div>
 
 <div id="questions-section" style="display: none;">
     <h2>Questions</h2>
@@ -127,6 +156,50 @@
 <script>
 const childId = {{ child.id }};
 const assignmentId = {{ assignment.id }};
+const markedWords = new Set();
+
+// Wrap each word in the reading content with a clickable span
+(function() {
+    const contentEl = document.getElementById('reading-content');
+    const badge = document.getElementById('marked-badge');
+    // Get text nodes only (skip the badge element)
+    const text = `{{ assignment.content | e }}`;
+    // Build word-wrapped HTML
+    const html = text.split(/(\s+)/).map(part => {
+        if (part.trim()) {
+            const clean = part.replace(/[^a-zA-Z'-]/g, '').toLowerCase();
+            if (clean) {
+                return `<span class="word" data-word="${clean}" onclick="toggleMark(this)">${part}</span>`;
+            }
+            return part;
+        }
+        return part;
+    }).join('');
+    // Keep the badge, replace the rest
+    contentEl.innerHTML = '<div class="marked-count-badge" id="marked-badge"></div>' + html;
+})();
+
+function toggleMark(el) {
+    const word = el.dataset.word;
+    if (el.classList.contains('marked')) {
+        el.classList.remove('marked');
+        markedWords.delete(word);
+    } else {
+        el.classList.add('marked');
+        markedWords.add(word);
+    }
+    updateBadge();
+}
+
+function updateBadge() {
+    const badge = document.getElementById('marked-badge');
+    if (markedWords.size > 0) {
+        badge.style.display = 'block';
+        badge.textContent = markedWords.size + ' word' + (markedWords.size === 1 ? '' : 's') + ' marked as unknown';
+    } else {
+        badge.style.display = 'none';
+    }
+}
 
 function showQuestions() {
     document.getElementById('start-section').style.display = 'none';
@@ -152,7 +225,7 @@ document.getElementById('assignment-form').addEventListener('submit', async (e) 
     const res = await fetch(`/api/reading-assignments/${assignmentId}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers })
+        body: JSON.stringify({ answers, unknown_words: Array.from(markedWords) })
     });
 
     if (res.ok) {
