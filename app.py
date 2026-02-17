@@ -977,7 +977,7 @@ def progress_page(child_id):
         return "Child not found", 404
 
     words = conn.execute(
-        """SELECT w.id, w.word, w.definition,
+        """SELECT w.id, w.word, w.definition, w.example_sentence, w.image_path,
                   COALESCE(wp.correct_count, 0) as correct_count,
                   COALESCE(wp.wrong_count, 0) as wrong_count,
                   COALESCE(wp.difficulty_level, 1) as difficulty_level,

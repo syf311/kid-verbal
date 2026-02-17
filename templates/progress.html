@@ -209,6 +209,7 @@
             data-word="{{ w.word }}"
             data-definition="{{ w.definition or '' }}"
             data-example="{{ w.example_sentence or '' }}"
+            data-image="{{ w.image_path or '' }}"
             {% if role == 'parent' %}onclick="toggleRow(this, event)"{% endif %}>
             <td>
                 <strong>{{ w.word }}</strong>
@@ -392,6 +393,7 @@ function openEditModal(btn, event) {
     const word = tr.dataset.word;
     const definition = tr.dataset.definition;
     const example = tr.dataset.example;
+    const image = tr.dataset.image;
 
     const container = document.getElementById('edit-modal-container');
     container.innerHTML = `
@@ -404,6 +406,16 @@ function openEditModal(btn, event) {
                 <textarea id="edit-def">${escapeHtml(definition)}</textarea>
                 <label style="font-weight: bold; font-size: 14px;">Example Sentence</label>
                 <textarea id="edit-example">${escapeHtml(example)}</textarea>
+                <label style="font-weight: bold; font-size: 14px;">Image</label>
+                <div id="edit-image-area" style="margin-bottom: 12px;">
+                    ${image ? `
+                        <div id="current-image" style="margin-bottom: 8px;">
+                            <img src="/uploads/${escapeHtml(image)}" style="max-width: 200px; max-height: 150px; border-radius: 8px;">
+                            <button class="btn" style="background: #fed7d7; color: #c53030; padding: 4px 10px; font-size: 12px; margin-left: 8px;" onclick="removeImage(${wordId})">Remove</button>
+                        </div>
+                    ` : ''}
+                    <input type="file" id="edit-image-file" accept="image/*" style="font-size: 14px;">
+                </div>
                 <div class="modal-buttons">
                     <button class="btn btn-warning" style="padding: 8px 20px;" onclick="closeEditModal()">Cancel</button>
                     <button class="btn btn-success" style="padding: 8px 20px;" onclick="saveEdit(${wordId})">Save</button>
@@ -422,23 +434,52 @@ async function saveEdit(wordId) {
     const newWord = document.getElementById('edit-word-text').value.trim();
     const newDef = document.getElementById('edit-def').value.trim();
     const newExample = document.getElementById('edit-example').value.trim();
+    const imageFile = document.getElementById('edit-image-file').files[0];
 
+    // Save word details
     const res = await fetch(`/api/words/${wordId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ word: newWord, definition: newDef, example_sentence: newExample })
     });
 
+    if (!res.ok) {
+        alert('Failed to save');
+        return;
+    }
+
+    // Upload image if selected
+    if (imageFile) {
+        const formData = new FormData();
+        formData.append('image', imageFile);
+        const imgRes = await fetch(`/api/words/${wordId}/image`, {
+            method: 'POST',
+            body: formData
+        });
+        if (imgRes.ok) {
+            const imgData = await imgRes.json();
+            const tr = document.querySelector(`tr[data-word-id="${wordId}"]`);
+            tr.dataset.image = imgData.image_path;
+        }
+    }
+
+    // Update row data
+    const tr = document.querySelector(`tr[data-word-id="${wordId}"]`);
+    tr.dataset.word = newWord;
+    tr.dataset.definition = newDef;
+    tr.dataset.example = newExample;
+    tr.querySelector('strong').textContent = newWord;
+    tr.querySelector('.def-text').textContent = newDef || '';
+    closeEditModal();
+}
+
+async function removeImage(wordId) {
+    const res = await fetch(`/api/words/${wordId}/image`, { method: 'DELETE' });
     if (res.ok) {
         const tr = document.querySelector(`tr[data-word-id="${wordId}"]`);
-        tr.dataset.word = newWord;
-        tr.dataset.definition = newDef;
-        tr.dataset.example = newExample;
-        tr.querySelector('strong').textContent = newWord;
-        tr.querySelector('.def-text').textContent = newDef || '';
-        closeEditModal();
-    } else {
-        alert('Failed to save');
+        tr.dataset.image = '';
+        const imgDiv = document.getElementById('current-image');
+        if (imgDiv) imgDiv.remove();
     }
 }
 
