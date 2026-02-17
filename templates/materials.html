@@ -2,6 +2,33 @@
 
 {% block title %}Reading Materials{% endblock %}
 
+{% block extra_css %}
+<style>
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .article-card {
+        background: white;
+        border: 2px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 15px;
+        margin-bottom: 10px;
+        transition: border-color 0.2s;
+    }
+    .article-card:hover { border-color: #667eea; }
+    .article-meta { font-size: 13px; color: #888; margin-bottom: 6px; }
+    .article-summary { color: #555; font-size: 14px; line-height: 1.5; margin: 8px 0; display: none; }
+    .article-summary.expanded { display: block; }
+    .source-badge {
+        display: inline-block;
+        background: #edf2f7;
+        color: #4a5568;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <a href="/" style="color: #667eea; text-decoration: none;">&larr; Home</a>
 <h1 style="margin-top: 10px;">Reading Materials</h1>
@@ -36,7 +63,7 @@
 <h2>Materials</h2>
 <div id="materials-list">
     {% for material in materials %}
-    <div class="card" style="margin-bottom: 15px;">
+    <div class="card" style="margin-bottom: 15px;" id="material-{{ material.id }}">
         <div style="display: flex; justify-content: space-between; align-items: start;">
             <div>
                 <h3 style="margin: 0;">{{ material.title }}</h3>
@@ -44,7 +71,10 @@
                     {{ material.content[:100] }}{% if material.content|length > 100 %}...{% endif %}
                 </p>
             </div>
-            <div>
+            <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+                <button class="btn" style="padding: 8px 15px; background: #edf2f7; color: #4a5568;" onclick="toggleQuestions({{ material.id }})">
+                    Questions (<span id="qcount-{{ material.id }}">{{ material.question_count }}</span>)
+                </button>
                 <a href="/session/{{ material.id }}/parent" class="btn btn-primary" style="padding: 8px 15px;">
                     Start Session
                 </a>
@@ -53,10 +83,63 @@
                 </button>
             </div>
         </div>
+
+        <!-- Inline question management section -->
+        <div id="questions-{{ material.id }}" style="display: none; margin-top: 15px; border-top: 1px solid #e2e8f0; padding-top: 15px;">
+            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                <input type="text" id="q-text-{{ material.id }}" placeholder="Question text..." style="flex: 2;">
+                <input type="text" id="q-answer-{{ material.id }}" placeholder="Answer (optional)" style="flex: 1;">
+                <button class="btn btn-success" style="padding: 8px 15px; white-space: nowrap;" onclick="addQuestion({{ material.id }})">Add</button>
+            </div>
+            <div style="margin-bottom: 10px; display: flex; gap: 8px;">
+                <button class="btn" style="padding: 6px 12px; font-size: 13px; background: #edf2f7; color: #4a5568;" onclick="toggleBatchImport({{ material.id }})">Batch Import</button>
+                <button class="btn" style="padding: 6px 12px; font-size: 13px; background: #fed7d7; color: #c53030;" onclick="clearAllQuestions({{ material.id }})">Clear All</button>
+            </div>
+            <div id="batch-import-{{ material.id }}" style="display: none; margin-bottom: 15px; padding: 12px; background: #f7fafc; border-radius: 8px;">
+                <div style="display: flex; gap: 10px;">
+                    <div style="flex: 2;">
+                        <label style="font-size: 13px; font-weight: 600; display: block; margin-bottom: 4px;">Questions (numbered, with choices)</label>
+                        <textarea id="batch-q-{{ material.id }}" rows="8" placeholder="1. What does &quot;cryogenic&quot; mean?&#10;A. Very hot temperatures&#10;B. Very low temperatures&#10;C. Loud sounds&#10;D. Fast movement&#10;2. What is the main idea?&#10;A. Option one&#10;B. Option two" style="font-size: 13px;"></textarea>
+                    </div>
+                    <div style="flex: 1;">
+                        <label style="font-size: 13px; font-weight: 600; display: block; margin-bottom: 4px;">Answers (one per line)</label>
+                        <textarea id="batch-a-{{ material.id }}" rows="8" placeholder="B&#10;A" style="font-size: 13px;"></textarea>
+                    </div>
+                </div>
+                <button class="btn btn-success" style="margin-top: 8px; padding: 8px 20px; font-size: 13px;" onclick="batchImportQuestions({{ material.id }})">Import All</button>
+            </div>
+            <div id="qlist-{{ material.id }}"></div>
+        </div>
     </div>
     {% else %}
     <p style="color: #666;">No materials yet. Add one above!</p>
     {% endfor %}
+</div>
+
+<div class="card" style="margin: 30px 0;">
+    <h2 style="margin-bottom: 10px;">Browse Articles</h2>
+    <p style="color: #666; margin-bottom: 15px;">Find kid-friendly articles from curated RSS feeds and import them as reading materials.</p>
+
+    <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
+        <label for="source-filter" style="white-space: nowrap;">Filter by source:</label>
+        <select id="source-filter" style="padding: 8px 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 14px; flex: 1; max-width: 300px;">
+            <option value="">All Sources</option>
+            <option value="Science News for Students">Science News for Students</option>
+            <option value="Time for Kids">Time for Kids</option>
+            <option value="Curious Kids">Curious Kids</option>
+            <option value="NYT Education">NYT Education</option>
+        </select>
+        <button class="btn btn-primary" style="padding: 8px 20px; font-size: 14px;" onclick="loadArticles()">Refresh</button>
+    </div>
+
+    <div id="browse-loading" style="display: none; text-align: center; padding: 30px; color: #666;">
+        <div style="display: inline-block; width: 30px; height: 30px; border: 3px solid #ddd; border-top-color: #667eea; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+        <p style="margin-top: 10px;">Loading articles from feeds...</p>
+    </div>
+
+    <div id="browse-error" style="display: none; text-align: center; padding: 20px; color: #e53e3e;"></div>
+
+    <div id="browse-articles"></div>
 </div>
 {% endblock %}
 
@@ -163,6 +246,259 @@ async function deleteMaterial(id) {
     if (!confirm('Delete this material?')) return;
     await fetch(`/api/materials/${id}`, { method: 'DELETE' });
     location.reload();
+}
+
+// Browse Articles functionality
+async function loadArticles() {
+    const loading = document.getElementById('browse-loading');
+    const errorEl = document.getElementById('browse-error');
+    const container = document.getElementById('browse-articles');
+    const source = document.getElementById('source-filter').value;
+
+    loading.style.display = 'block';
+    errorEl.style.display = 'none';
+    container.innerHTML = '';
+
+    try {
+        const params = source ? `?source=${encodeURIComponent(source)}` : '';
+        const res = await fetch(`/api/materials/browse${params}`);
+        if (!res.ok) throw new Error('Failed to load articles');
+        const articles = await res.json();
+
+        loading.style.display = 'none';
+
+        if (articles.length === 0) {
+            container.innerHTML = '<p style="color: #666; text-align: center; padding: 20px;">No articles found. Try a different source.</p>';
+            return;
+        }
+
+        articles.forEach((article, i) => {
+            const card = document.createElement('div');
+            card.className = 'article-card';
+            card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: start; gap: 10px;">
+                    <div style="flex: 1; min-width: 0;">
+                        <div class="article-meta">
+                            <span class="source-badge">${escapeHtml(article.source)}</span>
+                            ${article.published ? ' &middot; ' + escapeHtml(article.published) : ''}
+                        </div>
+                        <h3 style="margin: 4px 0 0; font-size: 16px; color: #2d3748;">${escapeHtml(article.title)}</h3>
+                        <div class="article-summary" id="summary-${i}">
+                            <p>${escapeHtml(article.summary)}</p>
+                            ${article.link ? `<a href="${escapeHtml(article.link)}" target="_blank" rel="noopener" style="color: #667eea; font-size: 13px;">Open original &rarr;</a>` : ''}
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 5px; flex-shrink: 0;">
+                        <button class="btn" style="padding: 6px 12px; font-size: 13px; background: #edf2f7; color: #4a5568;" onclick="togglePreview(${i})">Preview</button>
+                        <button class="btn btn-success import-btn" style="padding: 6px 12px; font-size: 13px;" data-index="${i}">Import</button>
+                    </div>
+                </div>
+            `;
+            // Attach import handler with closure over article data
+            card.querySelector('.import-btn').addEventListener('click', function() {
+                importArticle(this, article.link, article.title);
+            });
+            container.appendChild(card);
+        });
+    } catch (err) {
+        loading.style.display = 'none';
+        errorEl.style.display = 'block';
+        errorEl.textContent = 'Failed to load articles. Please try again.';
+    }
+}
+
+function togglePreview(index) {
+    const el = document.getElementById('summary-' + index);
+    el.classList.toggle('expanded');
+}
+
+async function importArticle(btn, url, title) {
+    if (!url) {
+        alert('No article URL available');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Importing...';
+
+    try {
+        const res = await fetch('/api/materials/import-article', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, title })
+        });
+
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.error || 'Import failed');
+        }
+
+        btn.textContent = 'Imported!';
+        btn.style.background = '#c6f6d5';
+        btn.style.color = '#22543d';
+
+        // Reload after a brief delay so user sees the success state
+        setTimeout(() => location.reload(), 1000);
+    } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Import';
+        alert('Import failed: ' + err.message);
+    }
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Auto-load articles on page load
+document.addEventListener('DOMContentLoaded', loadArticles);
+
+// Reload when filter changes
+document.getElementById('source-filter').addEventListener('change', loadArticles);
+
+// ── Question Bank Management ──
+
+async function toggleQuestions(materialId) {
+    const section = document.getElementById('questions-' + materialId);
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        await loadQuestions(materialId);
+    } else {
+        section.style.display = 'none';
+    }
+}
+
+async function loadQuestions(materialId) {
+    const container = document.getElementById('qlist-' + materialId);
+    container.innerHTML = '<p style="color: #999;">Loading...</p>';
+
+    const res = await fetch(`/api/materials/${materialId}/questions`);
+    const questions = await res.json();
+
+    document.getElementById('qcount-' + materialId).textContent = questions.length;
+
+    if (questions.length === 0) {
+        container.innerHTML = '<p style="color: #999; font-size: 14px;">No questions yet.</p>';
+        return;
+    }
+
+    container.innerHTML = questions.map(q => `
+        <div id="q-item-${q.id}" style="display: flex; align-items: start; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+            <div style="flex: 1;">
+                <div id="q-display-${q.id}">
+                    <div style="font-weight: 500; white-space: pre-line;">${escapeHtml(q.question_text)}</div>
+                    ${q.answer_text ? `<div style="color: #666; font-size: 13px; margin-top: 2px;">A: ${escapeHtml(q.answer_text)}</div>` : ''}
+                </div>
+                <div id="q-edit-${q.id}" style="display: none;">
+                    <input type="text" id="q-edit-text-${q.id}" value="${escapeHtml(q.question_text)}" style="margin-bottom: 5px;">
+                    <input type="text" id="q-edit-answer-${q.id}" value="${escapeHtml(q.answer_text || '')}" placeholder="Answer (optional)">
+                </div>
+            </div>
+            <div style="display: flex; gap: 5px; flex-shrink: 0;">
+                <button class="btn" id="q-edit-btn-${q.id}" style="padding: 4px 10px; font-size: 13px; background: #edf2f7;" onclick="startEditQuestion(${q.id})">Edit</button>
+                <button class="btn" id="q-save-btn-${q.id}" style="padding: 4px 10px; font-size: 13px; background: #c6f6d5; display: none;" onclick="saveEditQuestion(${q.id}, ${q.material_id})">Save</button>
+                <button class="btn" id="q-cancel-btn-${q.id}" style="padding: 4px 10px; font-size: 13px; background: #fed7d7; display: none;" onclick="cancelEditQuestion(${q.id})">Cancel</button>
+                <button class="btn" style="padding: 4px 10px; font-size: 13px; background: #fed7d7; color: #c53030;" onclick="deleteQuestion(${q.id}, ${q.material_id})">Delete</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function addQuestion(materialId) {
+    const textInput = document.getElementById('q-text-' + materialId);
+    const answerInput = document.getElementById('q-answer-' + materialId);
+    const questionText = textInput.value.trim();
+    if (!questionText) return;
+
+    const res = await fetch(`/api/materials/${materialId}/questions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            question_text: questionText,
+            answer_text: answerInput.value.trim()
+        })
+    });
+
+    if (res.ok) {
+        textInput.value = '';
+        answerInput.value = '';
+        await loadQuestions(materialId);
+    }
+}
+
+function startEditQuestion(qid) {
+    document.getElementById('q-display-' + qid).style.display = 'none';
+    document.getElementById('q-edit-' + qid).style.display = 'block';
+    document.getElementById('q-edit-btn-' + qid).style.display = 'none';
+    document.getElementById('q-save-btn-' + qid).style.display = 'inline-block';
+    document.getElementById('q-cancel-btn-' + qid).style.display = 'inline-block';
+}
+
+function cancelEditQuestion(qid) {
+    document.getElementById('q-display-' + qid).style.display = 'block';
+    document.getElementById('q-edit-' + qid).style.display = 'none';
+    document.getElementById('q-edit-btn-' + qid).style.display = 'inline-block';
+    document.getElementById('q-save-btn-' + qid).style.display = 'none';
+    document.getElementById('q-cancel-btn-' + qid).style.display = 'none';
+}
+
+async function saveEditQuestion(qid, materialId) {
+    const questionText = document.getElementById('q-edit-text-' + qid).value.trim();
+    if (!questionText) return;
+
+    const res = await fetch(`/api/materials/questions/${qid}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            question_text: questionText,
+            answer_text: document.getElementById('q-edit-answer-' + qid).value.trim()
+        })
+    });
+
+    if (res.ok) {
+        await loadQuestions(materialId);
+    }
+}
+
+async function deleteQuestion(qid, materialId) {
+    if (!confirm('Delete this question?')) return;
+    await fetch(`/api/materials/questions/${qid}`, { method: 'DELETE' });
+    await loadQuestions(materialId);
+}
+
+function toggleBatchImport(materialId) {
+    const el = document.getElementById('batch-import-' + materialId);
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+async function batchImportQuestions(materialId) {
+    const questions = document.getElementById('batch-q-' + materialId).value;
+    const answers = document.getElementById('batch-a-' + materialId).value;
+
+    if (!questions.trim()) return;
+
+    const res = await fetch(`/api/materials/${materialId}/questions/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ questions, answers })
+    });
+
+    if (res.ok) {
+        const data = await res.json();
+        document.getElementById('batch-q-' + materialId).value = '';
+        document.getElementById('batch-a-' + materialId).value = '';
+        document.getElementById('batch-import-' + materialId).style.display = 'none';
+        await loadQuestions(materialId);
+    }
+}
+
+async function clearAllQuestions(materialId) {
+    if (!confirm('Delete all questions for this material?')) return;
+    await fetch(`/api/materials/${materialId}/questions`, { method: 'DELETE' });
+    await loadQuestions(materialId);
 }
 </script>
 {% endblock %}

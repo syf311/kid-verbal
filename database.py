@@ -138,6 +138,15 @@ def init_db():
             FOREIGN KEY (parent_test_id) REFERENCES parent_test(id) ON DELETE CASCADE,
             FOREIGN KEY (word_id) REFERENCES word(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS material_question (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            material_id INTEGER NOT NULL,
+            question_text TEXT NOT NULL,
+            answer_text TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (material_id) REFERENCES reading_material(id) ON DELETE CASCADE
+        );
     """)
     conn.commit()
 

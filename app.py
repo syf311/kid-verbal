@@ -1,4 +1,5 @@
 import os
+import time
 from functools import wraps
 from flask import Flask, render_template, request, jsonify, send_from_directory, session, redirect, url_for
 from flask_socketio import SocketIO, emit, join_room, leave_room
@@ -18,6 +19,17 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # Store active sessions
 active_sessions = {}
+
+# RSS feed sources for browsing articles
+RSS_FEEDS = [
+    {"name": "Science News for Students", "url": "https://www.sciencenewsforstudents.org/feed", "category": "Science"},
+    {"name": "Time for Kids", "url": "https://www.timeforkids.com/feed/", "category": "News"},
+    {"name": "Curious Kids", "url": "https://theconversation.com/us/topics/curious-kids-us-74795/articles.atom", "category": "General"},
+    {"name": "NYT Education", "url": "https://rss.nytimes.com/services/xml/rss/nyt/Education.xml", "category": "News"},
+]
+
+# Cache for RSS feed results: {feed_url: {"articles": [...], "fetched_at": timestamp}}
+_feed_cache = {}
 
 
 # ── Auth helpers ──
@@ -1031,7 +1043,10 @@ def study_page(child_id, session_id=None):
 def materials_list():
     conn = get_db()
     materials = conn.execute(
-        "SELECT * FROM reading_material ORDER BY created_at DESC"
+        """SELECT rm.*,
+                  (SELECT COUNT(*) FROM material_question WHERE material_id = rm.id) as question_count
+           FROM reading_material rm
+           ORDER BY rm.created_at DESC"""
     ).fetchall()
     conn.close()
     return render_template("materials.html", materials=[dict(m) for m in materials])
@@ -1117,10 +1132,248 @@ def update_material(material_id):
 @app.route("/api/materials/<int:material_id>", methods=["DELETE"])
 def delete_material(material_id):
     conn = get_db()
+    conn.execute("DELETE FROM material_question WHERE material_id = ?", (material_id,))
     conn.execute("DELETE FROM reading_material WHERE id = ?", (material_id,))
     conn.commit()
     conn.close()
     return "", 204
+
+
+@app.route("/api/materials/<int:material_id>/questions", methods=["GET"])
+def get_material_questions(material_id):
+    conn = get_db()
+    questions = conn.execute(
+        "SELECT * FROM material_question WHERE material_id = ? ORDER BY created_at",
+        (material_id,)
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(q) for q in questions])
+
+
+@app.route("/api/materials/<int:material_id>/questions", methods=["POST"])
+def create_material_question(material_id):
+    data = request.json
+    question_text = data.get("question_text", "").strip()
+    answer_text = data.get("answer_text", "").strip() or None
+
+    if not question_text:
+        return jsonify({"error": "Question text is required"}), 400
+
+    conn = get_db()
+    cursor = conn.execute(
+        "INSERT INTO material_question (material_id, question_text, answer_text) VALUES (?, ?, ?)",
+        (material_id, question_text, answer_text)
+    )
+    qid = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({"id": qid}), 201
+
+
+@app.route("/api/materials/questions/<int:qid>", methods=["PUT"])
+def update_material_question(qid):
+    data = request.json
+    question_text = data.get("question_text", "").strip()
+    answer_text = data.get("answer_text", "").strip() or None
+
+    if not question_text:
+        return jsonify({"error": "Question text is required"}), 400
+
+    conn = get_db()
+    conn.execute(
+        "UPDATE material_question SET question_text = ?, answer_text = ? WHERE id = ?",
+        (question_text, answer_text, qid)
+    )
+    conn.commit()
+    conn.close()
+    return "", 204
+
+
+@app.route("/api/materials/questions/<int:qid>", methods=["DELETE"])
+def delete_material_question(qid):
+    conn = get_db()
+    conn.execute("DELETE FROM material_question WHERE id = ?", (qid,))
+    conn.commit()
+    conn.close()
+    return "", 204
+
+
+@app.route("/api/materials/<int:material_id>/questions/batch", methods=["POST"])
+def batch_create_material_questions(material_id):
+    import re
+    data = request.json
+    questions_text = data.get("questions", "")
+    answers_text = data.get("answers", "")
+
+    # Parse questions: split on numbered lines (e.g. "1.", "2.")
+    # Each block is a question + its A/B/C/D choices
+    lines = questions_text.strip().split("\n")
+    questions = []
+    current = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Check if line starts a new numbered question
+        if re.match(r'^\d+[\.\)]\s', stripped) and current:
+            questions.append("\n".join(current))
+            current = [stripped]
+        else:
+            current.append(stripped)
+    if current:
+        questions.append("\n".join(current))
+
+    # Parse answers (one per line)
+    answers = [a.strip() for a in answers_text.strip().split("\n") if a.strip()]
+
+    if not questions:
+        return jsonify({"error": "No questions provided"}), 400
+
+    conn = get_db()
+    count = 0
+    for i, q in enumerate(questions):
+        answer = answers[i] if i < len(answers) else None
+        conn.execute(
+            "INSERT INTO material_question (material_id, question_text, answer_text) VALUES (?, ?, ?)",
+            (material_id, q, answer)
+        )
+        count += 1
+
+    conn.commit()
+    conn.close()
+    return jsonify({"added": count}), 201
+
+
+@app.route("/api/materials/<int:material_id>/questions", methods=["DELETE"])
+def clear_material_questions(material_id):
+    conn = get_db()
+    conn.execute("DELETE FROM material_question WHERE material_id = ?", (material_id,))
+    conn.commit()
+    conn.close()
+    return "", 204
+
+
+@app.route("/api/materials/browse", methods=["GET"])
+def browse_articles():
+    """Fetch articles from RSS feeds for browsing/importing."""
+    import feedparser
+    import requests as req
+    from bs4 import BeautifulSoup
+
+    source_filter = request.args.get("source", "")
+    cache_ttl = 30 * 60  # 30 minutes
+
+    feeds_to_fetch = RSS_FEEDS
+    if source_filter:
+        feeds_to_fetch = [f for f in RSS_FEEDS if f["name"] == source_filter]
+
+    all_articles = []
+    for feed_info in feeds_to_fetch:
+        url = feed_info["url"]
+        cached = _feed_cache.get(url)
+        if cached and (time.time() - cached["fetched_at"]) < cache_ttl:
+            all_articles.extend(cached["articles"])
+            continue
+
+        try:
+            # Use requests for fetching (better SSL support), then parse with feedparser
+            resp = req.get(url, timeout=15, headers={
+                "User-Agent": "Mozilla/5.0 (compatible; KidVerbal/1.0)"
+            })
+            resp.raise_for_status()
+            parsed = feedparser.parse(resp.text)
+            articles = []
+            for entry in parsed.entries[:15]:
+                summary = entry.get("summary", "")
+                # Strip HTML tags from summary
+                if summary:
+                    summary = BeautifulSoup(summary, "html.parser").get_text()
+                    if len(summary) > 300:
+                        summary = summary[:300] + "..."
+
+                articles.append({
+                    "title": entry.get("title", "Untitled"),
+                    "summary": summary,
+                    "link": entry.get("link", ""),
+                    "published": entry.get("published", ""),
+                    "source": feed_info["name"],
+                    "category": feed_info["category"],
+                })
+
+            _feed_cache[url] = {"articles": articles, "fetched_at": time.time()}
+            all_articles.extend(articles)
+        except Exception:
+            continue
+
+    return jsonify(all_articles)
+
+
+@app.route("/api/materials/import-article", methods=["POST"])
+def import_article():
+    """Fetch full article text from URL and save as reading material."""
+    import requests as req
+    from bs4 import BeautifulSoup
+
+    data = request.json
+    url = data.get("url", "")
+    title = data.get("title", "Imported Article")
+
+    if not url:
+        return jsonify({"error": "URL is required"}), 400
+
+    try:
+        resp = req.get(url, timeout=15, headers={
+            "User-Agent": "Mozilla/5.0 (compatible; KidVerbal/1.0)"
+        })
+        resp.raise_for_status()
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch article: {str(e)}"}), 400
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Remove non-content elements
+    for tag in soup.find_all(["script", "style", "nav", "footer", "header",
+                              "aside", "iframe", "form", "noscript"]):
+        tag.decompose()
+    # Remove common ad/navigation classes
+    for selector in [".ad", ".ads", ".advertisement", ".sidebar", ".nav",
+                     ".menu", ".footer", ".header", ".cookie", ".popup"]:
+        for el in soup.select(selector):
+            el.decompose()
+
+    # Try to find main content area
+    content_el = (
+        soup.find("article") or
+        soup.find("main") or
+        soup.find(class_="content") or
+        soup.find(class_="article-body") or
+        soup.find(class_="post-content") or
+        soup.body
+    )
+
+    if content_el:
+        # Get text with paragraph breaks
+        paragraphs = content_el.find_all("p")
+        if paragraphs:
+            content = "\n\n".join(p.get_text().strip() for p in paragraphs if p.get_text().strip())
+        else:
+            content = content_el.get_text(separator="\n").strip()
+    else:
+        content = soup.get_text(separator="\n").strip()
+
+    if not content:
+        return jsonify({"error": "Could not extract article text"}), 400
+
+    conn = get_db()
+    cursor = conn.execute(
+        "INSERT INTO reading_material (title, content) VALUES (?, ?)",
+        (title, content)
+    )
+    material_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return jsonify({"id": material_id, "title": title, "content_length": len(content)}), 201
 
 
 @app.route("/api/active-reading-sessions", methods=["GET"])

@@ -121,6 +121,59 @@
         border-radius: 8px;
         margin: 4px 0;
     }
+    .qbank-panel {
+        display: none;
+        position: fixed;
+        bottom: 80px;
+        right: 15px;
+        width: 380px;
+        max-height: 60vh;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        z-index: 100;
+        overflow: hidden;
+    }
+    .qbank-panel.active { display: flex; flex-direction: column; }
+    .qbank-header {
+        padding: 12px 15px;
+        background: #667eea;
+        color: white;
+        font-weight: bold;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .qbank-list {
+        overflow-y: auto;
+        flex: 1;
+        padding: 10px;
+    }
+    .qbank-item {
+        padding: 10px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        margin-bottom: 8px;
+        cursor: pointer;
+        transition: background 0.2s, border-color 0.2s;
+    }
+    .qbank-item:hover { border-color: #667eea; background: #f7fafc; }
+    .qbank-item.asked {
+        opacity: 0.5;
+        background: #f0fff4;
+        border-color: #c6f6d5;
+    }
+    .qbank-item .q-text { font-weight: 500; font-size: 14px; white-space: pre-line; }
+    .qbank-item .q-answer { color: #888; font-size: 12px; margin-top: 3px; }
+    .qbank-item .q-asked-badge {
+        display: none;
+        font-size: 11px;
+        color: #48bb78;
+        font-weight: bold;
+        margin-top: 3px;
+    }
+    .qbank-item.asked .q-asked-badge { display: block; }
+    .vocab-legend-swatch {
         display: inline-block;
         width: 16px;
         height: 16px;
@@ -187,11 +240,25 @@
     </div>
 </div>
 
+<!-- Question Bank Panel -->
+<div class="qbank-panel" id="qbank-panel">
+    <div class="qbank-header">
+        <span>Question Bank</span>
+        <button onclick="toggleQuestionBank()" style="background: none; border: none; color: white; font-size: 18px; cursor: pointer;">&times;</button>
+    </div>
+    <div class="qbank-list" id="qbank-list">
+        <p style="color: #999; text-align: center; padding: 20px;">Loading...</p>
+    </div>
+</div>
+
 <div class="control-panel">
     <div class="progress-bar">
         <div class="progress-fill" id="progress-fill" style="width: 0%;"></div>
     </div>
     <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <button class="btn" id="qbank-btn" style="padding: 8px 15px; background: #edf2f7; color: #4a5568;" onclick="toggleQuestionBank()">
+            Question Bank (<span id="qbank-count">0</span>)
+        </button>
         <span id="selected-word" style="font-weight: bold; min-width: 100px;"></span>
         <button class="btn btn-primary" id="ask-meaning-btn" style="display: none;" onclick="askMeaning()">
             What does this mean?
@@ -412,5 +479,65 @@ document.getElementById('rich-question').addEventListener('keydown', function(e)
         askCustom();
     }
 });
+
+// ── Question Bank ──
+
+let questionBankData = [];
+let askedQuestionIds = new Set();
+
+async function loadQuestionBank() {
+    const res = await fetch(`/api/materials/${materialId}/questions`);
+    questionBankData = await res.json();
+    document.getElementById('qbank-count').textContent = questionBankData.length;
+    renderQuestionBank();
+}
+
+function renderQuestionBank() {
+    const container = document.getElementById('qbank-list');
+    if (questionBankData.length === 0) {
+        container.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">No questions in bank. Add them on the Materials page.</p>';
+        return;
+    }
+
+    container.innerHTML = questionBankData.map(q => {
+        const asked = askedQuestionIds.has(q.id);
+        return `
+            <div class="qbank-item${asked ? ' asked' : ''}" onclick="askFromBank(${q.id})">
+                <div class="q-text">${escapeHtml(q.question_text)}</div>
+                ${q.answer_text ? `<div class="q-answer">A: ${escapeHtml(q.answer_text)}</div>` : ''}
+                <div class="q-asked-badge">Asked</div>
+            </div>
+        `;
+    }).join('');
+}
+
+function toggleQuestionBank() {
+    const panel = document.getElementById('qbank-panel');
+    panel.classList.toggle('active');
+}
+
+function askFromBank(qid) {
+    const q = questionBankData.find(x => x.id === qid);
+    if (!q) return;
+
+    socket.emit('ask_question', {
+        material_id: materialId,
+        question: q.question_text,
+        word: selectedWord
+    });
+
+    askedQuestionIds.add(qid);
+    renderQuestionBank();
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Load question bank on page load
+loadQuestionBank();
 </script>
 {% endblock %}
