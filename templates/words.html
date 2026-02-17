@@ -11,6 +11,7 @@
         <input type="text" id="new-word" placeholder="Enter a word..." style="flex: 1;" required>
         <button type="submit" class="btn btn-success">Add Word</button>
         <button type="button" class="btn btn-primary" onclick="showBatchImport()">Batch Import</button>
+        <button type="button" class="btn" style="background: #e9d8fd; color: #553c9a;" onclick="showPasteImport()">Paste Import</button>
     </form>
 </div>
 
@@ -40,6 +41,40 @@
         <div style="margin-top: 15px;">
             <button class="btn btn-success" onclick="submitBatchImport()" id="batch-submit-btn">Import Words</button>
             <button class="btn btn-danger" onclick="closeBatchModal()">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div id="paste-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100;">
+    <div style="background: white; max-width: 600px; margin: 30px auto; padding: 30px; border-radius: 20px; max-height: 90vh; overflow-y: auto;">
+        <h2>Paste Import (Word + Definition)</h2>
+        <p style="color: #666; margin-bottom: 10px;">Paste word-definition pairs from Quizlet, spreadsheets, or any source. Supported formats:</p>
+        <ul style="color: #888; font-size: 13px; margin-bottom: 15px; padding-left: 20px;">
+            <li>Tab-separated: <code>word&#9;definition</code> (copy from Quizlet/spreadsheet)</li>
+            <li>Dash-separated: <code>word - definition</code></li>
+            <li>Colon-separated: <code>word: definition</code></li>
+        </ul>
+
+        <div style="margin-bottom: 12px; padding: 10px; background: #ebf8ff; border-radius: 8px; border-left: 3px solid #4299e1;">
+            <div style="font-weight: 600; font-size: 13px; color: #2b6cb0; margin-bottom: 4px;">Import from Quizlet:</div>
+            <ol style="color: #4a5568; font-size: 13px; padding-left: 18px; margin: 0;">
+                <li>Open the Quizlet set in your browser</li>
+                <li>Scroll down to the terms list</li>
+                <li>Select all terms (Cmd+A or select the table area), then Copy (Cmd+C)</li>
+                <li>Paste here (Cmd+V) and click Import</li>
+            </ol>
+        </div>
+
+        <textarea id="paste-words-input" rows="12" placeholder="aberration&#9;a departure from what is normal&#10;benevolent - well-meaning and kindly&#10;cogent: clear, logical, convincing" style="width: 100%; font-size: 13px; font-family: monospace;"></textarea>
+        <div id="paste-preview-section" style="display: none; margin-top: 10px; max-height: 200px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px;">
+            <div style="font-weight: 600; margin-bottom: 8px;">Preview (<span id="paste-preview-count">0</span> words):</div>
+            <div id="paste-preview-list"></div>
+        </div>
+        <div id="paste-status" style="margin-top: 10px; display: none;"></div>
+        <div style="margin-top: 15px; display: flex; gap: 10px;">
+            <button class="btn" style="background: #edf2f7;" onclick="previewPaste()">Preview</button>
+            <button class="btn btn-success" onclick="submitPasteImport()" id="paste-submit-btn">Import</button>
+            <button class="btn btn-danger" onclick="closePasteModal()">Cancel</button>
         </div>
     </div>
 </div>
@@ -416,5 +451,131 @@ async function submitBatchImport() {
 }
 
 loadWords();
+
+function showImportFromChild() {
+    document.getElementById('import-child-modal').style.display = 'block';
+    document.getElementById('import-child-status').style.display = 'none';
+}
+
+function showPasteImport() {
+    document.getElementById('paste-modal').style.display = 'block';
+    document.getElementById('paste-words-input').value = '';
+    document.getElementById('paste-preview-section').style.display = 'none';
+    document.getElementById('paste-status').style.display = 'none';
+}
+
+function closePasteModal() {
+    document.getElementById('paste-modal').style.display = 'none';
+}
+
+function parsePastedPairs(text) {
+    const lines = text.split('\n').filter(l => l.trim());
+    const pairs = [];
+
+    // First pass: try tab-separated, dash, or colon formats
+    let hasDelimiters = false;
+    for (const line of lines) {
+        if (line.includes('\t') || / - /.test(line) || /: /.test(line)) {
+            hasDelimiters = true;
+            break;
+        }
+    }
+
+    if (hasDelimiters) {
+        for (const line of lines) {
+            let word, definition;
+            if (line.includes('\t')) {
+                const parts = line.split('\t');
+                word = parts[0].trim();
+                definition = parts.slice(1).join(' ').trim();
+            } else if (line.includes(' - ')) {
+                const idx = line.indexOf(' - ');
+                word = line.substring(0, idx).trim();
+                definition = line.substring(idx + 3).trim();
+            } else if (line.includes(': ')) {
+                const idx = line.indexOf(': ');
+                word = line.substring(0, idx).trim();
+                definition = line.substring(idx + 2).trim();
+            } else {
+                continue;
+            }
+            word = word.replace(/^\d+[\.\)]\s*/, '');
+            if (word) pairs.push({ word, definition });
+        }
+    } else {
+        // Alternating lines: word on one line, definition on next
+        // Common when copying from Quizlet term lists
+        for (let i = 0; i < lines.length - 1; i += 2) {
+            let word = lines[i].trim().replace(/^\d+[\.\)]\s*/, '');
+            let definition = lines[i + 1].trim();
+            if (word) pairs.push({ word, definition });
+        }
+    }
+
+    return pairs;
+}
+
+function previewPaste() {
+    const text = document.getElementById('paste-words-input').value;
+    const pairs = parsePastedPairs(text);
+    const section = document.getElementById('paste-preview-section');
+    const list = document.getElementById('paste-preview-list');
+    const count = document.getElementById('paste-preview-count');
+
+    if (pairs.length === 0) {
+        section.style.display = 'none';
+        return;
+    }
+
+    count.textContent = pairs.length;
+    list.innerHTML = pairs.map(p =>
+        `<div style="padding: 4px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px;">
+            <strong>${escapeHtml(p.word)}</strong>${p.definition ? ' — ' + escapeHtml(p.definition) : ' <span style="color:#ccc;">(no definition)</span>'}
+        </div>`
+    ).join('');
+    section.style.display = 'block';
+}
+
+async function submitPasteImport() {
+    const text = document.getElementById('paste-words-input').value;
+    const pairs = parsePastedPairs(text);
+
+    if (pairs.length === 0) {
+        alert('No word pairs found. Check the format.');
+        return;
+    }
+
+    const btn = document.getElementById('paste-submit-btn');
+    const status = document.getElementById('paste-status');
+    btn.disabled = true;
+    btn.textContent = 'Importing...';
+
+    const res = await fetch(`/api/children/${childId}/words/import-pairs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pairs })
+    });
+    const data = await res.json();
+
+    status.style.display = 'block';
+    status.innerHTML = `<span style="color: #48bb78;">Imported ${data.imported} words.</span>` +
+        (data.skipped > 0 ? ` <span style="color: #ed8936;">${data.skipped} already existed.</span>` : '');
+
+    btn.disabled = false;
+    btn.textContent = 'Import';
+
+    setTimeout(() => {
+        closePasteModal();
+        loadWords();
+    }, 1500);
+
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
 </script>
 {% endblock %}

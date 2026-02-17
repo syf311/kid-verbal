@@ -734,6 +734,47 @@ def delete_word(word_id):
     return "", 204
 
 
+@app.route("/api/children/<int:child_id>/words/import-pairs", methods=["POST"])
+def import_word_pairs(child_id):
+    data = request.json
+    pairs = data.get("pairs", [])
+
+    if not pairs:
+        return jsonify({"error": "No word pairs provided"}), 400
+
+    conn = get_db()
+    existing = set(
+        row[0] for row in conn.execute(
+            "SELECT word FROM word WHERE child_id = ?", (child_id,)
+        ).fetchall()
+    )
+
+    imported = 0
+    skipped = 0
+    for pair in pairs:
+        word = pair.get("word", "").strip().lower()
+        definition = pair.get("definition", "").strip()
+        if not word:
+            continue
+        if word in existing:
+            skipped += 1
+            continue
+        cursor = conn.execute(
+            "INSERT INTO word (child_id, word, definition) VALUES (?, ?, ?)",
+            (child_id, word, definition)
+        )
+        conn.execute(
+            "INSERT INTO word_progress (child_id, word_id, difficulty_level) VALUES (?, ?, 1)",
+            (child_id, cursor.lastrowid)
+        )
+        existing.add(word)
+        imported += 1
+
+    conn.commit()
+    conn.close()
+    return jsonify({"imported": imported, "skipped": skipped})
+
+
 @app.route("/api/children/<int:child_id>/words/batch", methods=["POST"])
 def batch_import_words(child_id):
     """Import multiple words at once. Accepts JSON with 'words' array."""
