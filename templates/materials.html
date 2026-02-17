@@ -290,14 +290,20 @@ async function loadArticles() {
                     </div>
                     <div style="display: flex; gap: 5px; flex-shrink: 0;">
                         <button class="btn" style="padding: 6px 12px; font-size: 13px; background: #edf2f7; color: #4a5568;" onclick="togglePreview(${i})">Preview</button>
-                        <button class="btn btn-success import-btn" style="padding: 6px 12px; font-size: 13px;" data-index="${i}">Import</button>
+                        ${article.imported
+                            ? `<button class="btn" style="padding: 6px 12px; font-size: 13px; background: #c6f6d5; color: #22543d; cursor: default;" disabled>Imported</button>`
+                            : `<button class="btn btn-success import-btn" style="padding: 6px 12px; font-size: 13px;" data-index="${i}">Import</button>`
+                        }
                     </div>
                 </div>
             `;
             // Attach import handler with closure over article data
-            card.querySelector('.import-btn').addEventListener('click', function() {
-                importArticle(this, article.link, article.title);
-            });
+            const importBtn = card.querySelector('.import-btn');
+            if (importBtn) {
+                importBtn.addEventListener('click', function() {
+                    importArticle(this, article.link, article.title);
+                });
+            }
             container.appendChild(card);
         });
     } catch (err) {

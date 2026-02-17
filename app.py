@@ -1305,6 +1305,15 @@ def browse_articles():
         except Exception:
             continue
 
+    # Mark articles already imported by matching title
+    conn = get_db()
+    existing_titles = set(
+        row[0] for row in conn.execute("SELECT title FROM reading_material").fetchall()
+    )
+    conn.close()
+    for article in all_articles:
+        article["imported"] = article["title"] in existing_titles
+
     return jsonify(all_articles)
 
 
