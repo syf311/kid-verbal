@@ -68,6 +68,33 @@ def parent_required(f):
     return decorated
 
 
+def check_plan_completion(plan_id, conn):
+    """Check if all items in a learning plan are completed; if so, mark the plan completed."""
+    items = conn.execute(
+        "SELECT item_type, item_id FROM learning_plan_item WHERE plan_id = ?", (plan_id,)
+    ).fetchall()
+    if not items:
+        return
+    for item in items:
+        if item["item_type"] == "study_session":
+            row = conn.execute("SELECT status FROM study_session WHERE id = ?", (item["item_id"],)).fetchone()
+        elif item["item_type"] == "reading_assignment":
+            row = conn.execute("SELECT status FROM reading_assignment WHERE id = ?", (item["item_id"],)).fetchone()
+        elif item["item_type"] == "math_test":
+            row = conn.execute("SELECT status FROM math_test WHERE id = ?", (item["item_id"],)).fetchone()
+        elif item["item_type"] == "parent_test":
+            row = conn.execute("SELECT status FROM parent_test WHERE id = ?", (item["item_id"],)).fetchone()
+        else:
+            continue
+        if not row or row["status"] != "completed":
+            return
+    conn.execute(
+        "UPDATE learning_plan SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'released'",
+        (plan_id,)
+    )
+    conn.commit()
+
+
 # ── Auth routes ──
 
 @app.route("/login", methods=["GET"])
@@ -194,9 +221,11 @@ def child_dashboard_summary(child_id):
     ).fetchone()[0]
 
     study_sessions = conn.execute(
-        """SELECT ss.id, ss.title, ss.status, ss.created_at,
+        """SELECT ss.id, ss.title, ss.status, ss.created_at, ss.learning_plan_id,
+                  lp.title as plan_title,
                   (SELECT COUNT(*) FROM study_session_word WHERE session_id = ss.id) as word_count
            FROM study_session ss
+           LEFT JOIN learning_plan lp ON ss.learning_plan_id = lp.id
            WHERE ss.child_id = ?
            ORDER BY ss.created_at DESC
            LIMIT 10""",
@@ -215,21 +244,27 @@ def child_dashboard_summary(child_id):
     ).fetchall()
 
     pending_assignments = conn.execute(
-        """SELECT ra.id, ra.material_id, ra.status, ra.created_at, rm.title as material_title,
+        """SELECT ra.id, ra.material_id, ra.status, ra.created_at, ra.learning_plan_id,
+                  lp.title as plan_title,
+                  rm.title as material_title,
                   (SELECT COUNT(*) FROM material_question WHERE material_id = ra.material_id) as question_count
            FROM reading_assignment ra
            JOIN reading_material rm ON ra.material_id = rm.id
+           LEFT JOIN learning_plan lp ON ra.learning_plan_id = lp.id
            WHERE ra.child_id = ? AND ra.status = 'pending'
            ORDER BY ra.created_at DESC""",
         (child_id,)
     ).fetchall()
 
     completed_assignments = conn.execute(
-        """SELECT ra.id, ra.material_id, ra.status, ra.created_at, ra.completed_at, rm.title as material_title,
+        """SELECT ra.id, ra.material_id, ra.status, ra.created_at, ra.completed_at, ra.learning_plan_id,
+                  lp.title as plan_title,
+                  rm.title as material_title,
                   (SELECT COUNT(*) FROM material_question WHERE material_id = ra.material_id) as question_count,
                   (SELECT COUNT(*) FROM reading_assignment_answer WHERE assignment_id = ra.id AND is_correct = 1) as correct_count
            FROM reading_assignment ra
            JOIN reading_material rm ON ra.material_id = rm.id
+           LEFT JOIN learning_plan lp ON ra.learning_plan_id = lp.id
            WHERE ra.child_id = ? AND ra.status = 'completed'
            ORDER BY ra.completed_at DESC
            LIMIT 10""",
@@ -238,16 +273,33 @@ def child_dashboard_summary(child_id):
 
     math_tests = conn.execute(
         """SELECT mt.id, mt.title, mt.status, mt.total_questions, mt.created_at,
-                  mt.timer_mode, mt.time_limit_seconds,
+                  mt.timer_mode, mt.time_limit_seconds, mt.learning_plan_id,
+                  lp.title as plan_title,
                   (SELECT id FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as submission_id,
                   (SELECT score FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as score,
                   (SELECT correct_count FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as correct_count,
                   (SELECT total_count FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as total_count,
                   (SELECT time_taken_seconds FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as time_taken_seconds
            FROM math_test mt
+           LEFT JOIN learning_plan lp ON mt.learning_plan_id = lp.id
            WHERE mt.child_id = ?
            ORDER BY mt.created_at DESC
            LIMIT 20""",
+        (child_id,)
+    ).fetchall()
+
+    learning_plans = conn.execute(
+        """SELECT lp.*,
+                  (SELECT COUNT(*) FROM learning_plan_item WHERE plan_id = lp.id) as item_count,
+                  (SELECT COUNT(*) FROM learning_plan_item lpi
+                   WHERE lpi.plan_id = lp.id AND (
+                       (lpi.item_type = 'study_session' AND (SELECT status FROM study_session WHERE id = lpi.item_id) = 'completed') OR
+                       (lpi.item_type = 'reading_assignment' AND (SELECT status FROM reading_assignment WHERE id = lpi.item_id) = 'completed') OR
+                       (lpi.item_type = 'math_test' AND (SELECT status FROM math_test WHERE id = lpi.item_id) = 'completed')
+                   )) as completed_item_count
+           FROM learning_plan lp
+           WHERE lp.child_id = ?
+           ORDER BY lp.created_at DESC""",
         (child_id,)
     ).fetchall()
 
@@ -259,6 +311,7 @@ def child_dashboard_summary(child_id):
         "pending_assignments": [dict(a) for a in pending_assignments],
         "completed_assignments": [dict(a) for a in completed_assignments],
         "math_tests": [dict(t) for t in math_tests],
+        "learning_plans": [dict(p) for p in learning_plans],
     })
 
 
@@ -388,9 +441,42 @@ def complete_study_session(session_id):
         "UPDATE study_session SET status = 'completed' WHERE id = ?",
         (session_id,)
     )
+    # Check if this study session belongs to a learning plan
+    ss = conn.execute("SELECT * FROM study_session WHERE id = ?", (session_id,)).fetchone()
+    plan_id = ss["learning_plan_id"] if ss else None
+
+    test_id = None
+    if plan_id:
+        # Auto-create a vocabulary test from this study session's words
+        words = conn.execute(
+            "SELECT word_id FROM study_session_word WHERE session_id = ?", (session_id,)
+        ).fetchall()
+        if words:
+            title = f"Vocab Test: {ss['title'] or 'Vocabulary'}"
+            cursor = conn.execute(
+                "INSERT INTO parent_test (child_id, created_by, title, source_type, source_id) VALUES (?, ?, ?, 'study_session', ?)",
+                (ss["child_id"], ss["created_by"], title, session_id)
+            )
+            test_id = cursor.lastrowid
+            for w in words:
+                conn.execute(
+                    "INSERT INTO parent_test_word (parent_test_id, word_id) VALUES (?, ?)",
+                    (test_id, w["word_id"])
+                )
+            # Add the test to the same learning plan
+            max_sort = conn.execute(
+                "SELECT COALESCE(MAX(sort_order), 0) FROM learning_plan_item WHERE plan_id = ?", (plan_id,)
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO learning_plan_item (plan_id, item_type, item_id, sort_order) VALUES (?, 'parent_test', ?, ?)",
+                (plan_id, test_id, max_sort + 1)
+            )
+
+        check_plan_completion(plan_id, conn)
+
     conn.commit()
     conn.close()
-    return jsonify({"status": "completed"})
+    return jsonify({"status": "completed", "test_id": test_id})
 
 
 @app.route("/api/study-sessions/<int:session_id>", methods=["DELETE"])
@@ -571,6 +657,8 @@ def get_child(child_id):
 def delete_child(child_id):
     conn = get_db()
     # Delete related data
+    conn.execute("DELETE FROM learning_plan_item WHERE plan_id IN (SELECT id FROM learning_plan WHERE child_id = ?)", (child_id,))
+    conn.execute("DELETE FROM learning_plan WHERE child_id = ?", (child_id,))
     conn.execute("DELETE FROM math_test_submission WHERE math_test_id IN (SELECT id FROM math_test WHERE child_id = ?)", (child_id,))
     conn.execute("DELETE FROM math_test WHERE child_id = ?", (child_id,))
     conn.execute("DELETE FROM reading_assignment_answer WHERE assignment_id IN (SELECT id FROM reading_assignment WHERE child_id = ?)", (child_id,))
@@ -604,6 +692,8 @@ def child_dashboard(child_id):
         "SELECT COUNT(*) FROM word WHERE child_id = ?", (child_id,)
     ).fetchone()[0]
 
+    role = session.get("role", "parent")
+
     recent_sessions = conn.execute(
         """SELECT id, test_type, score, correct_count, total_count, created_at
            FROM test_session WHERE child_id = ?
@@ -611,81 +701,101 @@ def child_dashboard(child_id):
         (child_id,)
     ).fetchall()
 
-    # Get pending study sessions
-    study_sessions = conn.execute(
-        """SELECT ss.*, a.username as created_by_name,
-                  (SELECT COUNT(*) FROM study_session_word WHERE session_id = ss.id) as word_count
-           FROM study_session ss
-           JOIN account a ON ss.created_by = a.id
-           WHERE ss.child_id = ? AND ss.status != 'completed'
-           ORDER BY ss.created_at DESC""",
-        (child_id,)
-    ).fetchall()
+    if role == "parent":
+        # Get pending study sessions
+        study_sessions = conn.execute(
+            """SELECT ss.*, a.username as created_by_name,
+                      (SELECT COUNT(*) FROM study_session_word WHERE session_id = ss.id) as word_count
+               FROM study_session ss
+               JOIN account a ON ss.created_by = a.id
+               WHERE ss.child_id = ? AND ss.status != 'completed' AND ss.learning_plan_id IS NULL
+               ORDER BY ss.created_at DESC""",
+            (child_id,)
+        ).fetchall()
 
-    # Get completed study sessions
-    completed_sessions = conn.execute(
-        """SELECT ss.*, a.username as created_by_name,
-                  (SELECT COUNT(*) FROM study_session_word WHERE session_id = ss.id) as word_count
-           FROM study_session ss
-           JOIN account a ON ss.created_by = a.id
-           WHERE ss.child_id = ? AND ss.status = 'completed'
-           ORDER BY ss.created_at DESC
-           LIMIT 20""",
-        (child_id,)
-    ).fetchall()
+        # Get completed study sessions
+        completed_sessions = conn.execute(
+            """SELECT ss.*, a.username as created_by_name,
+                      (SELECT COUNT(*) FROM study_session_word WHERE session_id = ss.id) as word_count
+               FROM study_session ss
+               JOIN account a ON ss.created_by = a.id
+               WHERE ss.child_id = ? AND ss.status = 'completed' AND ss.learning_plan_id IS NULL
+               ORDER BY ss.created_at DESC
+               LIMIT 20""",
+            (child_id,)
+        ).fetchall()
 
-    # Get pending parent tests
-    parent_tests = conn.execute(
-        """SELECT pt.*, a.username as created_by_name,
-                  (SELECT COUNT(*) FROM parent_test_word WHERE parent_test_id = pt.id) as word_count
-           FROM parent_test pt
-           JOIN account a ON pt.created_by = a.id
-           WHERE pt.child_id = ? AND pt.status != 'completed'
-           ORDER BY pt.created_at DESC""",
-        (child_id,)
-    ).fetchall()
+        # Get pending parent tests
+        parent_tests = conn.execute(
+            """SELECT pt.*, a.username as created_by_name,
+                      (SELECT COUNT(*) FROM parent_test_word WHERE parent_test_id = pt.id) as word_count
+               FROM parent_test pt
+               JOIN account a ON pt.created_by = a.id
+               WHERE pt.child_id = ? AND pt.status != 'completed'
+               ORDER BY pt.created_at DESC""",
+            (child_id,)
+        ).fetchall()
 
-    # Get pending reading assignments
-    pending_assignments = conn.execute(
-        """SELECT ra.*, rm.title as material_title,
-                  (SELECT COUNT(*) FROM material_question WHERE material_id = ra.material_id) as question_count
-           FROM reading_assignment ra
-           JOIN reading_material rm ON ra.material_id = rm.id
-           WHERE ra.child_id = ? AND ra.status = 'pending'
-           ORDER BY ra.created_at DESC""",
-        (child_id,)
-    ).fetchall()
+        # Get pending reading assignments
+        pending_assignments = conn.execute(
+            """SELECT ra.*, rm.title as material_title,
+                      (SELECT COUNT(*) FROM material_question WHERE material_id = ra.material_id) as question_count
+               FROM reading_assignment ra
+               JOIN reading_material rm ON ra.material_id = rm.id
+               WHERE ra.child_id = ? AND ra.status = 'pending' AND ra.learning_plan_id IS NULL
+               ORDER BY ra.created_at DESC""",
+            (child_id,)
+        ).fetchall()
 
-    # Get completed reading assignments
-    completed_assignments = conn.execute(
-        """SELECT ra.*, rm.title as material_title,
-                  (SELECT COUNT(*) FROM material_question WHERE material_id = ra.material_id) as question_count,
-                  (SELECT COUNT(*) FROM reading_assignment_answer WHERE assignment_id = ra.id AND is_correct = 1) as correct_count
-           FROM reading_assignment ra
-           JOIN reading_material rm ON ra.material_id = rm.id
-           WHERE ra.child_id = ? AND ra.status = 'completed'
-           ORDER BY ra.completed_at DESC
-           LIMIT 20""",
-        (child_id,)
-    ).fetchall()
+        # Get completed reading assignments
+        completed_assignments = conn.execute(
+            """SELECT ra.*, rm.title as material_title,
+                      (SELECT COUNT(*) FROM material_question WHERE material_id = ra.material_id) as question_count,
+                      (SELECT COUNT(*) FROM reading_assignment_answer WHERE assignment_id = ra.id AND is_correct = 1) as correct_count
+               FROM reading_assignment ra
+               JOIN reading_material rm ON ra.material_id = rm.id
+               WHERE ra.child_id = ? AND ra.status = 'completed' AND ra.learning_plan_id IS NULL
+               ORDER BY ra.completed_at DESC
+               LIMIT 20""",
+            (child_id,)
+        ).fetchall()
 
-    # Get pending math tests
-    math_tests = conn.execute(
-        """SELECT mt.id, mt.title, mt.total_questions, mt.status, mt.created_at
-           FROM math_test mt
-           WHERE mt.child_id = ? AND mt.status = 'pending'
-           ORDER BY mt.created_at DESC""",
-        (child_id,)
-    ).fetchall()
+        # Get pending math tests
+        math_tests = conn.execute(
+            """SELECT mt.id, mt.title, mt.total_questions, mt.status, mt.created_at
+               FROM math_test mt
+               WHERE mt.child_id = ? AND mt.status = 'pending' AND mt.learning_plan_id IS NULL
+               ORDER BY mt.created_at DESC""",
+            (child_id,)
+        ).fetchall()
 
-    # Get completed math tests
-    completed_math_tests = conn.execute(
-        """SELECT mt.id, mt.title, mt.total_questions, mt.created_at,
-                  (SELECT correct_count FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as correct_count,
-                  (SELECT total_count FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as total_count
-           FROM math_test mt
-           WHERE mt.child_id = ? AND mt.status = 'completed'
-           ORDER BY mt.created_at DESC LIMIT 20""",
+        # Get completed math tests
+        completed_math_tests = conn.execute(
+            """SELECT mt.id, mt.title, mt.total_questions, mt.created_at,
+                      (SELECT correct_count FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as correct_count,
+                      (SELECT total_count FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as total_count
+               FROM math_test mt
+               WHERE mt.child_id = ? AND mt.status = 'completed' AND mt.learning_plan_id IS NULL
+               ORDER BY mt.created_at DESC LIMIT 20""",
+            (child_id,)
+        ).fetchall()
+    else:
+        # Children only see learning plans, not individual items
+        study_sessions = []
+        completed_sessions = []
+        parent_tests = []
+        pending_assignments = []
+        completed_assignments = []
+        math_tests = []
+        completed_math_tests = []
+
+    # Get learning plans (released or completed)
+    learning_plans = conn.execute(
+        """SELECT lp.*,
+                  (SELECT COUNT(*) FROM learning_plan_item WHERE plan_id = lp.id) as item_count
+           FROM learning_plan lp
+           WHERE lp.child_id = ? AND lp.status IN ('released', 'completed')
+           ORDER BY lp.created_at DESC""",
         (child_id,)
     ).fetchall()
 
@@ -702,7 +812,8 @@ def child_dashboard(child_id):
         completed_assignments=[dict(a) for a in completed_assignments],
         math_tests=[dict(t) for t in math_tests],
         completed_math_tests=[dict(t) for t in completed_math_tests],
-        role=session.get("role", "parent")
+        learning_plans=[dict(p) for p in learning_plans],
+        role=role
     )
 
 
@@ -720,7 +831,8 @@ def word_list(child_id):
 def get_words(child_id):
     conn = get_db()
     words = conn.execute(
-        """SELECT w.*, wp.correct_count, wp.wrong_count, wp.difficulty_level
+        """SELECT w.*, wp.correct_count, wp.wrong_count, wp.difficulty_level,
+                  wp.last_tested, wp.last_correct_at
            FROM word w
            LEFT JOIN word_progress wp ON w.id = wp.word_id AND wp.child_id = w.child_id
            WHERE w.child_id = ?
@@ -1057,10 +1169,20 @@ def save_test_session(child_id):
 def test_page(child_id, parent_test_id=None):
     conn = get_db()
     child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
-    conn.close()
     if not child:
+        conn.close()
         return "Child not found", 404
-    return render_template("test.html", child=dict(child), parent_test_id=parent_test_id)
+    learning_plan_id = None
+    if parent_test_id:
+        # Check if this test is in a learning plan
+        lpi = conn.execute(
+            "SELECT plan_id FROM learning_plan_item WHERE item_type = 'parent_test' AND item_id = ?",
+            (parent_test_id,)
+        ).fetchone()
+        if lpi:
+            learning_plan_id = lpi["plan_id"]
+    conn.close()
+    return render_template("test.html", child=dict(child), parent_test_id=parent_test_id, learning_plan_id=learning_plan_id)
 
 
 @app.route("/child/<int:child_id>/tests")
@@ -1207,10 +1329,16 @@ def progress_page(child_id):
 def study_page(child_id, session_id=None):
     conn = get_db()
     child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
-    conn.close()
     if not child:
+        conn.close()
         return "Child not found", 404
-    return render_template("study.html", child=dict(child), session_id=session_id)
+    learning_plan_id = None
+    if session_id:
+        ss = conn.execute("SELECT learning_plan_id FROM study_session WHERE id = ?", (session_id,)).fetchone()
+        if ss:
+            learning_plan_id = ss["learning_plan_id"]
+    conn.close()
+    return render_template("study.html", child=dict(child), session_id=session_id, learning_plan_id=learning_plan_id)
 
 
 @app.route("/materials")
@@ -1865,6 +1993,10 @@ def submit_reading_assignment(assignment_id):
         "UPDATE reading_assignment SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
         (assignment_id,)
     )
+    # Check if this reading assignment belongs to a learning plan
+    ra = conn.execute("SELECT learning_plan_id FROM reading_assignment WHERE id = ?", (assignment_id,)).fetchone()
+    if ra and ra["learning_plan_id"]:
+        check_plan_completion(ra["learning_plan_id"], conn)
     conn.commit()
     conn.close()
     return jsonify({"status": "completed"})
@@ -1974,7 +2106,8 @@ def reading_assignment_page(child_id, assignment_id):
         "reading_assignment.html",
         child=dict(child),
         assignment=dict(assignment),
-        questions=[dict(q) for q in questions]
+        questions=[dict(q) for q in questions],
+        learning_plan_id=assignment["learning_plan_id"]
     )
 
 
@@ -2038,7 +2171,8 @@ def reading_assignment_review_page(child_id, assignment_id):
         score=score,
         correct_count=correct_count,
         total_count=total_count,
-        role=session.get("role", "parent")
+        role=session.get("role", "parent"),
+        learning_plan_id=assignment["learning_plan_id"]
     )
 
 
@@ -2277,6 +2411,10 @@ def submit_math_test(test_id):
 
     # Mark test as completed
     conn.execute("UPDATE math_test SET status = 'completed' WHERE id = ?", (test_id,))
+    # Check if this math test belongs to a learning plan
+    mt = conn.execute("SELECT learning_plan_id FROM math_test WHERE id = ?", (test_id,)).fetchone()
+    if mt and mt["learning_plan_id"]:
+        check_plan_completion(mt["learning_plan_id"], conn)
     conn.commit()
     conn.close()
     return jsonify({"submission_id": submission_id, "score": score, "correct_count": correct_count, "total_count": total_count})
@@ -2357,7 +2495,7 @@ def take_math_test(child_id, test_id):
         "question_pdf": test["question_pdf"], "total_questions": test["total_questions"],
         "timer_mode": test["timer_mode"] or "none",
         "time_limit_seconds": test["time_limit_seconds"] or 0
-    })
+    }, learning_plan_id=test["learning_plan_id"])
 
 
 @app.route("/child/<int:child_id>/math-test/<int:test_id>/review")
@@ -2392,9 +2530,9 @@ def review_math_test(child_id, test_id):
             results.append({"q": i, "child_answer": child_ans, "is_correct": child_ans.upper() == correct_ans.upper()})
         test_data.pop("answer_key", None)
         test_data.pop("answer_pdf", None)
-        return render_template("math_test_review.html", child=dict(child), test=test_data, submission=dict(sub), role=role, results=results)
+        return render_template("math_test_review.html", child=dict(child), test=test_data, submission=dict(sub), role=role, results=results, learning_plan_id=test["learning_plan_id"])
 
-    return render_template("math_test_review.html", child=dict(child), test=test_data, submission=dict(sub), role=role)
+    return render_template("math_test_review.html", child=dict(child), test=test_data, submission=dict(sub), role=role, learning_plan_id=test["learning_plan_id"])
 
 
 @app.route("/api/math-tests/<int:test_id>/retake", methods=["POST"])
@@ -2416,6 +2554,445 @@ def retake_math_test(test_id):
     new_id = cursor.lastrowid
     conn.close()
     return jsonify({"id": new_id, "child_id": test["child_id"]})
+
+
+# ── Learning Plan page routes ──
+
+@app.route("/api/children/<int:child_id>/reading-materials", methods=["GET"])
+@login_required
+def get_child_reading_materials(child_id):
+    conn = get_db()
+    materials = conn.execute(
+        """SELECT rm.id, rm.title,
+                  (SELECT COUNT(*) FROM material_question WHERE material_id = rm.id) as question_count
+           FROM reading_material rm
+           WHERE rm.child_id = ? OR rm.child_id IS NULL
+           ORDER BY rm.created_at DESC""",
+        (child_id,)
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(m) for m in materials if m["question_count"] > 0])
+
+@app.route("/parent/child/<int:child_id>/learning-plan/new")
+@parent_required
+def create_plan_page(child_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    conn.close()
+    if not child:
+        return "Child not found", 404
+    return render_template("manage_plan.html", child=dict(child), plan=None, mode="create")
+
+
+@app.route("/parent/child/<int:child_id>/learning-plan/<int:plan_id>/manage")
+@parent_required
+def manage_plan_page(child_id, plan_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    plan = conn.execute("SELECT * FROM learning_plan WHERE id = ? AND child_id = ?", (plan_id, child_id)).fetchone()
+    conn.close()
+    if not child or not plan:
+        return "Not found", 404
+    return render_template("manage_plan.html", child=dict(child), plan=dict(plan), mode="manage")
+
+
+@app.route("/child/<int:child_id>/learning-plan/<int:plan_id>")
+@login_required
+def view_plan_page(child_id, plan_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    plan = conn.execute("SELECT * FROM learning_plan WHERE id = ? AND child_id = ?", (plan_id, child_id)).fetchone()
+    conn.close()
+    if not child or not plan:
+        return "Not found", 404
+    if plan["status"] == "draft":
+        return "This plan is not yet available", 403
+    return render_template("view_plan.html", child=dict(child), plan=dict(plan))
+
+
+# ── Learning Plan APIs ──
+
+@app.route("/api/learning-plans", methods=["POST"])
+@parent_required
+def create_learning_plan():
+    data = request.json
+    child_id = data.get("child_id")
+    title = data.get("title", "").strip()
+    if not child_id or not title:
+        return jsonify({"error": "child_id and title required"}), 400
+    conn = get_db()
+    cursor = conn.execute(
+        "INSERT INTO learning_plan (child_id, created_by, title) VALUES (?, ?, ?)",
+        (child_id, session["account_id"], title)
+    )
+    plan_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({"id": plan_id}), 201
+
+
+@app.route("/api/learning-plans/<int:plan_id>", methods=["GET"])
+@login_required
+def get_learning_plan(plan_id):
+    conn = get_db()
+    plan = conn.execute("SELECT * FROM learning_plan WHERE id = ?", (plan_id,)).fetchone()
+    if not plan:
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+    items = conn.execute(
+        "SELECT * FROM learning_plan_item WHERE plan_id = ? ORDER BY sort_order, id", (plan_id,)
+    ).fetchall()
+    item_list = []
+    for item in items:
+        item_data = dict(item)
+        if item["item_type"] == "study_session":
+            row = conn.execute(
+                """SELECT ss.id, ss.title, ss.status,
+                          (SELECT COUNT(*) FROM study_session_word WHERE session_id = ss.id) as word_count
+                   FROM study_session ss WHERE ss.id = ?""",
+                (item["item_id"],)
+            ).fetchone()
+        elif item["item_type"] == "reading_assignment":
+            row = conn.execute(
+                """SELECT ra.id, rm.title, ra.status,
+                          (SELECT COUNT(*) FROM material_question WHERE material_id = ra.material_id) as question_count,
+                          (SELECT COUNT(*) FROM reading_assignment_answer WHERE assignment_id = ra.id AND is_correct = 1) as correct_count
+                   FROM reading_assignment ra
+                   JOIN reading_material rm ON ra.material_id = rm.id
+                   WHERE ra.id = ?""",
+                (item["item_id"],)
+            ).fetchone()
+        elif item["item_type"] == "math_test":
+            row = conn.execute(
+                """SELECT mt.id, mt.title, mt.status, mt.total_questions,
+                          (SELECT score FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as score,
+                          (SELECT correct_count FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as correct_count,
+                          (SELECT total_count FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as total_count
+                   FROM math_test mt WHERE mt.id = ?""",
+                (item["item_id"],)
+            ).fetchone()
+        elif item["item_type"] == "parent_test":
+            row = conn.execute(
+                """SELECT pt.id, pt.title, pt.status,
+                          (SELECT COUNT(*) FROM parent_test_word WHERE parent_test_id = pt.id) as word_count,
+                          (SELECT id FROM test_session WHERE parent_test_id = pt.id LIMIT 1) as test_session_id
+                   FROM parent_test pt WHERE pt.id = ?""",
+                (item["item_id"],)
+            ).fetchone()
+        else:
+            row = None
+        if row:
+            item_data["details"] = dict(row)
+        item_list.append(item_data)
+    conn.close()
+    result = dict(plan)
+    result["items"] = item_list
+    return jsonify(result)
+
+
+@app.route("/api/learning-plans/<int:plan_id>", methods=["DELETE"])
+@parent_required
+def delete_learning_plan(plan_id):
+    conn = get_db()
+    plan = conn.execute("SELECT * FROM learning_plan WHERE id = ?", (plan_id,)).fetchone()
+    if not plan:
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+    # Delete all underlying items
+    items = conn.execute("SELECT * FROM learning_plan_item WHERE plan_id = ?", (plan_id,)).fetchall()
+    for item in items:
+        if item["item_type"] == "study_session":
+            conn.execute("DELETE FROM study_session_word WHERE session_id = ?", (item["item_id"],))
+            conn.execute("DELETE FROM study_session WHERE id = ?", (item["item_id"],))
+        elif item["item_type"] == "reading_assignment":
+            conn.execute("DELETE FROM reading_assignment_answer WHERE assignment_id = ?", (item["item_id"],))
+            conn.execute("DELETE FROM reading_assignment_unknown_word WHERE assignment_id = ?", (item["item_id"],))
+            conn.execute("DELETE FROM reading_assignment WHERE id = ?", (item["item_id"],))
+        elif item["item_type"] == "math_test":
+            conn.execute("DELETE FROM math_test_submission WHERE math_test_id = ?", (item["item_id"],))
+            conn.execute("DELETE FROM math_test WHERE id = ?", (item["item_id"],))
+        elif item["item_type"] == "parent_test":
+            conn.execute("DELETE FROM parent_test_word WHERE parent_test_id = ?", (item["item_id"],))
+            conn.execute("DELETE FROM parent_test WHERE id = ?", (item["item_id"],))
+    conn.execute("DELETE FROM learning_plan_item WHERE plan_id = ?", (plan_id,))
+    conn.execute("DELETE FROM learning_plan WHERE id = ?", (plan_id,))
+    conn.commit()
+    conn.close()
+    return "", 204
+
+
+@app.route("/api/learning-plans/<int:plan_id>/release", methods=["POST"])
+@parent_required
+def release_learning_plan(plan_id):
+    conn = get_db()
+    plan = conn.execute("SELECT * FROM learning_plan WHERE id = ?", (plan_id,)).fetchone()
+    if not plan:
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+    if plan["status"] != "draft":
+        conn.close()
+        return jsonify({"error": "Plan is not in draft status"}), 400
+    item_count = conn.execute("SELECT COUNT(*) FROM learning_plan_item WHERE plan_id = ?", (plan_id,)).fetchone()[0]
+    if item_count == 0:
+        conn.close()
+        return jsonify({"error": "Plan must have at least one item"}), 400
+    conn.execute(
+        "UPDATE learning_plan SET status = 'released', released_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (plan_id,)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "released"})
+
+
+@app.route("/api/learning-plans/<int:plan_id>/items/study-session", methods=["POST"])
+@parent_required
+def add_plan_study_session(plan_id):
+    conn = get_db()
+    plan = conn.execute("SELECT * FROM learning_plan WHERE id = ?", (plan_id,)).fetchone()
+    if not plan or plan["status"] != "draft":
+        conn.close()
+        return jsonify({"error": "Plan not found or not in draft"}), 400
+    data = request.json
+    title = data.get("title") or datetime.now().strftime("%m/%d/%Y")
+    word_ids = data.get("word_ids", [])
+    if not word_ids:
+        conn.close()
+        return jsonify({"error": "word_ids required"}), 400
+    cursor = conn.execute(
+        "INSERT INTO study_session (child_id, created_by, title, learning_plan_id) VALUES (?, ?, ?, ?)",
+        (plan["child_id"], session["account_id"], title, plan_id)
+    )
+    ss_id = cursor.lastrowid
+    for wid in word_ids:
+        conn.execute("INSERT INTO study_session_word (session_id, word_id) VALUES (?, ?)", (ss_id, wid))
+    max_order = conn.execute("SELECT COALESCE(MAX(sort_order), 0) FROM learning_plan_item WHERE plan_id = ?", (plan_id,)).fetchone()[0]
+    conn.execute(
+        "INSERT INTO learning_plan_item (plan_id, item_type, item_id, sort_order) VALUES (?, 'study_session', ?, ?)",
+        (plan_id, ss_id, max_order + 1)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"id": ss_id}), 201
+
+
+@app.route("/api/learning-plans/<int:plan_id>/items/reading-assignment", methods=["POST"])
+@parent_required
+def add_plan_reading_assignment(plan_id):
+    conn = get_db()
+    plan = conn.execute("SELECT * FROM learning_plan WHERE id = ?", (plan_id,)).fetchone()
+    if not plan or plan["status"] != "draft":
+        conn.close()
+        return jsonify({"error": "Plan not found or not in draft"}), 400
+    data = request.json
+    material_id = data.get("material_id")
+    if not material_id:
+        conn.close()
+        return jsonify({"error": "material_id required"}), 400
+    qcount = conn.execute("SELECT COUNT(*) FROM material_question WHERE material_id = ?", (material_id,)).fetchone()[0]
+    if qcount == 0:
+        conn.close()
+        return jsonify({"error": "Material has no questions"}), 400
+    cursor = conn.execute(
+        "INSERT INTO reading_assignment (material_id, child_id, learning_plan_id) VALUES (?, ?, ?)",
+        (material_id, plan["child_id"], plan_id)
+    )
+    ra_id = cursor.lastrowid
+    max_order = conn.execute("SELECT COALESCE(MAX(sort_order), 0) FROM learning_plan_item WHERE plan_id = ?", (plan_id,)).fetchone()[0]
+    conn.execute(
+        "INSERT INTO learning_plan_item (plan_id, item_type, item_id, sort_order) VALUES (?, 'reading_assignment', ?, ?)",
+        (plan_id, ra_id, max_order + 1)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"id": ra_id}), 201
+
+
+@app.route("/api/learning-plans/<int:plan_id>/items/math-test", methods=["POST"])
+@parent_required
+def add_plan_math_test(plan_id):
+    conn = get_db()
+    plan = conn.execute("SELECT * FROM learning_plan WHERE id = ?", (plan_id,)).fetchone()
+    if not plan or plan["status"] != "draft":
+        conn.close()
+        return jsonify({"error": "Plan not found or not in draft"}), 400
+
+    title = request.form.get("title", "").strip()
+    if not title:
+        conn.close()
+        return jsonify({"error": "Title required"}), 400
+    if "question_pdf" not in request.files or "answer_pdf" not in request.files:
+        conn.close()
+        return jsonify({"error": "Both question and answer PDFs are required"}), 400
+    q_file = request.files["question_pdf"]
+    a_file = request.files["answer_pdf"]
+    if not q_file.filename or not a_file.filename:
+        conn.close()
+        return jsonify({"error": "Both PDF files must be selected"}), 400
+
+    ts = int(time.time())
+    q_filename = f"math_q_{plan['child_id']}_{ts}_{secure_filename(q_file.filename)}"
+    a_filename = f"math_a_{plan['child_id']}_{ts}_{secure_filename(a_file.filename)}"
+    q_path = os.path.join(UPLOAD_FOLDER, q_filename)
+    a_path = os.path.join(UPLOAD_FOLDER, a_filename)
+    q_file.save(q_path)
+    a_file.save(a_path)
+
+    manual_answers = request.form.get("manual_answers", "").strip()
+    row = request.form.get("row", "").strip()
+    timer_mode = request.form.get("timer_mode", "none").strip()
+    time_limit_seconds = request.form.get("time_limit_seconds", 0, type=int)
+    if manual_answers:
+        answers = json.loads(manual_answers)
+        error = None
+    elif row:
+        rows_dict, error = parse_grid_answer_pdf(a_path)
+        if not error:
+            answers, error = extract_row_answers(rows_dict, row)
+    else:
+        answers, error = parse_answer_pdf(a_path)
+    if error:
+        os.remove(q_path)
+        os.remove(a_path)
+        conn.close()
+        return jsonify({"error": f"Failed to parse answer PDF: {error}"}), 400
+
+    account = get_current_account()
+    cursor = conn.execute(
+        """INSERT INTO math_test (child_id, created_by, title, question_pdf, answer_pdf, answer_key, total_questions, timer_mode, time_limit_seconds, learning_plan_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (plan["child_id"], account["id"], title, q_filename, a_filename, json.dumps(answers), len(answers), timer_mode, time_limit_seconds, plan_id)
+    )
+    mt_id = cursor.lastrowid
+    max_order = conn.execute("SELECT COALESCE(MAX(sort_order), 0) FROM learning_plan_item WHERE plan_id = ?", (plan_id,)).fetchone()[0]
+    conn.execute(
+        "INSERT INTO learning_plan_item (plan_id, item_type, item_id, sort_order) VALUES (?, 'math_test', ?, ?)",
+        (plan_id, mt_id, max_order + 1)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"id": mt_id, "total_questions": len(answers)}), 201
+
+
+@app.route("/api/learning-plans/<int:plan_id>/items/<int:item_id>", methods=["DELETE"])
+@parent_required
+def delete_plan_item(plan_id, item_id):
+    conn = get_db()
+    item = conn.execute("SELECT * FROM learning_plan_item WHERE id = ? AND plan_id = ?", (item_id, plan_id)).fetchone()
+    if not item:
+        conn.close()
+        return jsonify({"error": "Item not found"}), 404
+    # Delete the underlying entity
+    if item["item_type"] == "study_session":
+        conn.execute("DELETE FROM study_session_word WHERE session_id = ?", (item["item_id"],))
+        conn.execute("DELETE FROM study_session WHERE id = ?", (item["item_id"],))
+    elif item["item_type"] == "reading_assignment":
+        conn.execute("DELETE FROM reading_assignment_answer WHERE assignment_id = ?", (item["item_id"],))
+        conn.execute("DELETE FROM reading_assignment_unknown_word WHERE assignment_id = ?", (item["item_id"],))
+        conn.execute("DELETE FROM reading_assignment WHERE id = ?", (item["item_id"],))
+    elif item["item_type"] == "math_test":
+        conn.execute("DELETE FROM math_test_submission WHERE math_test_id = ?", (item["item_id"],))
+        conn.execute("DELETE FROM math_test WHERE id = ?", (item["item_id"],))
+    elif item["item_type"] == "parent_test":
+        conn.execute("DELETE FROM parent_test_word WHERE parent_test_id = ?", (item["item_id"],))
+        conn.execute("DELETE FROM parent_test WHERE id = ?", (item["item_id"],))
+    conn.execute("DELETE FROM learning_plan_item WHERE id = ?", (item_id,))
+    conn.commit()
+    conn.close()
+    return "", 204
+
+
+@app.route("/api/children/<int:child_id>/unassigned-items", methods=["GET"])
+@parent_required
+def get_unassigned_items(child_id):
+    conn = get_db()
+    study_sessions = conn.execute(
+        """SELECT ss.id, ss.title, ss.status, ss.created_at,
+                  (SELECT COUNT(*) FROM study_session_word WHERE session_id = ss.id) as word_count
+           FROM study_session ss
+           WHERE ss.child_id = ? AND ss.learning_plan_id IS NULL
+           ORDER BY ss.created_at DESC""",
+        (child_id,)
+    ).fetchall()
+
+    reading_assignments = conn.execute(
+        """SELECT ra.id, rm.title as material_title, ra.status, ra.created_at,
+                  (SELECT COUNT(*) FROM material_question WHERE material_id = ra.material_id) as question_count
+           FROM reading_assignment ra
+           JOIN reading_material rm ON ra.material_id = rm.id
+           WHERE ra.child_id = ? AND ra.learning_plan_id IS NULL
+           ORDER BY ra.created_at DESC""",
+        (child_id,)
+    ).fetchall()
+
+    math_tests = conn.execute(
+        """SELECT mt.id, mt.title, mt.status, mt.total_questions, mt.created_at
+           FROM math_test mt
+           WHERE mt.child_id = ? AND mt.learning_plan_id IS NULL
+           ORDER BY mt.created_at DESC""",
+        (child_id,)
+    ).fetchall()
+
+    conn.close()
+    return jsonify({
+        "study_sessions": [dict(s) for s in study_sessions],
+        "reading_assignments": [dict(a) for a in reading_assignments],
+        "math_tests": [dict(t) for t in math_tests],
+    })
+
+
+@app.route("/api/learning-plans/<int:plan_id>/items/link", methods=["POST"])
+@parent_required
+def link_item_to_plan(plan_id):
+    data = request.json
+    item_type = data.get("item_type")
+    item_id = data.get("item_id")
+
+    if item_type not in ("study_session", "reading_assignment", "math_test"):
+        return jsonify({"error": "Invalid item_type"}), 400
+    if not item_id:
+        return jsonify({"error": "item_id required"}), 400
+
+    conn = get_db()
+    plan = conn.execute("SELECT * FROM learning_plan WHERE id = ?", (plan_id,)).fetchone()
+    if not plan:
+        conn.close()
+        return jsonify({"error": "Plan not found"}), 404
+    if plan["status"] != "draft":
+        conn.close()
+        return jsonify({"error": "Plan is not in draft status"}), 400
+
+    # Verify item exists, belongs to same child, and is unassigned
+    table = item_type  # study_session, reading_assignment, math_test
+    item = conn.execute(
+        f"SELECT id, child_id, learning_plan_id FROM {table} WHERE id = ?", (item_id,)
+    ).fetchone()
+    if not item:
+        conn.close()
+        return jsonify({"error": "Item not found"}), 404
+    if item["child_id"] != plan["child_id"]:
+        conn.close()
+        return jsonify({"error": "Item belongs to a different child"}), 400
+    if item["learning_plan_id"] is not None:
+        conn.close()
+        return jsonify({"error": "Item is already in a plan"}), 400
+
+    # Get next sort order
+    max_sort = conn.execute(
+        "SELECT COALESCE(MAX(sort_order), 0) FROM learning_plan_item WHERE plan_id = ?", (plan_id,)
+    ).fetchone()[0]
+
+    # Link the item
+    conn.execute(
+        f"UPDATE {table} SET learning_plan_id = ? WHERE id = ?", (plan_id, item_id)
+    )
+    conn.execute(
+        "INSERT INTO learning_plan_item (plan_id, item_type, item_id, sort_order) VALUES (?, ?, ?, ?)",
+        (plan_id, item_type, item_id, max_sort + 1)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True}), 200
 
 
 if __name__ == "__main__":

@@ -148,7 +148,7 @@
 
 <!-- SCREEN 2: Flashcard Review -->
 <div id="review-screen" style="display: none;">
-    <a href="/" style="color: #667eea; text-decoration: none;">&larr; Back</a>
+    <a class="back-link" href="/" style="color: #667eea; text-decoration: none;">&larr; Back</a>
     <div style="display: flex; justify-content: space-between; align-items: center;">
         <h2>Review Words</h2>
         <div style="color: #666;">Card <span id="card-num">1</span> of <span id="card-total">0</span></div>
@@ -187,7 +187,7 @@
 
 <!-- SCREEN 3: Test Phase -->
 <div id="test-screen" style="display: none;">
-    <a href="/" style="color: #667eea; text-decoration: none;">&larr; Back</a>
+    <a class="back-link" href="/" style="color: #667eea; text-decoration: none;">&larr; Back</a>
     <div style="margin-bottom: 10px;">
         <div class="streak">streak <span id="streak">0</span></div>
     </div>
@@ -207,7 +207,7 @@
 
 <!-- SCREEN 4: Results / Retry -->
 <div id="results-screen" style="display: none; text-align: center;">
-    <a href="/" style="color: #667eea; text-decoration: none; display: block; text-align: left;">&larr; Back</a>
+    <a class="back-link" href="/" style="color: #667eea; text-decoration: none; display: block; text-align: left;">&larr; Back</a>
     <div id="results-content"></div>
 </div>
 {% endblock %}
@@ -216,6 +216,8 @@
 <script>
 const childId = {{ child.id }};
 const sessionId = {{ session_id|tojson }};
+const learningPlanId = {{ learning_plan_id|tojson }};
+const backUrl = learningPlanId ? `/child/${childId}/learning-plan/${learningPlanId}` : '/';
 const TYPE_LABELS = {
     definition: 'Definition Quiz',
     reverse: 'Reverse Quiz',
@@ -666,7 +668,7 @@ async function endTest() {
             <div style="font-size: 18px; color: #888; margin-bottom: 30px;">
                 Attempt ${attemptNumber}
             </div>
-            <a href="/" class="btn btn-success" style="font-size: 20px; padding: 15px 40px;">
+            <a href="${backUrl}" class="btn btn-success" style="font-size: 20px; padding: 15px 40px;">
                 Back
             </a>
             ${!sessionId ? `
@@ -701,7 +703,7 @@ async function endTest() {
             <button class="btn btn-warning" style="width: 100%; font-size: 16px; padding: 12px; margin-top: 10px;" onclick="reviewThenRetry()">
                 Review Words First, Then Retry
             </button>
-            <a href="/" style="display: block; margin-top: 15px; color: #667eea; text-decoration: none;">&larr; Back</a>
+            <a href="${backUrl}" style="display: block; margin-top: 15px; color: #667eea; text-decoration: none;">&larr; Back</a>
         `;
     }
 
@@ -796,6 +798,7 @@ function showConfetti() {
 }
 
 // Init
+document.querySelectorAll('.back-link').forEach(a => a.href = backUrl);
 loadWords();
 </script>
 {% endblock %}

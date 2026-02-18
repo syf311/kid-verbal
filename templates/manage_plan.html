@@ -1,0 +1,882 @@
+{% extends "base.html" %}
+
+{% block title %}{{ 'Create' if mode == 'create' else 'Manage' }} Learning Plan - {{ child.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .word-select-item {
+        display: flex;
+        align-items: center;
+        padding: 10px 12px;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px;
+        margin-bottom: 6px;
+        cursor: pointer;
+        transition: all 0.2s;
+        user-select: none;
+        font-size: 14px;
+    }
+    .word-select-item:hover { border-color: #667eea; background: #f7fafc; }
+    .word-select-item.selected { border-color: #667eea; background: #ebf4ff; }
+    .section-card {
+        background: #f7fafc;
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin-bottom: 16px;
+    }
+    .section-card h3 { font-size: 16px; margin-bottom: 12px; color: #333; }
+    .item-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 0;
+        border-bottom: 1px solid #eee;
+    }
+    .item-row:last-child { border-bottom: none; }
+    .item-row .info strong { font-size: 14px; }
+    .item-row .info .meta { font-size: 12px; color: #999; margin-top: 2px; }
+    .item-row .actions { display: flex; gap: 4px; align-items: center; }
+    .item-row .actions .btn { padding: 4px 10px; font-size: 12px; margin: 0; }
+    .status-badge { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px; }
+    .status-completed { color: #48bb78; }
+    .status-pending { color: #ed8936; }
+    .add-section { display: none; margin-top: 12px; }
+    .add-section.open { display: block; }
+    .add-toggle { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .add-toggle .btn { padding: 8px 14px; font-size: 14px; }
+    .word-list-scroll { max-height: 300px; overflow-y: auto; }
+    .select-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px; }
+    .file-input-wrap {
+        border: 2px dashed #cbd5e0;
+        border-radius: 10px;
+        padding: 15px;
+        text-align: center;
+        cursor: pointer;
+        transition: border-color 0.2s;
+        margin-bottom: 10px;
+    }
+    .file-input-wrap:hover { border-color: #667eea; }
+    .file-input-wrap input[type="file"] { display: none; }
+    .file-input-wrap .file-name { margin-top: 6px; font-size: 13px; color: #48bb78; font-weight: 600; }
+    .batch-input textarea {
+        width: 100%; padding: 8px; border: 1px solid #cbd5e0; border-radius: 8px;
+        font-size: 13px; font-family: monospace; resize: vertical; min-height: 40px; box-sizing: border-box;
+    }
+    .empty-msg { color: #999; font-size: 14px; padding: 8px 0; }
+    .filter-bar { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+    .filter-btn {
+        padding: 4px 10px; font-size: 12px; border-radius: 12px; border: 1px solid #cbd5e0;
+        background: #fff; cursor: pointer; font-weight: 600; transition: all 0.15s;
+    }
+    .filter-btn:hover { border-color: #667eea; }
+    .filter-btn.active { background: #667eea; color: #fff; border-color: #667eea; }
+    .mastery-badge {
+        font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px;
+        margin-left: 6px; display: inline-block; vertical-align: middle;
+    }
+    .mt-answer-grid { max-height: 250px; overflow-y: auto; margin-bottom: 8px; }
+    .mt-question-row { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
+    .mt-q-label { font-weight: 700; color: #333; min-width: 28px; font-size: 13px; }
+    .mt-choice-btn {
+        width: 32px; height: 32px; border: 2px solid #e2e8f0; border-radius: 6px;
+        background: white; font-weight: 700; font-size: 13px; cursor: pointer; color: #555;
+        transition: all 0.15s; padding: 0;
+    }
+    .mt-choice-btn:hover { border-color: #667eea; background: #eef2ff; }
+    .mt-choice-btn.selected { background: #667eea; color: white; border-color: #667eea; }
+    .mt-grid-row-picker { margin-top: 10px; padding: 10px; background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
+    .mt-grid-row-picker select { width: 100%; padding: 6px 10px; border: 1px solid #cbd5e0; border-radius: 6px; font-size: 13px; }
+    .mt-edit-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .mt-pdf-preview { background: #edf2f7; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+    .mt-pdf-preview iframe { width: 100%; flex: 1; border: none; min-height: 400px; }
+    .mt-pdf-preview h4 { padding: 6px 12px; margin: 0; font-size: 13px; color: #555; background: #e2e8f0; }
+    @media (max-width: 800px) { .mt-edit-layout { grid-template-columns: 1fr; } }
+    .mastery-new { background: #e2e8f0; color: #4a5568; }
+    .mastery-needs_work { background: #fed7d7; color: #c53030; }
+    .mastery-due { background: #fefcbf; color: #975a16; }
+    .mastery-good { background: #c6f6d5; color: #276749; }
+    .mastery-mastered { background: #667eea; color: #fff; }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="/parent" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back to Dashboard</a>
+
+{% if mode == 'create' %}
+<h1 style="margin-top: 10px;">Create Learning Plan for {{ child.name }}</h1>
+<div style="margin-bottom: 20px;">
+    <label style="font-weight: bold;">Plan Title</label>
+    <input type="text" id="plan-title" placeholder="e.g. Week 5 Study Plan">
+</div>
+<button class="btn btn-success" onclick="createPlan()" id="create-btn">Create Plan</button>
+
+{% else %}
+<h1 style="margin-top: 10px;" id="plan-title-display">{{ plan.title }}</h1>
+<div style="font-size: 14px; color: #666; margin-bottom: 20px;">
+    {{ child.name }} | Status: <strong id="plan-status">{{ plan.status }}</strong>
+    | Created {{ plan.created_at[:10] if plan.created_at else '' }}
+</div>
+
+<!-- Plan items list -->
+<div class="section-card">
+    <h3>Plan Items</h3>
+    <div id="items-list"><span class="empty-msg">Loading...</span></div>
+</div>
+
+{% if plan.status == 'draft' %}
+<!-- Add items controls -->
+<div class="add-toggle">
+    <button class="btn btn-success" onclick="toggleSection('study')">+ Study Session</button>
+    <button class="btn btn-warning" onclick="toggleSection('reading')">+ Reading Assignment</button>
+    <button class="btn btn-primary" onclick="toggleSection('math')">+ Math Test</button>
+    <button class="btn" onclick="toggleSection('existing')" style="background:#805ad5;color:#fff;">+ Existing Item</button>
+</div>
+
+<!-- Add Study Session -->
+<div class="add-section" id="section-study">
+    <div class="section-card">
+        <h3>Add Study Session</h3>
+        <div style="margin-bottom: 10px;">
+            <label style="font-weight: 600; font-size: 14px;">Title</label>
+            <input type="text" id="ss-title" placeholder="e.g. Vocabulary Review" style="margin-bottom: 8px;">
+        </div>
+        <div class="select-bar">
+            <div>
+                <button class="btn btn-primary" style="padding:4px 10px; font-size:12px;" onclick="selectAllWords()">All</button>
+                <button class="btn btn-warning" style="padding:4px 10px; font-size:12px;" onclick="deselectAllWords()">None</button>
+            </div>
+            <span><span id="word-count">0</span> selected</span>
+        </div>
+        <div class="filter-bar">
+            <button class="filter-btn active" onclick="setFilter('all')">All</button>
+            <button class="filter-btn" onclick="setFilter('new')">New</button>
+            <button class="filter-btn" onclick="setFilter('needs_work')">Needs Work</button>
+            <button class="filter-btn" onclick="setFilter('due')">Due</button>
+            <button class="filter-btn" onclick="setFilter('mastered')">Mastered</button>
+        </div>
+        <div class="word-list-scroll" id="word-checklist">Loading words...</div>
+        <button class="btn btn-success" style="margin-top: 10px;" onclick="addStudySession()" id="add-ss-btn" disabled>Add Study Session</button>
+    </div>
+</div>
+
+<!-- Add Reading Assignment -->
+<div class="add-section" id="section-reading">
+    <div class="section-card">
+        <h3>Add Reading Assignment</h3>
+        <select id="material-select" style="width:100%; padding:10px; font-size:15px; border:1px solid #ccc; border-radius:8px; margin-bottom:10px;">
+            <option value="">Select a reading material...</option>
+        </select>
+        <button class="btn btn-success" onclick="addReadingAssignment()" id="add-ra-btn">Add Reading Assignment</button>
+    </div>
+</div>
+
+<!-- Add Math Test -->
+<div class="add-section" id="section-math">
+    <div class="section-card">
+        <h3>Add Math Test</h3>
+        <!-- Stage 1: Upload & Parse -->
+        <div id="mt-upload">
+            <div style="margin-bottom: 10px;">
+                <label style="font-weight: 600; font-size: 14px;">Test Title</label>
+                <input type="text" id="mt-title" placeholder="e.g. Chapter 5 Quiz">
+            </div>
+            <div style="margin-bottom: 10px;">
+                <label style="font-weight: 600; font-size: 14px;">Question PDF</label>
+                <div class="file-input-wrap" onclick="document.getElementById('mt-question-pdf').click()">
+                    <div>Click to upload question PDF</div>
+                    <div class="file-name" id="mt-q-name"></div>
+                    <input type="file" id="mt-question-pdf" accept=".pdf" onchange="document.getElementById('mt-q-name').textContent=this.files[0]?this.files[0].name:''; mtUpdateButtons()">
+                </div>
+            </div>
+            <div style="margin-bottom: 10px;">
+                <label style="font-weight: 600; font-size: 14px;">Answer Key PDF</label>
+                <div class="file-input-wrap" onclick="document.getElementById('mt-answer-pdf').click()">
+                    <div>Click to upload answer key PDF</div>
+                    <div class="file-name" id="mt-a-name"></div>
+                    <input type="file" id="mt-answer-pdf" accept=".pdf" onchange="document.getElementById('mt-a-name').textContent=this.files[0]?this.files[0].name:''; mtUpdateButtons()">
+                </div>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button class="btn btn-warning" onclick="mtParseStandard()" id="mt-parse-btn" disabled style="padding:6px 12px; font-size:13px;">Parse Standard</button>
+                <button class="btn btn-warning" onclick="mtParseKangaroo()" id="mt-grid-btn" disabled style="padding:6px 12px; font-size:13px; background:#805ad5;">Parse Kangaroo</button>
+            </div>
+            <div class="mt-grid-row-picker" id="mt-row-picker" style="display:none;">
+                <label style="font-weight: 600; font-size: 13px;">Select competition level:</label>
+                <select id="mt-row-select" onchange="mtOnRowSelect()">
+                    <option value="">-- pick a row --</option>
+                </select>
+            </div>
+            <div id="mt-parse-error" style="color:#f56565; font-size:13px; margin-top:8px; display:none;"></div>
+        </div>
+        <!-- Stage 2: Edit answers with PDF preview -->
+        <div id="mt-edit" style="display:none;">
+            <div class="mt-edit-layout">
+                <div class="mt-pdf-preview">
+                    <h4>Answer Key PDF</h4>
+                    <iframe id="mt-pdf-frame"></iframe>
+                </div>
+                <div>
+                    <div style="font-weight:600; font-size:14px; margin-bottom:8px;">Answer Key (<span id="mt-answer-count">0</span> questions)</div>
+                    <div class="batch-input" style="margin-bottom: 8px;">
+                        <div style="font-size:12px; color:#888; margin-bottom:4px;">Enter answers separated by spaces (A-E)</div>
+                        <textarea id="mt-batch" placeholder="A B C D E A B C D E ..." style="min-height:36px;"></textarea>
+                        <button class="btn btn-warning" onclick="mtApplyBatch()" style="margin-top:4px; padding:4px 10px; font-size:12px;">Apply</button>
+                    </div>
+                    <div class="mt-answer-grid" id="mt-grid"></div>
+                    <div style="display:flex; gap:6px; margin-bottom:8px;">
+                        <button class="btn btn-success" onclick="mtAddQ()" style="padding:4px 10px; font-size:12px;">+ Question</button>
+                        <button class="btn btn-danger" onclick="mtRemoveQ()" style="padding:4px 10px; font-size:12px;">- Question</button>
+                        <button class="btn" onclick="mtBackToUpload()" style="padding:4px 10px; font-size:12px; background:#e2e8f0; color:#333;">Back</button>
+                    </div>
+                    <button class="btn btn-success" onclick="addMathTest()" id="add-mt-btn">Add Math Test</button>
+                    <span id="mt-status" style="margin-left: 10px; font-size: 13px;"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Existing Item -->
+<div class="add-section" id="section-existing">
+    <div class="section-card">
+        <h3>Add Existing Item to Plan</h3>
+        <div class="filter-bar" id="existing-type-bar">
+            <button class="filter-btn active" onclick="setExistingType('study_session')">Study Sessions</button>
+            <button class="filter-btn" onclick="setExistingType('reading_assignment')">Reading Assignments</button>
+            <button class="filter-btn" onclick="setExistingType('math_test')">Math Tests</button>
+        </div>
+        <div id="existing-items-list"><span class="empty-msg">Loading...</span></div>
+    </div>
+</div>
+
+<!-- Plan actions -->
+<div style="margin-top: 20px; display: flex; gap: 10px;">
+    <button class="btn btn-primary" onclick="releasePlan()" id="release-btn" disabled>Release Plan</button>
+    <button class="btn btn-danger" onclick="deletePlan()">Delete Plan</button>
+</div>
+{% endif %}
+
+{% if plan.status in ('released', 'completed') %}
+<div style="margin-top: 20px; display: flex; gap: 10px;">
+    <a href="/child/{{ child.id }}/learning-plan/{{ plan.id }}" class="btn btn-primary">View as Child</a>
+    <button class="btn btn-danger" onclick="deletePlan()">Delete Plan</button>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const childId = {{ child.id }};
+{% if plan %}
+const planId = {{ plan.id }};
+const planStatus = '{{ plan.status }}';
+{% else %}
+let planId = null;
+const planStatus = null;
+{% endif %}
+
+function escHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+{% if mode == 'create' %}
+async function createPlan() {
+    const title = document.getElementById('plan-title').value.trim();
+    if (!title) { alert('Please enter a plan title'); return; }
+    const res = await fetch('/api/learning-plans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ child_id: childId, title })
+    });
+    if (res.ok) {
+        const data = await res.json();
+        window.location.href = `/parent/child/${childId}/learning-plan/${data.id}/manage`;
+    } else {
+        const data = await res.json();
+        alert('Error: ' + (data.error || 'Failed'));
+    }
+}
+{% endif %}
+
+{% if plan %}
+// ── Load plan data ──
+
+let allWords = [];
+let selectedWordIds = new Set();
+let currentFilter = 'all';
+
+const MASTERY_LABELS = {
+    'new': 'New', 'needs_work': 'Needs Work', 'due': 'Due',
+    'good': 'Good', 'mastered': 'Mastered'
+};
+
+function getMasteryStatus(w) {
+    if (!w.last_tested) return 'new';
+    if ((w.wrong_count || 0) > (w.correct_count || 0)) return 'needs_work';
+    if ((w.difficulty_level || 1) >= 4) return 'mastered';
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    if (!w.last_correct_at || w.last_correct_at < cutoff) return 'due';
+    return 'good';
+}
+
+function setFilter(filter) {
+    currentFilter = filter;
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.textContent.trim() === (
+            filter === 'all' ? 'All' : filter === 'new' ? 'New' :
+            filter === 'needs_work' ? 'Needs Work' : filter === 'due' ? 'Due' : 'Mastered'
+        ));
+    });
+    renderWordChecklist();
+}
+
+async function loadPlan() {
+    const res = await fetch(`/api/learning-plans/${planId}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    renderItems(data.items);
+    if (planStatus === 'draft') {
+        const releaseBtn = document.getElementById('release-btn');
+        if (releaseBtn) releaseBtn.disabled = data.items.length === 0;
+    }
+}
+
+function renderItems(items) {
+    const list = document.getElementById('items-list');
+    if (items.length === 0) {
+        list.innerHTML = '<span class="empty-msg">No items yet. Add study sessions, reading assignments, or math tests below.</span>';
+        return;
+    }
+    list.innerHTML = items.map(item => {
+        const d = item.details || {};
+        const title = d.title || 'Unknown';
+        let typeLabel = '';
+        let meta = '';
+        let statusBadge = '';
+        const status = d.status || 'pending';
+        statusBadge = `<span class="status-badge ${status === 'completed' ? 'status-completed' : 'status-pending'}">${status === 'completed' ? 'Done' : 'Pending'}</span>`;
+
+        if (item.item_type === 'study_session') {
+            typeLabel = 'Study';
+            meta = `${d.word_count || 0} words`;
+        } else if (item.item_type === 'reading_assignment') {
+            typeLabel = 'Reading';
+            meta = `${d.question_count || 0} questions`;
+            if (status === 'completed' && d.correct_count != null) {
+                meta += ` | ${d.correct_count}/${d.question_count} correct`;
+            }
+        } else if (item.item_type === 'math_test') {
+            typeLabel = 'Math';
+            meta = `${d.total_questions || 0} questions`;
+            if (status === 'completed' && d.score != null) {
+                meta += ` | ${d.correct_count}/${d.total_count} correct (${d.score}%)`;
+            }
+        } else if (item.item_type === 'parent_test') {
+            typeLabel = '';
+            meta = `${d.word_count || 0} words · Auto-created from study`;
+        }
+
+        let actions = statusBadge;
+        if (planStatus === 'draft') {
+            actions += ` <button class="btn btn-danger" onclick="deleteItem(${item.id})">Del</button>`;
+        } else {
+            // Link to item
+            let href = '#';
+            if (item.item_type === 'study_session') href = `/child/${childId}/study/${item.item_id}`;
+            else if (item.item_type === 'reading_assignment') href = status === 'completed' ? `/child/${childId}/reading-assignment/${item.item_id}/review` : `/child/${childId}/reading-assignment/${item.item_id}`;
+            else if (item.item_type === 'math_test') href = status === 'completed' ? `/child/${childId}/math-test/${item.item_id}/review` : `/child/${childId}/math-test/${item.item_id}`;
+            else if (item.item_type === 'parent_test') href = `/child/${childId}/test/${item.item_id}`;
+            actions += ` <a href="${href}" class="btn btn-primary">View</a>`;
+        }
+
+        return `<div class="item-row">
+            <div class="info">
+                <strong>${typeLabel ? escHtml(typeLabel) + ': ' : ''}${escHtml(title)}</strong>
+                <div class="meta">${meta}</div>
+            </div>
+            <div class="actions">${actions}</div>
+        </div>`;
+    }).join('');
+}
+
+// ── Add sections toggle ──
+
+let openSection = null;
+function toggleSection(section) {
+    document.querySelectorAll('.add-section').forEach(el => el.classList.remove('open'));
+    if (openSection === section) {
+        openSection = null;
+        return;
+    }
+    openSection = section;
+    document.getElementById('section-' + section).classList.add('open');
+    if (section === 'study' && allWords.length === 0) loadWords();
+    if (section === 'reading') loadMaterials();
+    if (section === 'existing' && !unassignedData) loadUnassignedItems();
+}
+
+// ── Study session ──
+
+async function loadWords() {
+    const res = await fetch(`/api/children/${childId}/words`);
+    allWords = await res.json();
+    renderWordChecklist();
+}
+
+function renderWordChecklist() {
+    const container = document.getElementById('word-checklist');
+    let wordsWithDef = allWords.filter(w => w.definition);
+    if (currentFilter !== 'all') {
+        wordsWithDef = wordsWithDef.filter(w => getMasteryStatus(w) === currentFilter);
+    }
+    if (wordsWithDef.length === 0) {
+        container.innerHTML = '<span class="empty-msg">No words match this filter.</span>';
+        return;
+    }
+    container.innerHTML = wordsWithDef.map(w => {
+        const status = getMasteryStatus(w);
+        const badge = `<span class="mastery-badge mastery-${status}">${escHtml(MASTERY_LABELS[status])}</span>`;
+        return `
+        <div class="word-select-item ${selectedWordIds.has(w.id) ? 'selected' : ''}" id="ws-${w.id}" onclick="toggleWord(${w.id})">
+            <div style="flex:1;">
+                <strong>${escHtml(w.word)}</strong>${badge}
+                <span style="color:#888; font-size:13px; margin-left:8px;">${escHtml((w.definition||'').substring(0,60))}</span>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function toggleWord(id) {
+    if (selectedWordIds.has(id)) selectedWordIds.delete(id); else selectedWordIds.add(id);
+    const el = document.getElementById('ws-' + id);
+    if (el) el.classList.toggle('selected', selectedWordIds.has(id));
+    document.getElementById('word-count').textContent = selectedWordIds.size;
+    document.getElementById('add-ss-btn').disabled = selectedWordIds.size < 1;
+}
+
+function selectAllWords() {
+    let words = allWords.filter(w => w.definition);
+    if (currentFilter !== 'all') words = words.filter(w => getMasteryStatus(w) === currentFilter);
+    words.forEach(w => selectedWordIds.add(w.id));
+    document.querySelectorAll('.word-select-item').forEach(el => el.classList.add('selected'));
+    document.getElementById('word-count').textContent = selectedWordIds.size;
+    document.getElementById('add-ss-btn').disabled = selectedWordIds.size < 1;
+}
+
+function deselectAllWords() {
+    if (currentFilter === 'all') {
+        selectedWordIds.clear();
+    } else {
+        allWords.filter(w => w.definition && getMasteryStatus(w) === currentFilter)
+            .forEach(w => selectedWordIds.delete(w.id));
+    }
+    document.querySelectorAll('.word-select-item').forEach(el => el.classList.remove('selected'));
+    document.getElementById('word-count').textContent = selectedWordIds.size;
+    document.getElementById('add-ss-btn').disabled = selectedWordIds.size < 1;
+}
+
+async function addStudySession() {
+    const title = document.getElementById('ss-title').value.trim() || new Date().toLocaleDateString();
+    const wordIds = [...selectedWordIds];
+    if (wordIds.length === 0) return;
+    const res = await fetch(`/api/learning-plans/${planId}/items/study-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, word_ids: wordIds })
+    });
+    if (res.ok) {
+        selectedWordIds.clear();
+        deselectAllWords();
+        document.getElementById('ss-title').value = '';
+        loadPlan();
+    } else {
+        const data = await res.json();
+        alert('Error: ' + (data.error || 'Failed'));
+    }
+}
+
+// ── Reading assignment ──
+
+async function loadMaterials() {
+    const res = await fetch(`/api/children/${childId}/words`); // just to trigger; we need materials
+    // Actually fetch materials for this child
+    const mres = await fetch(`/materials?child_id=${childId}&format=json`).catch(() => null);
+    // Fallback: fetch all materials from the reading_material table directly
+    // The materials page doesn't have a JSON API, so let's use a simple approach
+    const select = document.getElementById('material-select');
+    if (select.options.length > 1) return; // already loaded
+
+    // We'll query materials via a dedicated approach
+    try {
+        const r = await fetch(`/api/children/${childId}/reading-materials`);
+        if (r.ok) {
+            const materials = await r.json();
+            materials.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = `${m.title} (${m.question_count} questions)`;
+                select.appendChild(opt);
+            });
+        }
+    } catch(e) {}
+}
+
+async function addReadingAssignment() {
+    const materialId = document.getElementById('material-select').value;
+    if (!materialId) { alert('Please select a reading material'); return; }
+    const res = await fetch(`/api/learning-plans/${planId}/items/reading-assignment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ material_id: parseInt(materialId) })
+    });
+    if (res.ok) {
+        document.getElementById('material-select').value = '';
+        loadPlan();
+    } else {
+        const data = await res.json();
+        alert('Error: ' + (data.error || 'Failed'));
+    }
+}
+
+// ── Math test ──
+
+let mtAnswers = {};
+let mtTotalQ = 0;
+
+function mtUpdateButtons() {
+    const hasA = document.getElementById('mt-answer-pdf').files.length > 0;
+    document.getElementById('mt-parse-btn').disabled = !hasA;
+    document.getElementById('mt-grid-btn').disabled = !hasA;
+}
+
+function mtShowEdit(answerData) {
+    mtAnswers = answerData || {};
+    mtTotalQ = Math.max(...Object.keys(mtAnswers).map(Number), 0);
+    if (mtTotalQ === -Infinity) mtTotalQ = 0;
+    document.getElementById('mt-upload').style.display = 'none';
+    // Show answer PDF in iframe
+    const aFile = document.getElementById('mt-answer-pdf').files[0];
+    if (aFile) {
+        document.getElementById('mt-pdf-frame').src = URL.createObjectURL(aFile);
+    }
+    if (mtTotalQ > 0) {
+        const parts = [];
+        for (let i = 1; i <= mtTotalQ; i++) parts.push(mtAnswers[String(i)] || '-');
+        document.getElementById('mt-batch').value = parts.join(' ');
+    }
+    document.getElementById('mt-edit').style.display = 'block';
+    mtBuildGrid();
+}
+
+function mtBackToUpload() {
+    document.getElementById('mt-edit').style.display = 'none';
+    document.getElementById('mt-upload').style.display = 'block';
+}
+
+function mtBuildGrid() {
+    const grid = document.getElementById('mt-grid');
+    document.getElementById('mt-answer-count').textContent = mtTotalQ;
+    let html = '';
+    for (let i = 1; i <= mtTotalQ; i++) {
+        const current = (mtAnswers[String(i)] || '').toUpperCase();
+        html += `<div class="mt-question-row" id="mtqr_${i}"><span class="mt-q-label">${i}.</span>`;
+        for (const ch of ['A','B','C','D','E']) {
+            const sel = current === ch ? ' selected' : '';
+            html += `<button class="mt-choice-btn${sel}" onclick="mtSelect(${i},'${ch}',this)">${ch}</button>`;
+        }
+        html += `</div>`;
+    }
+    grid.innerHTML = html;
+}
+
+function mtSelect(q, ch, btn) {
+    const row = document.getElementById('mtqr_' + q);
+    row.querySelectorAll('.mt-choice-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    mtAnswers[String(q)] = ch;
+}
+
+function mtAddQ() { mtTotalQ++; mtAnswers[String(mtTotalQ)] = ''; mtBuildGrid(); }
+function mtRemoveQ() { if (mtTotalQ <= 1) return; delete mtAnswers[String(mtTotalQ)]; mtTotalQ--; mtBuildGrid(); }
+
+function mtApplyBatch() {
+    const raw = document.getElementById('mt-batch').value.trim();
+    if (!raw) return;
+    const tokens = raw.split(/[\s,]+/).map(t => t.toUpperCase()).filter(t => /^[A-E]$/.test(t) || t === '-');
+    if (tokens.length === 0) return;
+    mtAnswers = {};
+    mtTotalQ = tokens.length;
+    for (let i = 0; i < tokens.length; i++) {
+        if (tokens[i] !== '-') mtAnswers[String(i + 1)] = tokens[i];
+    }
+    mtBuildGrid();
+}
+
+async function mtParseStandard() {
+    const btn = document.getElementById('mt-parse-btn');
+    const errEl = document.getElementById('mt-parse-error');
+    errEl.style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = 'Parsing...';
+
+    const fd = new FormData();
+    fd.append('answer_pdf', document.getElementById('mt-answer-pdf').files[0]);
+    try {
+        const res = await fetch('/api/math-tests/preview-answers', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) {
+            const err = data.error || '';
+            if (err.toLowerCase().includes('could not extract') || err.toLowerCase().includes('no answer patterns')) {
+                mtShowEdit({});
+            } else {
+                errEl.textContent = err; errEl.style.display = 'block';
+            }
+        } else {
+            mtShowEdit(data.answers);
+        }
+    } catch(e) {
+        errEl.textContent = 'Network error'; errEl.style.display = 'block';
+    }
+    btn.disabled = false;
+    btn.textContent = 'Parse Standard';
+}
+
+async function mtParseKangaroo() {
+    const btn = document.getElementById('mt-grid-btn');
+    const errEl = document.getElementById('mt-parse-error');
+    errEl.style.display = 'none';
+    document.getElementById('mt-row-picker').style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = 'Detecting rows...';
+
+    const fd = new FormData();
+    fd.append('answer_pdf', document.getElementById('mt-answer-pdf').files[0]);
+    try {
+        const res = await fetch('/api/math-tests/preview-grid-answers', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.scanned) {
+            mtShowEdit({});
+        } else if (!res.ok) {
+            errEl.textContent = data.error || 'Failed to parse grid'; errEl.style.display = 'block';
+        } else {
+            const select = document.getElementById('mt-row-select');
+            select.innerHTML = '<option value="">-- pick a row --</option>';
+            for (const [name, count] of Object.entries(data.rows)) {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = `${name} (${count} questions)`;
+                select.appendChild(opt);
+            }
+            document.getElementById('mt-row-picker').style.display = 'block';
+            const ecolierOpt = Array.from(select.options).find(o => o.value === 'Écolier');
+            if (ecolierOpt) { select.value = 'Écolier'; mtOnRowSelect(); }
+        }
+    } catch(e) {
+        errEl.textContent = 'Network error'; errEl.style.display = 'block';
+    }
+    btn.disabled = false;
+    btn.textContent = 'Parse Kangaroo';
+}
+
+async function mtOnRowSelect() {
+    const select = document.getElementById('mt-row-select');
+    const row = select.value;
+    if (!row) return;
+    const errEl = document.getElementById('mt-parse-error');
+    errEl.style.display = 'none';
+    select.disabled = true;
+
+    const fd = new FormData();
+    fd.append('answer_pdf', document.getElementById('mt-answer-pdf').files[0]);
+    fd.append('row', row);
+    try {
+        const res = await fetch('/api/math-tests/preview-answers', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) {
+            errEl.textContent = data.error || 'Failed to extract row'; errEl.style.display = 'block';
+        } else {
+            mtShowEdit(data.answers);
+        }
+    } catch(e) {
+        errEl.textContent = 'Network error'; errEl.style.display = 'block';
+    }
+    select.disabled = false;
+}
+
+async function addMathTest() {
+    const title = document.getElementById('mt-title').value.trim();
+    if (!title) { alert('Please enter a test title'); return; }
+    const qFile = document.getElementById('mt-question-pdf').files[0];
+    const aFile = document.getElementById('mt-answer-pdf').files[0];
+    if (!qFile || !aFile) { alert('Please upload both PDFs'); return; }
+
+    const cleaned = {};
+    for (let i = 1; i <= mtTotalQ; i++) {
+        const val = mtAnswers[String(i)];
+        if (val) cleaned[String(i)] = val;
+    }
+    if (Object.keys(cleaned).length === 0) {
+        document.getElementById('mt-status').textContent = 'Please set at least one answer.';
+        document.getElementById('mt-status').style.color = '#f56565';
+        return;
+    }
+
+    const statusEl = document.getElementById('mt-status');
+    statusEl.textContent = 'Adding...';
+    statusEl.style.color = '';
+    const btn = document.getElementById('add-mt-btn');
+    btn.disabled = true;
+
+    const fd = new FormData();
+    fd.append('title', title);
+    fd.append('question_pdf', qFile);
+    fd.append('answer_pdf', aFile);
+    fd.append('manual_answers', JSON.stringify(cleaned));
+
+    try {
+        const res = await fetch(`/api/learning-plans/${planId}/items/math-test`, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (res.ok) {
+            statusEl.textContent = '';
+            document.getElementById('mt-title').value = '';
+            document.getElementById('mt-batch').value = '';
+            document.getElementById('mt-q-name').textContent = '';
+            document.getElementById('mt-a-name').textContent = '';
+            document.getElementById('mt-question-pdf').value = '';
+            document.getElementById('mt-answer-pdf').value = '';
+            mtAnswers = {};
+            mtTotalQ = 0;
+            mtBackToUpload();
+            loadPlan();
+        } else {
+            statusEl.textContent = data.error || 'Failed';
+            statusEl.style.color = '#f56565';
+        }
+    } catch(e) {
+        statusEl.textContent = 'Network error';
+        statusEl.style.color = '#f56565';
+    }
+    btn.disabled = false;
+}
+
+// ── Existing items ──
+
+let unassignedData = null;
+let currentExistingType = 'study_session';
+
+function setExistingType(type) {
+    currentExistingType = type;
+    const labels = { 'study_session': 'Study Sessions', 'reading_assignment': 'Reading Assignments', 'math_test': 'Math Tests' };
+    document.querySelectorAll('#existing-type-bar .filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.textContent.trim() === labels[type]);
+    });
+    renderExistingItems();
+}
+
+async function loadUnassignedItems() {
+    const res = await fetch(`/api/children/${childId}/unassigned-items`);
+    if (res.ok) {
+        unassignedData = await res.json();
+        renderExistingItems();
+    }
+}
+
+function renderExistingItems() {
+    const list = document.getElementById('existing-items-list');
+    if (!unassignedData) { list.innerHTML = '<span class="empty-msg">Loading...</span>'; return; }
+
+    let items = [];
+    if (currentExistingType === 'study_session') {
+        items = (unassignedData.study_sessions || []).map(s => ({
+            id: s.id, title: s.title || 'Study Session',
+            meta: `${s.word_count || 0} words | ${(s.created_at || '').slice(0, 10)}`,
+            status: s.status
+        }));
+    } else if (currentExistingType === 'reading_assignment') {
+        items = (unassignedData.reading_assignments || []).map(a => ({
+            id: a.id, title: a.material_title,
+            meta: `${a.question_count || 0} questions | ${(a.created_at || '').slice(0, 10)}`,
+            status: a.status
+        }));
+    } else if (currentExistingType === 'math_test') {
+        items = (unassignedData.math_tests || []).map(t => ({
+            id: t.id, title: t.title,
+            meta: `${t.total_questions || 0} questions | ${(t.created_at || '').slice(0, 10)}`,
+            status: t.status
+        }));
+    }
+
+    if (items.length === 0) {
+        list.innerHTML = '<span class="empty-msg">No unassigned items of this type.</span>';
+        return;
+    }
+
+    list.innerHTML = items.map(item => `
+        <div class="item-row">
+            <div class="info">
+                <strong>${escHtml(item.title)}</strong>
+                <div class="meta">${item.meta}</div>
+            </div>
+            <div class="actions">
+                <span class="status-badge ${item.status === 'completed' ? 'status-completed' : 'status-pending'}">${item.status === 'completed' ? 'Done' : 'Pending'}</span>
+                <button class="btn btn-success" style="padding:4px 10px; font-size:12px;" onclick="linkItem('${currentExistingType}', ${item.id}, this)">Add to Plan</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function linkItem(itemType, itemId, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Adding...';
+    const res = await fetch(`/api/learning-plans/${planId}/items/link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_type: itemType, item_id: itemId })
+    });
+    if (res.ok) {
+        loadPlan();
+        unassignedData = null;
+        loadUnassignedItems();
+    } else {
+        const data = await res.json();
+        alert('Error: ' + (data.error || 'Failed'));
+        btn.disabled = false;
+        btn.textContent = 'Add to Plan';
+    }
+}
+
+// ── Plan actions ──
+
+async function deleteItem(itemId) {
+    if (!confirm('Delete this item from the plan?')) return;
+    await fetch(`/api/learning-plans/${planId}/items/${itemId}`, { method: 'DELETE' });
+    loadPlan();
+}
+
+async function releasePlan() {
+    if (!confirm('Release this plan? The child will be able to see and start working on it.')) return;
+    const res = await fetch(`/api/learning-plans/${planId}/release`, { method: 'POST' });
+    if (res.ok) {
+        location.reload();
+    } else {
+        const data = await res.json();
+        alert('Error: ' + (data.error || 'Failed'));
+    }
+}
+
+async function deletePlan() {
+    if (!confirm('Delete this plan and all its items? This cannot be undone.')) return;
+    await fetch(`/api/learning-plans/${planId}`, { method: 'DELETE' });
+    window.location.href = '/parent';
+}
+
+// ── Init ──
+loadPlan();
+{% endif %}
+</script>
+{% endblock %}

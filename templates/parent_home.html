@@ -333,7 +333,8 @@
 
         <!-- Subject tab bar -->
         <div class="tab-bar">
-            <button class="tab-btn active" data-tab="language-arts" onclick="switchTab('language-arts')">Language Arts</button>
+            <button class="tab-btn active" data-tab="plans" onclick="switchTab('plans')">Learning Plans</button>
+            <button class="tab-btn" data-tab="language-arts" onclick="switchTab('language-arts')">Language Arts</button>
             <button class="tab-btn" data-tab="math" onclick="switchTab('math')">Math</button>
             <button class="tab-btn" data-tab="science" onclick="switchTab('science')">Science</button>
         </div>
@@ -344,8 +345,25 @@
             <p>Add a child profile to get started.</p>
         </div>
 
+        <!-- Plans tab -->
+        <div class="tab-panel active" data-panel="plans" id="panel-plans">
+            <div class="quick-links" id="plans-links"></div>
+            <div class="dash-card">
+                <h3>Draft Plans</h3>
+                <div id="plans-draft-list"><span class="empty-msg">Loading...</span></div>
+            </div>
+            <div class="dash-card">
+                <h3>Released Plans</h3>
+                <div id="plans-released-list"><span class="empty-msg">Loading...</span></div>
+            </div>
+            <div class="dash-card">
+                <h3>Completed Plans</h3>
+                <div id="plans-completed-list"><span class="empty-msg">Loading...</span></div>
+            </div>
+        </div>
+
         <!-- Language Arts tab -->
-        <div class="tab-panel active" data-panel="language-arts" id="panel-language-arts">
+        <div class="tab-panel" data-panel="language-arts" id="panel-language-arts">
             <div class="stat-row">
                 <div class="stat-box">
                     <div class="num" id="word-count">-</div>
@@ -400,7 +418,7 @@
 <script>
 const childrenData = {{ children|tojson }};
 let currentChildId = null;
-let currentTab = 'language-arts';
+let currentTab = 'plans';
 let dashboardCache = {};
 
 // ── Child selection ──
@@ -452,6 +470,7 @@ async function loadDashboard(childId) {
 
     renderLanguageArts(childId, data);
     renderMathTab(childId, data);
+    renderPlansTab(childId, data);
 }
 
 function updateQuickLinks(childId) {
@@ -465,6 +484,9 @@ function updateQuickLinks(childId) {
     document.getElementById('math-links').innerHTML = `
         <a href="/parent/child/${childId}/math-test/new" class="btn-success">Create Math Test</a>
     `;
+    document.getElementById('plans-links').innerHTML = `
+        <a href="/parent/child/${childId}/learning-plan/new" class="btn-success">Create Learning Plan</a>
+    `;
 }
 
 // ── Render language arts tab ──
@@ -477,10 +499,14 @@ function renderLanguageArts(childId, data) {
     if (data.study_sessions.length === 0) {
         ssList.innerHTML = '<span class="empty-msg">No study sessions yet.</span>';
     } else {
-        ssList.innerHTML = data.study_sessions.map(s => `
+        ssList.innerHTML = data.study_sessions.map(s => {
+            const planBadge = s.plan_title
+                ? `<span style="background:#ebf4ff;color:#667eea;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">${escHtml(s.plan_title)}</span>`
+                : '';
+            return `
             <div class="list-item">
                 <div class="info">
-                    <strong>${escHtml(s.title || 'Study Session')}</strong>
+                    <strong>${escHtml(s.title || 'Study Session')}</strong>${planBadge}
                     <div class="meta">${s.created_at.slice(0,10)} &middot; ${s.word_count || '?'} words</div>
                 </div>
                 <div class="actions">
@@ -489,8 +515,8 @@ function renderLanguageArts(childId, data) {
                     <button class="btn btn-warning" onclick="createTestFromStudy(${s.id})">Test</button>
                     <button class="btn btn-danger" onclick="deleteSession(${s.id})">Del</button>
                 </div>
-            </div>
-        `).join('');
+            </div>`;
+        }).join('');
     }
 
     // Parent tests
@@ -519,18 +545,22 @@ function renderLanguageArts(childId, data) {
     if (data.pending_assignments.length === 0) {
         pendList.innerHTML = '<span class="empty-msg">No pending assignments.</span>';
     } else {
-        pendList.innerHTML = data.pending_assignments.map(a => `
+        pendList.innerHTML = data.pending_assignments.map(a => {
+            const planBadge = a.plan_title
+                ? `<span style="background:#ebf4ff;color:#667eea;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">${escHtml(a.plan_title)}</span>`
+                : '';
+            return `
             <div class="list-item">
                 <div class="info">
-                    <strong>${escHtml(a.material_title)}</strong>
+                    <strong>${escHtml(a.material_title)}</strong>${planBadge}
                     <div class="meta">${a.created_at.slice(0,10)} &middot; ${a.question_count} questions</div>
                 </div>
                 <div class="actions">
                     <a href="/child/${childId}/reading-assignment/${a.id}" class="btn btn-primary">Open</a>
                     <button class="btn btn-danger" onclick="deleteAssignment(${a.id})">Del</button>
                 </div>
-            </div>
-        `).join('');
+            </div>`;
+        }).join('');
     }
 
     const compList = document.getElementById('completed-assignments-list');
@@ -539,10 +569,13 @@ function renderLanguageArts(childId, data) {
     } else {
         compList.innerHTML = data.completed_assignments.map(a => {
             const pct = a.question_count > 0 ? Math.round(a.correct_count * 100 / a.question_count) : 0;
+            const planBadge = a.plan_title
+                ? `<span style="background:#ebf4ff;color:#667eea;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">${escHtml(a.plan_title)}</span>`
+                : '';
             return `
             <div class="list-item">
                 <div class="info">
-                    <strong>${escHtml(a.material_title)}</strong>
+                    <strong>${escHtml(a.material_title)}</strong>${planBadge}
                     <div class="meta">${(a.completed_at || a.created_at).slice(0,10)} &middot; ${a.correct_count}/${a.question_count} correct (${pct}%)</div>
                 </div>
                 <div class="actions">
@@ -571,10 +604,13 @@ function renderMathTab(childId, data) {
             } else if (t.timer_mode === 'stopwatch') {
                 timerInfo = ' &middot; Timed';
             }
+            const planBadge = t.plan_title
+                ? `<span style="background:#ebf4ff;color:#667eea;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">${escHtml(t.plan_title)}</span>`
+                : '';
             return `
             <div class="list-item">
                 <div class="info">
-                    <strong>${escHtml(t.title)}</strong>
+                    <strong>${escHtml(t.title)}</strong>${planBadge}
                     <div class="meta">${t.created_at.slice(0,10)} &middot; ${t.total_questions} questions${timerInfo}</div>
                 </div>
                 <div class="actions">
@@ -599,10 +635,13 @@ function renderMathTab(childId, data) {
             const scoreInfo = t.correct_count != null && t.total_count != null
                 ? ` &middot; ${t.correct_count}/${t.total_count} correct (${t.score}%)`
                 : (t.score != null ? ` &middot; Score: ${t.score}%` : '');
+            const planBadge = t.plan_title
+                ? `<span style="background:#ebf4ff;color:#667eea;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">${escHtml(t.plan_title)}</span>`
+                : '';
             return `
             <div class="list-item">
                 <div class="info">
-                    <strong>${escHtml(t.title)}</strong>
+                    <strong>${escHtml(t.title)}</strong>${planBadge}
                     <div class="meta">${t.created_at.slice(0,10)} &middot; ${t.total_questions} questions${scoreInfo}${timeInfo}</div>
                 </div>
                 <div class="actions">
@@ -611,6 +650,70 @@ function renderMathTab(childId, data) {
                 </div>
             </div>`;
         }).join('');
+    }
+}
+
+// ── Render plans tab ──
+
+function renderPlansTab(childId, data) {
+    const plans = data.learning_plans || [];
+    const drafts = plans.filter(p => p.status === 'draft');
+    const released = plans.filter(p => p.status === 'released');
+    const completed = plans.filter(p => p.status === 'completed');
+
+    const draftList = document.getElementById('plans-draft-list');
+    if (drafts.length === 0) {
+        draftList.innerHTML = '<span class="empty-msg">No draft plans.</span>';
+    } else {
+        draftList.innerHTML = drafts.map(p => `
+            <div class="list-item">
+                <div class="info">
+                    <strong>${escHtml(p.title)}</strong>
+                    <div class="meta">${p.created_at.slice(0,10)} &middot; ${p.item_count} items</div>
+                </div>
+                <div class="actions">
+                    <a href="/parent/child/${childId}/learning-plan/${p.id}/manage" class="btn btn-primary">Manage</a>
+                    <button class="btn btn-danger" onclick="deletePlan(${p.id})">Del</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    const relList = document.getElementById('plans-released-list');
+    if (released.length === 0) {
+        relList.innerHTML = '<span class="empty-msg">No released plans.</span>';
+    } else {
+        relList.innerHTML = released.map(p => {
+            const pct = p.item_count > 0 ? Math.round(p.completed_item_count * 100 / p.item_count) : 0;
+            return `
+            <div class="list-item">
+                <div class="info">
+                    <strong>${escHtml(p.title)}</strong>
+                    <div class="meta">${p.created_at.slice(0,10)} &middot; ${p.completed_item_count}/${p.item_count} items done (${pct}%)</div>
+                </div>
+                <div class="actions">
+                    <a href="/parent/child/${childId}/learning-plan/${p.id}/manage" class="btn btn-primary">View</a>
+                    <button class="btn btn-danger" onclick="deletePlan(${p.id})">Del</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    const compList = document.getElementById('plans-completed-list');
+    if (completed.length === 0) {
+        compList.innerHTML = '<span class="empty-msg">No completed plans yet.</span>';
+    } else {
+        compList.innerHTML = completed.map(p => `
+            <div class="list-item">
+                <div class="info">
+                    <strong>${escHtml(p.title)}</strong>
+                    <div class="meta">${(p.completed_at || p.created_at).slice(0,10)} &middot; ${p.item_count} items &middot; All done</div>
+                </div>
+                <div class="actions">
+                    <a href="/parent/child/${childId}/learning-plan/${p.id}/manage" class="btn btn-success">Review</a>
+                </div>
+            </div>
+        `).join('');
     }
 }
 
@@ -647,6 +750,12 @@ async function deleteAssignment(id) {
 async function deleteMathTest(id) {
     if (!confirm('Delete this math test?')) return;
     await fetch(`/api/math-tests/${id}`, { method: 'DELETE' });
+    loadDashboard(currentChildId);
+}
+
+async function deletePlan(id) {
+    if (!confirm('Delete this plan and all its items?')) return;
+    await fetch(`/api/learning-plans/${id}`, { method: 'DELETE' });
     loadDashboard(currentChildId);
 }
 

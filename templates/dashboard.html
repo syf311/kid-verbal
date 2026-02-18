@@ -14,6 +14,33 @@
     </div>
 </div>
 
+{% if learning_plans %}
+<div style="margin-bottom: 30px;">
+    <h2>Learning Plans</h2>
+    {% for lp in learning_plans %}
+    <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong style="font-size: 18px;">{{ lp.title }}</strong>
+            <div style="font-size: 14px; color: #666;">
+                {{ lp.item_count }} items | {{ 'Completed' if lp.status == 'completed' else 'In Progress' }}
+            </div>
+        </div>
+        <a href="/child/{{ child.id }}/learning-plan/{{ lp.id }}" class="btn {{ 'btn-primary' if lp.status == 'completed' else 'btn-success' }}" style="padding: 10px 25px;">
+            {{ 'Review' if lp.status == 'completed' else 'Continue' }}
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if role != 'parent' %}
+<div id="active-reading-sessions" style="margin-bottom: 30px; display: none;">
+    <h2>Active Reading Sessions</h2>
+    <div id="reading-session-list"></div>
+</div>
+{% endif %}
+
+{% if role == 'parent' %}
 {% if parent_tests %}
 <div style="margin-bottom: 30px;">
     <h2>Assigned Tests</h2>
@@ -67,9 +94,7 @@
             <a href="/child/{{ child.id }}/math-test/{{ mt.id }}/review" class="btn btn-primary" style="padding: 10px 25px;">
                 Review
             </a>
-            {% if role == 'parent' %}
             <button class="btn btn-success" style="padding: 10px 15px;" onclick="retakeMathTest({{ mt.id }})">Retake</button>
-            {% endif %}
         </div>
     </div>
     {% endfor %}
@@ -91,9 +116,7 @@
             <a href="/child/{{ child.id }}/reading-assignment/{{ ra.id }}" class="btn btn-success" style="padding: 10px 25px;">
                 Start
             </a>
-            {% if role == 'parent' %}
             <button class="btn btn-danger" style="padding: 10px 15px;" onclick="deleteAssignment({{ ra.id }})">Delete</button>
-            {% endif %}
         </div>
     </div>
     {% endfor %}
@@ -115,19 +138,10 @@
             <a href="/child/{{ child.id }}/reading-assignment/{{ ra.id }}/review" class="btn btn-primary" style="padding: 10px 25px;">
                 Review
             </a>
-            {% if role == 'parent' %}
             <button class="btn btn-danger" style="padding: 10px 15px;" onclick="deleteAssignment({{ ra.id }})">Delete</button>
-            {% endif %}
         </div>
     </div>
     {% endfor %}
-</div>
-{% endif %}
-
-{% if role != 'parent' %}
-<div id="active-reading-sessions" style="margin-bottom: 30px; display: none;">
-    <h2>Active Reading Sessions</h2>
-    <div id="reading-session-list"></div>
 </div>
 {% endif %}
 
@@ -181,7 +195,6 @@
 </div>
 
 <div class="grid" style="grid-template-columns: repeat(2, 1fr);">
-    {% if role == 'parent' %}
     <a href="/child/{{ child.id }}/words" class="btn btn-primary" style="text-align: center;">
         Words
     </a>
@@ -194,14 +207,6 @@
     <a href="/child/{{ child.id }}/tests" class="btn btn-warning" style="text-align: center;">
         Test History
     </a>
-    {% else %}
-    <a href="/child/{{ child.id }}/test" class="btn btn-success" style="text-align: center;">
-        Start Test
-    </a>
-    <a href="/child/{{ child.id }}/tests" class="btn btn-warning" style="text-align: center;">
-        Test History
-    </a>
-    {% endif %}
 </div>
 
 {% if recent_sessions %}
@@ -219,6 +224,7 @@
     </a>
     {% endfor %}
 </div>
+{% endif %}
 {% endif %}
 {% endblock %}
 

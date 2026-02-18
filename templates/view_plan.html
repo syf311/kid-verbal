@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+
+{% block title %}{{ plan.title }} - {{ child.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .progress-bar-wrap {
+        background: #e2e8f0;
+        border-radius: 10px;
+        height: 20px;
+        overflow: hidden;
+        margin-bottom: 20px;
+    }
+    .progress-bar-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #667eea, #48bb78);
+        border-radius: 10px;
+        transition: width 0.5s ease;
+    }
+    .progress-text {
+        font-size: 14px;
+        color: #666;
+        margin-bottom: 8px;
+        text-align: center;
+    }
+    .item-card {
+        background: #f7fafc;
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin-bottom: 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .item-card .icon {
+        font-size: 28px;
+        margin-right: 14px;
+        flex-shrink: 0;
+    }
+    .item-card .info { flex: 1; }
+    .item-card .info strong { font-size: 16px; display: block; }
+    .item-card .info .meta { font-size: 13px; color: #888; margin-top: 2px; }
+    .item-card .action { flex-shrink: 0; margin-left: 10px; }
+    .item-card .action .btn { padding: 10px 22px; font-size: 15px; }
+    .type-label {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 4px;
+        margin-bottom: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .type-vocabulary { background: #ebf4ff; color: #667eea; }
+    .type-reading { background: #fefcbf; color: #975a16; }
+    .type-math { background: #fed7d7; color: #c53030; }
+    .type-test { background: #e9d8fd; color: #6b46c1; }
+    .badge-done {
+        display: inline-block;
+        background: #c6f6d5;
+        color: #276749;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 3px 10px;
+        border-radius: 6px;
+    }
+    .badge-pending {
+        display: inline-block;
+        background: #fefcbf;
+        color: #975a16;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 3px 10px;
+        border-radius: 6px;
+    }
+    .celebration {
+        text-align: center;
+        padding: 30px 20px;
+        background: linear-gradient(135deg, #f0fff4, #ebf8ff);
+        border-radius: 16px;
+        margin-bottom: 20px;
+    }
+    .celebration .big-icon { font-size: 64px; }
+    .celebration h2 { color: #276749; margin-top: 10px; }
+    .celebration p { color: #555; font-size: 16px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back to Dashboard</a>
+<h1 style="margin-top: 10px;">{{ plan.title }}</h1>
+
+<div id="plan-content">
+    <div class="progress-text">Loading...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const childId = {{ child.id }};
+const planId = {{ plan.id }};
+
+function escHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+async function loadPlan() {
+    const res = await fetch(`/api/learning-plans/${planId}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    render(data);
+}
+
+function render(data) {
+    const items = data.items || [];
+    const total = items.length;
+    const done = items.filter(i => i.details && i.details.status === 'completed').length;
+    const pct = total > 0 ? Math.round(done / total * 100) : 0;
+    const allDone = done === total && total > 0;
+
+    let html = '';
+
+    // Celebration
+    if (allDone) {
+        html += `<div class="celebration">
+            <div class="big-icon">&#x1F389;</div>
+            <h2>All Done!</h2>
+            <p>You completed everything in this plan. Great job!</p>
+        </div>`;
+    }
+
+    // Progress bar
+    html += `<div class="progress-text">${done} of ${total} items complete (${pct}%)</div>`;
+    html += `<div class="progress-bar-wrap"><div class="progress-bar-fill" style="width: ${pct}%"></div></div>`;
+
+    // Items
+    items.forEach(item => {
+        const d = item.details || {};
+        const status = d.status || 'pending';
+        const completed = status === 'completed';
+        let icon = '';
+        let typeLabel = '';
+        let typeCls = '';
+        let title = d.title || 'Item';
+        let meta = '';
+        let href = '#';
+
+        if (item.item_type === 'study_session') {
+            icon = '&#x1F4D6;';
+            typeLabel = 'Vocabulary';
+            typeCls = 'type-vocabulary';
+            meta = `${d.word_count || 0} words`;
+            href = `/child/${childId}/study/${item.item_id}`;
+        } else if (item.item_type === 'reading_assignment') {
+            icon = '&#x1F4DA;';
+            typeLabel = 'Reading';
+            typeCls = 'type-reading';
+            meta = `${d.question_count || 0} questions`;
+            if (completed && d.correct_count != null) {
+                meta += ` &middot; ${d.correct_count}/${d.question_count} correct`;
+            }
+            href = completed
+                ? `/child/${childId}/reading-assignment/${item.item_id}/review`
+                : `/child/${childId}/reading-assignment/${item.item_id}`;
+        } else if (item.item_type === 'math_test') {
+            icon = '&#x1F4DD;';
+            typeLabel = 'Math';
+            typeCls = 'type-math';
+            meta = `${d.total_questions || 0} questions`;
+            if (completed && d.score != null) {
+                meta += ` &middot; ${d.correct_count}/${d.total_count} correct (${d.score}%)`;
+            }
+            href = completed
+                ? `/child/${childId}/math-test/${item.item_id}/review`
+                : `/child/${childId}/math-test/${item.item_id}`;
+        } else if (item.item_type === 'parent_test') {
+            icon = '&#x270F;';
+            typeLabel = 'Test';
+            typeCls = 'type-test';
+            meta = `${d.word_count || 0} words`;
+            href = completed
+                ? `/child/${childId}/tests/${d.test_session_id || ''}`
+                : `/child/${childId}/test/${item.item_id}`;
+        }
+
+        const badge = completed
+            ? '<span class="badge-done">Done</span>'
+            : '<span class="badge-pending">Not Started</span>';
+        const btnLabel = completed ? 'Review' : 'Start';
+        const btnClass = completed ? 'btn-primary' : 'btn-success';
+
+        html += `<div class="item-card">
+            <span class="icon">${icon}</span>
+            <div class="info">
+                <span class="type-label ${typeCls}">${typeLabel}</span>
+                <strong>${escHtml(title)}</strong>
+                <div class="meta">${meta} ${badge}</div>
+            </div>
+            <div class="action">
+                <a href="${href}" class="btn ${btnClass}">${btnLabel}</a>
+            </div>
+        </div>`;
+    });
+
+    document.getElementById('plan-content').innerHTML = html;
+}
+
+loadPlan();
+</script>
+{% endblock %}

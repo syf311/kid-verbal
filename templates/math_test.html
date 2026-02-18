@@ -139,7 +139,7 @@
 
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: center;">
-    <a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back</a>
+    <a href="{% if learning_plan_id %}/child/{{ child.id }}/learning-plan/{{ learning_plan_id }}{% else %}/child/{{ child.id }}{% endif %}" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back</a>
     <h2 style="margin: 0;">{{ test.title }}</h2>
     <span></span>
 </div>
