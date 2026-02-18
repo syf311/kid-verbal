@@ -226,7 +226,8 @@ def child_dashboard_summary(child_id):
 
     completed_assignments = conn.execute(
         """SELECT ra.id, ra.material_id, ra.status, ra.created_at, ra.completed_at, rm.title as material_title,
-                  (SELECT COUNT(*) FROM material_question WHERE material_id = ra.material_id) as question_count
+                  (SELECT COUNT(*) FROM material_question WHERE material_id = ra.material_id) as question_count,
+                  (SELECT COUNT(*) FROM reading_assignment_answer WHERE assignment_id = ra.id AND is_correct = 1) as correct_count
            FROM reading_assignment ra
            JOIN reading_material rm ON ra.material_id = rm.id
            WHERE ra.child_id = ? AND ra.status = 'completed'
@@ -240,6 +241,8 @@ def child_dashboard_summary(child_id):
                   mt.timer_mode, mt.time_limit_seconds,
                   (SELECT id FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as submission_id,
                   (SELECT score FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as score,
+                  (SELECT correct_count FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as correct_count,
+                  (SELECT total_count FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as total_count,
                   (SELECT time_taken_seconds FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as time_taken_seconds
            FROM math_test mt
            WHERE mt.child_id = ?

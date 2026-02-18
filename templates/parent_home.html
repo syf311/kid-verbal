@@ -537,17 +537,19 @@ function renderLanguageArts(childId, data) {
     if (data.completed_assignments.length === 0) {
         compList.innerHTML = '<span class="empty-msg">No completed assignments yet.</span>';
     } else {
-        compList.innerHTML = data.completed_assignments.map(a => `
+        compList.innerHTML = data.completed_assignments.map(a => {
+            const pct = a.question_count > 0 ? Math.round(a.correct_count * 100 / a.question_count) : 0;
+            return `
             <div class="list-item">
                 <div class="info">
                     <strong>${escHtml(a.material_title)}</strong>
-                    <div class="meta">${(a.completed_at || a.created_at).slice(0,10)} &middot; ${a.question_count} questions</div>
+                    <div class="meta">${(a.completed_at || a.created_at).slice(0,10)} &middot; ${a.correct_count}/${a.question_count} correct (${pct}%)</div>
                 </div>
                 <div class="actions">
                     <a href="/child/${childId}/reading-assignment/${a.id}/review" class="btn btn-success">Review</a>
                 </div>
-            </div>
-        `).join('');
+            </div>`;
+        }).join('');
     }
 }
 
@@ -594,11 +596,14 @@ function renderMathTab(childId, data) {
                 const s = t.time_taken_seconds % 60;
                 timeInfo = ` &middot; Took ${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
             }
+            const scoreInfo = t.correct_count != null && t.total_count != null
+                ? ` &middot; ${t.correct_count}/${t.total_count} correct (${t.score}%)`
+                : (t.score != null ? ` &middot; Score: ${t.score}%` : '');
             return `
             <div class="list-item">
                 <div class="info">
                     <strong>${escHtml(t.title)}</strong>
-                    <div class="meta">${t.created_at.slice(0,10)} &middot; ${t.total_questions} questions${t.score != null ? ' &middot; Score: ' + t.score + '%' : ''}${timeInfo}</div>
+                    <div class="meta">${t.created_at.slice(0,10)} &middot; ${t.total_questions} questions${scoreInfo}${timeInfo}</div>
                 </div>
                 <div class="actions">
                     <a href="/child/${childId}/math-test/${t.id}/review" class="btn btn-success">Review</a>
