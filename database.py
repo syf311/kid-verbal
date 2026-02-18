@@ -204,6 +204,29 @@ def init_db():
             FOREIGN KEY (math_test_id) REFERENCES math_test(id) ON DELETE CASCADE,
             FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS learning_plan (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id INTEGER NOT NULL,
+            created_by INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT DEFAULT 'draft',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            released_at DATETIME,
+            completed_at DATETIME,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE,
+            FOREIGN KEY (created_by) REFERENCES account(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS learning_plan_item (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER NOT NULL,
+            item_type TEXT NOT NULL,
+            item_id INTEGER NOT NULL,
+            sort_order INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (plan_id) REFERENCES learning_plan(id) ON DELETE CASCADE
+        );
     """)
     conn.commit()
 
@@ -299,6 +322,25 @@ def init_db():
     # Migration: Add time_taken_seconds to math_test_submission
     try:
         conn.execute("ALTER TABLE math_test_submission ADD COLUMN time_taken_seconds INTEGER DEFAULT 0")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    # Migration: Add learning_plan_id to study_session, reading_assignment, math_test
+    try:
+        conn.execute("ALTER TABLE study_session ADD COLUMN learning_plan_id INTEGER")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        conn.execute("ALTER TABLE reading_assignment ADD COLUMN learning_plan_id INTEGER")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        conn.execute("ALTER TABLE math_test ADD COLUMN learning_plan_id INTEGER")
         conn.commit()
     except sqlite3.OperationalError:
         pass
