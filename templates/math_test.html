@@ -50,6 +50,24 @@
         box-shadow: 0 2px 8px rgba(0,0,0,0.2);
     }
     .toggle-sidebar:hover { background: #5a6fd6; }
+    .timer-display {
+        position: fixed;
+        right: 140px;
+        top: 80px;
+        z-index: 100;
+        background: white;
+        border: 2px solid #667eea;
+        border-radius: 10px;
+        padding: 6px 14px;
+        font-size: 18px;
+        font-weight: 700;
+        font-family: 'Courier New', monospace;
+        color: #333;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .timer-display.warning { border-color: #ed8936; color: #ed8936; }
+    .timer-display.danger { border-color: #e53e3e; color: #e53e3e; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
     .progress-bar-wrap {
         background: #e2e8f0;
         border-radius: 20px;
@@ -127,6 +145,9 @@
 </div>
 
 <button class="toggle-sidebar" id="toggleBtn" onclick="toggleSidebar()">Answers &rsaquo;</button>
+{% if test.timer_mode != 'none' %}
+<div class="timer-display" id="timerDisplay">00:00</div>
+{% endif %}
 
 <div class="test-layout" id="testLayout">
     <div class="pdf-viewer">
@@ -154,8 +175,12 @@
 const childId = {{ child.id }};
 const testId = {{ test.id }};
 const totalQuestions = {{ test.total_questions }};
+const timerMode = '{{ test.timer_mode }}';
+const timeLimitSeconds = {{ test.time_limit_seconds }};
 const answers = {};
 let sidebarOpen = true;
+const startTime = Date.now();
+let timerInterval = null;
 document.getElementById('testLayout').classList.add('sidebar-open');
 document.getElementById('toggleBtn').innerHTML = 'Answers &lsaquo;';
 
@@ -194,12 +219,17 @@ function updateProgress() {
 }
 
 async function submitTest() {
+    const timeTaken = Math.round((Date.now() - startTime) / 1000);
     if (Object.keys(answers).length < totalQuestions) {
         alert('Please answer all questions before submitting.');
         return;
     }
     if (!confirm('Submit your answers? You cannot change them after submitting.')) return;
+    await doSubmit(timeTaken);
+}
 
+async function doSubmit(timeTaken) {
+    if (timerInterval) clearInterval(timerInterval);
     const btn = document.getElementById('submitBtn');
     btn.disabled = true;
     btn.textContent = 'Submitting...';
@@ -208,7 +238,7 @@ async function submitTest() {
         const res = await fetch(`/api/math-tests/${testId}/submit`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ answers })
+            body: JSON.stringify({ answers, time_taken_seconds: timeTaken })
         });
         const data = await res.json();
         if (res.ok) {
@@ -226,6 +256,48 @@ async function submitTest() {
     }
 }
 
+function formatTime(seconds) {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+function startTimer() {
+    const display = document.getElementById('timerDisplay');
+    if (!display) return;
+
+    if (timerMode === 'countdown') {
+        let remaining = timeLimitSeconds;
+        display.textContent = formatTime(remaining);
+        timerInterval = setInterval(() => {
+            remaining--;
+            if (remaining <= 0) {
+                remaining = 0;
+                display.textContent = '00:00';
+                clearInterval(timerInterval);
+                // Auto-submit
+                const timeTaken = Math.round((Date.now() - startTime) / 1000);
+                alert("Time's up! Your answers have been submitted.");
+                doSubmit(timeTaken);
+                return;
+            }
+            display.textContent = formatTime(remaining);
+            // Visual warnings
+            if (remaining <= 60) {
+                display.className = 'timer-display danger';
+            } else if (remaining <= 300) {
+                display.className = 'timer-display warning';
+            }
+        }, 1000);
+    } else if (timerMode === 'stopwatch') {
+        timerInterval = setInterval(() => {
+            const elapsed = Math.round((Date.now() - startTime) / 1000);
+            display.textContent = formatTime(elapsed);
+        }, 1000);
+    }
+}
+
 buildGrid();
+startTimer();
 </script>
 {% endblock %}

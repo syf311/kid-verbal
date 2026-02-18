@@ -131,6 +131,20 @@
                 <button class="btn btn-primary" id="saveBtn" onclick="saveAnswers()">Save Changes</button>
             </div>
             <div class="status-msg" id="statusMsg"></div>
+
+            <h3 style="margin-top: 20px; margin-bottom: 10px;">Timer Settings</h3>
+            <div style="margin-bottom: 10px;">
+                <label style="font-size: 13px; color: #555; display: block; margin-bottom: 4px;">Timer Mode</label>
+                <select id="timerMode" onchange="toggleTimerLimit()" style="width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px;">
+                    <option value="none">None</option>
+                    <option value="countdown">Countdown</option>
+                    <option value="stopwatch">Stopwatch</option>
+                </select>
+            </div>
+            <div id="timeLimitRow" style="display: none; margin-bottom: 10px;">
+                <label style="font-size: 13px; color: #555; display: block; margin-bottom: 4px;">Time Limit (minutes)</label>
+                <input type="number" id="timeLimitMinutes" min="1" max="180" value="30" style="width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px;">
+            </div>
         </div>
     </div>
 </div>
@@ -142,6 +156,20 @@ const testId = {{ test.id }};
 const childId = {{ child.id }};
 const answerKey = JSON.parse('{{ test.answer_key | safe }}');
 let totalQuestions = {{ test.total_questions }};
+
+// Initialize timer fields
+const initTimerMode = '{{ test.timer_mode or "none" }}';
+const initTimeLimitSeconds = {{ test.time_limit_seconds or 0 }};
+document.getElementById('timerMode').value = initTimerMode;
+if (initTimeLimitSeconds > 0) {
+    document.getElementById('timeLimitMinutes').value = Math.round(initTimeLimitSeconds / 60);
+}
+toggleTimerLimit();
+
+function toggleTimerLimit() {
+    const mode = document.getElementById('timerMode').value;
+    document.getElementById('timeLimitRow').style.display = mode === 'countdown' ? 'block' : 'none';
+}
 
 function buildGrid() {
     const grid = document.getElementById('answerGrid');
@@ -202,10 +230,16 @@ async function saveAnswers() {
     btn.textContent = 'Saving...';
 
     try {
+        const timerMode = document.getElementById('timerMode').value;
+        const timeLimitMinutes = parseInt(document.getElementById('timeLimitMinutes').value) || 0;
         const res = await fetch(`/api/math-tests/${testId}/answers`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ answers: cleaned })
+            body: JSON.stringify({
+                answers: cleaned,
+                timer_mode: timerMode,
+                time_limit_seconds: timerMode === 'countdown' ? timeLimitMinutes * 60 : 0
+            })
         });
         const data = await res.json();
         if (res.ok) {

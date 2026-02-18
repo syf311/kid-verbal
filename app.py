@@ -237,8 +237,10 @@ def child_dashboard_summary(child_id):
 
     math_tests = conn.execute(
         """SELECT mt.id, mt.title, mt.status, mt.total_questions, mt.created_at,
+                  mt.timer_mode, mt.time_limit_seconds,
                   (SELECT id FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as submission_id,
-                  (SELECT score FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as score
+                  (SELECT score FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as score,
+                  (SELECT time_taken_seconds FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as time_taken_seconds
            FROM math_test mt
            WHERE mt.child_id = ?
            ORDER BY mt.created_at DESC
@@ -654,7 +656,8 @@ def child_dashboard(child_id):
     # Get completed reading assignments
     completed_assignments = conn.execute(
         """SELECT ra.*, rm.title as material_title,
-                  (SELECT COUNT(*) FROM material_question WHERE material_id = ra.material_id) as question_count
+                  (SELECT COUNT(*) FROM material_question WHERE material_id = ra.material_id) as question_count,
+                  (SELECT COUNT(*) FROM reading_assignment_answer WHERE assignment_id = ra.id AND is_correct = 1) as correct_count
            FROM reading_assignment ra
            JOIN reading_material rm ON ra.material_id = rm.id
            WHERE ra.child_id = ? AND ra.status = 'completed'
@@ -672,6 +675,17 @@ def child_dashboard(child_id):
         (child_id,)
     ).fetchall()
 
+    # Get completed math tests
+    completed_math_tests = conn.execute(
+        """SELECT mt.id, mt.title, mt.total_questions, mt.created_at,
+                  (SELECT correct_count FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as correct_count,
+                  (SELECT total_count FROM math_test_submission WHERE math_test_id = mt.id LIMIT 1) as total_count
+           FROM math_test mt
+           WHERE mt.child_id = ? AND mt.status = 'completed'
+           ORDER BY mt.created_at DESC LIMIT 20""",
+        (child_id,)
+    ).fetchall()
+
     conn.close()
     return render_template(
         "dashboard.html",
@@ -684,6 +698,7 @@ def child_dashboard(child_id):
         pending_assignments=[dict(a) for a in pending_assignments],
         completed_assignments=[dict(a) for a in completed_assignments],
         math_tests=[dict(t) for t in math_tests],
+        completed_math_tests=[dict(t) for t in completed_math_tests],
         role=session.get("role", "parent")
     )
 
@@ -2145,6 +2160,8 @@ def create_math_test():
     # Parse answer key
     manual_answers = request.form.get("manual_answers", "").strip()
     row = request.form.get("row", "").strip()
+    timer_mode = request.form.get("timer_mode", "none").strip()
+    time_limit_seconds = request.form.get("time_limit_seconds", 0, type=int)
     if manual_answers:
         answers = json.loads(manual_answers)
         error = None
@@ -2162,9 +2179,9 @@ def create_math_test():
     account = get_current_account()
     conn = get_db()
     cursor = conn.execute(
-        """INSERT INTO math_test (child_id, created_by, title, question_pdf, answer_pdf, answer_key, total_questions)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (child_id, account["id"], title, q_filename, a_filename, json.dumps(answers), len(answers))
+        """INSERT INTO math_test (child_id, created_by, title, question_pdf, answer_pdf, answer_key, total_questions, timer_mode, time_limit_seconds)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (child_id, account["id"], title, q_filename, a_filename, json.dumps(answers), len(answers), timer_mode, time_limit_seconds)
     )
     test_id = cursor.lastrowid
     conn.commit()
@@ -2237,6 +2254,7 @@ def submit_math_test(test_id):
 
     data = request.json
     child_answers = data.get("answers", {})
+    time_taken_seconds = data.get("time_taken_seconds", 0)
     answer_key = json.loads(test["answer_key"])
 
     correct_count = 0
@@ -2248,9 +2266,9 @@ def submit_math_test(test_id):
     score = round(correct_count / total_count * 100) if total_count > 0 else 0
 
     cursor = conn.execute(
-        """INSERT INTO math_test_submission (math_test_id, child_id, answers, score, correct_count, total_count)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (test_id, test["child_id"], json.dumps(child_answers), score, correct_count, total_count)
+        """INSERT INTO math_test_submission (math_test_id, child_id, answers, score, correct_count, total_count, time_taken_seconds)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (test_id, test["child_id"], json.dumps(child_answers), score, correct_count, total_count, time_taken_seconds)
     )
     submission_id = cursor.lastrowid
 
@@ -2306,10 +2324,17 @@ def update_math_test_answers(test_id):
     if not answers:
         conn.close()
         return jsonify({"error": "No answers provided"}), 400
+    timer_mode = data.get("timer_mode")
+    time_limit_seconds = data.get("time_limit_seconds")
     conn.execute(
         "UPDATE math_test SET answer_key = ?, total_questions = ? WHERE id = ?",
         (json.dumps(answers), len(answers), test_id)
     )
+    if timer_mode is not None:
+        conn.execute(
+            "UPDATE math_test SET timer_mode = ?, time_limit_seconds = ? WHERE id = ?",
+            (timer_mode, time_limit_seconds or 0, test_id)
+        )
     conn.commit()
     conn.close()
     return jsonify({"total_questions": len(answers)})
@@ -2326,7 +2351,9 @@ def take_math_test(child_id, test_id):
         return "Not found", 404
     return render_template("math_test.html", child=dict(child), test={
         "id": test["id"], "title": test["title"],
-        "question_pdf": test["question_pdf"], "total_questions": test["total_questions"]
+        "question_pdf": test["question_pdf"], "total_questions": test["total_questions"],
+        "timer_mode": test["timer_mode"] or "none",
+        "time_limit_seconds": test["time_limit_seconds"] or 0
     })
 
 
@@ -2365,6 +2392,27 @@ def review_math_test(child_id, test_id):
         return render_template("math_test_review.html", child=dict(child), test=test_data, submission=dict(sub), role=role, results=results)
 
     return render_template("math_test_review.html", child=dict(child), test=test_data, submission=dict(sub), role=role)
+
+
+@app.route("/api/math-tests/<int:test_id>/retake", methods=["POST"])
+@parent_required
+def retake_math_test(test_id):
+    conn = get_db()
+    test = conn.execute("SELECT * FROM math_test WHERE id = ?", (test_id,)).fetchone()
+    if not test:
+        conn.close()
+        return jsonify({"error": "Test not found"}), 404
+    account = get_current_account()
+    cursor = conn.execute(
+        """INSERT INTO math_test (child_id, created_by, title, question_pdf, answer_pdf, answer_key, total_questions, timer_mode, time_limit_seconds)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (test["child_id"], account["id"], test["title"], test["question_pdf"], test["answer_pdf"],
+         test["answer_key"], test["total_questions"], test.get("timer_mode", "none"), test.get("time_limit_seconds", 0))
+    )
+    conn.commit()
+    new_id = cursor.lastrowid
+    conn.close()
+    return jsonify({"id": new_id, "child_id": test["child_id"]})
 
 
 if __name__ == "__main__":

@@ -562,36 +562,50 @@ function renderMathTab(childId, data) {
     if (pending.length === 0) {
         pendList.innerHTML = '<span class="empty-msg">No pending math tests.</span>';
     } else {
-        pendList.innerHTML = pending.map(t => `
+        pendList.innerHTML = pending.map(t => {
+            let timerInfo = '';
+            if (t.timer_mode === 'countdown' && t.time_limit_seconds > 0) {
+                timerInfo = ` &middot; ${Math.round(t.time_limit_seconds / 60)} min limit`;
+            } else if (t.timer_mode === 'stopwatch') {
+                timerInfo = ' &middot; Timed';
+            }
+            return `
             <div class="list-item">
                 <div class="info">
                     <strong>${escHtml(t.title)}</strong>
-                    <div class="meta">${t.created_at.slice(0,10)} &middot; ${t.total_questions} questions</div>
+                    <div class="meta">${t.created_at.slice(0,10)} &middot; ${t.total_questions} questions${timerInfo}</div>
                 </div>
                 <div class="actions">
                     <a href="/parent/child/${childId}/math-test/${t.id}/manage" class="btn btn-primary">Manage</a>
                     <button class="btn btn-danger" onclick="deleteMathTest(${t.id})">Del</button>
                 </div>
-            </div>
-        `).join('');
+            </div>`;
+        }).join('');
     }
 
     const compList = document.getElementById('math-completed-list');
     if (completed.length === 0) {
         compList.innerHTML = '<span class="empty-msg">No completed math tests yet.</span>';
     } else {
-        compList.innerHTML = completed.map(t => `
+        compList.innerHTML = completed.map(t => {
+            let timeInfo = '';
+            if (t.time_taken_seconds && t.time_taken_seconds > 0) {
+                const m = Math.floor(t.time_taken_seconds / 60);
+                const s = t.time_taken_seconds % 60;
+                timeInfo = ` &middot; Took ${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+            }
+            return `
             <div class="list-item">
                 <div class="info">
                     <strong>${escHtml(t.title)}</strong>
-                    <div class="meta">${t.created_at.slice(0,10)} &middot; ${t.total_questions} questions${t.score != null ? ' &middot; Score: ' + t.score + '%' : ''}</div>
+                    <div class="meta">${t.created_at.slice(0,10)} &middot; ${t.total_questions} questions${t.score != null ? ' &middot; Score: ' + t.score + '%' : ''}${timeInfo}</div>
                 </div>
                 <div class="actions">
                     <a href="/child/${childId}/math-test/${t.id}/review" class="btn btn-success">Review</a>
                     <button class="btn btn-danger" onclick="deleteMathTest(${t.id})">Del</button>
                 </div>
-            </div>
-        `).join('');
+            </div>`;
+        }).join('');
     }
 }
 

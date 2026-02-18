@@ -52,6 +52,30 @@
 </div>
 {% endif %}
 
+{% if completed_math_tests %}
+<div style="margin-bottom: 30px;">
+    <h2>Completed Math Tests</h2>
+    {% for mt in completed_math_tests %}
+    <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong style="font-size: 18px;">{{ mt.title }}</strong>
+            <div style="font-size: 14px; color: #666;">
+                {{ mt.correct_count or 0 }}/{{ mt.total_count or mt.total_questions }} correct ({{ (mt.correct_count * 100 / mt.total_count) | round | int if mt.total_count else 0 }}%) | {{ mt.created_at[:10] }}
+            </div>
+        </div>
+        <div style="display: flex; gap: 5px; align-items: center;">
+            <a href="/child/{{ child.id }}/math-test/{{ mt.id }}/review" class="btn btn-primary" style="padding: 10px 25px;">
+                Review
+            </a>
+            {% if role == 'parent' %}
+            <button class="btn btn-success" style="padding: 10px 15px;" onclick="retakeMathTest({{ mt.id }})">Retake</button>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
 {% if pending_assignments %}
 <div style="margin-bottom: 30px;">
     <h2>Reading Assignments</h2>
@@ -84,7 +108,7 @@
         <div>
             <strong style="font-size: 18px;">{{ ra.material_title }}</strong>
             <div style="font-size: 14px; color: #666;">
-                {{ ra.question_count }} questions | Completed {{ ra.completed_at[:10] if ra.completed_at else '' }}
+                {{ ra.correct_count }}/{{ ra.question_count }} correct ({{ (ra.correct_count * 100 / ra.question_count) | round | int if ra.question_count else 0 }}%) | Completed {{ ra.completed_at[:10] if ra.completed_at else '' }}
             </div>
         </div>
         <div style="display: flex; gap: 5px; align-items: center;">
@@ -137,7 +161,9 @@
                 {{ ss.word_count }} words | {{ ss.created_at[:10] }}
             </div>
         </div>
-        <span style="color: #48bb78; font-weight: bold;">Completed</span>
+        <a href="/child/{{ child.id }}/study/{{ ss.id }}" class="btn btn-primary" style="padding: 10px 25px;">
+            Review
+        </a>
     </div>
     {% endfor %}
 </div>
@@ -186,7 +212,7 @@
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
                 <strong>Test {{ s.created_at[:10] }}</strong> -
-                {{ s.correct_count }}/{{ s.total_count }} correct
+                {{ s.correct_count }}/{{ s.total_count }} correct ({{ (s.correct_count * 100 / s.total_count) | round | int if s.total_count else 0 }}%)
             </div>
             <div style="color: #666; font-size: 14px;">{{ s.created_at[:10] }} &rarr;</div>
         </div>
@@ -202,6 +228,12 @@ async function deleteAssignment(id) {
     if (!confirm('Delete this reading assignment?')) return;
     await fetch(`/api/reading-assignments/${id}`, { method: 'DELETE' });
     location.reload();
+}
+async function retakeMathTest(id) {
+    if (!confirm('Create a new copy of this test for retake?')) return;
+    const res = await fetch(`/api/math-tests/${id}/retake`, { method: 'POST' });
+    if (res.ok) location.reload();
+    else alert('Failed to create retake');
 }
 </script>
 {% if role != 'parent' %}

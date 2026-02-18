@@ -283,6 +283,26 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # Migration: Add timer fields to math_test
+    try:
+        conn.execute("ALTER TABLE math_test ADD COLUMN timer_mode TEXT DEFAULT 'none'")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        conn.execute("ALTER TABLE math_test ADD COLUMN time_limit_seconds INTEGER DEFAULT 0")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    # Migration: Add time_taken_seconds to math_test_submission
+    try:
+        conn.execute("ALTER TABLE math_test_submission ADD COLUMN time_taken_seconds INTEGER DEFAULT 0")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
     conn.close()
 
 

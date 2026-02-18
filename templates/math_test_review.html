@@ -130,6 +130,12 @@
 <div class="score-banner {{ 'high' if score >= 80 else ('mid' if score >= 50 else 'low') }}">
     <div class="score-big">{{ score }}%</div>
     <div class="score-detail">{{ submission.correct_count }} / {{ submission.total_count }} correct</div>
+    {% if submission.time_taken_seconds and submission.time_taken_seconds > 0 %}
+    <div class="score-detail" style="margin-top: 4px;">Time: {{ submission.time_taken_seconds // 60 }} min {{ submission.time_taken_seconds % 60 }} sec</div>
+    {% endif %}
+    {% if role == 'parent' %}
+    <button class="btn btn-success" style="margin-top: 12px; padding: 8px 20px;" onclick="retakeMathTest({{ test.id }})">Retake This Test</button>
+    {% endif %}
 </div>
 
 {% if role == 'parent' %}
@@ -218,6 +224,17 @@ function toggleSidebar() {
     sidebarOpen = !sidebarOpen;
     document.getElementById('reviewLayout').classList.toggle('sidebar-open', sidebarOpen);
     document.getElementById('toggleBtn').innerHTML = sidebarOpen ? 'Details &lsaquo;' : 'Details &rsaquo;';
+}
+
+async function retakeMathTest(id) {
+    if (!confirm('Create a new copy of this test for retake?')) return;
+    const res = await fetch(`/api/math-tests/${id}/retake`, { method: 'POST' });
+    if (res.ok) {
+        const data = await res.json();
+        window.location.href = `/child/${data.child_id}`;
+    } else {
+        alert('Failed to create retake');
+    }
 }
 </script>
 {% endif %}
