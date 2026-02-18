@@ -2556,6 +2556,28 @@ def retake_math_test(test_id):
     return jsonify({"id": new_id, "child_id": test["child_id"]})
 
 
+@app.route("/api/math-tests/<int:test_id>/child-retake", methods=["POST"])
+@login_required
+def child_retake_math_test(test_id):
+    conn = get_db()
+    test = conn.execute("SELECT * FROM math_test WHERE id = ?", (test_id,)).fetchone()
+    if not test:
+        conn.close()
+        return jsonify({"error": "Test not found"}), 404
+    # Delete existing submission so the child can retake the same test
+    conn.execute("DELETE FROM math_test_submission WHERE math_test_id = ?", (test_id,))
+    conn.execute("UPDATE math_test SET status = 'pending' WHERE id = ?", (test_id,))
+    # If test is in a learning plan, mark plan as not completed
+    if test["learning_plan_id"]:
+        conn.execute(
+            "UPDATE learning_plan SET status = 'released', completed_at = NULL WHERE id = ? AND status = 'completed'",
+            (test["learning_plan_id"],)
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({"id": test_id, "child_id": test["child_id"]})
+
+
 # ── Learning Plan page routes ──
 
 @app.route("/api/children/<int:child_id>/reading-materials", methods=["GET"])

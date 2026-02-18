@@ -173,7 +173,14 @@
 </div>
 
 {% else %}
-{# ── Child view: score + their answers only, no correct answers or answer PDF ── #}
+{# ── Child view: score + question PDF + their answers, with retake option ── #}
+{% if test.question_pdf %}
+<div class="card" style="margin-bottom: 20px;">
+    <h3>Questions</h3>
+    <iframe src="/uploads/{{ test.question_pdf }}" style="width: 100%; min-height: 500px; border: none; border-radius: 8px;"></iframe>
+</div>
+{% endif %}
+
 <div class="card">
     <h3>Your Answers</h3>
     <table class="answer-table">
@@ -195,6 +202,15 @@
         </tbody>
     </table>
 </div>
+
+{% set wrong_count = results | selectattr('is_correct', 'false') | list | length %}
+{% if wrong_count > 0 %}
+<div style="text-align: center; margin-top: 20px;">
+    <button class="btn btn-success" style="padding: 12px 30px; font-size: 16px;" onclick="retryTest()">
+        Retry Test ({{ wrong_count }} wrong)
+    </button>
+</div>
+{% endif %}
 {% endif %}
 {% endblock %}
 
@@ -232,6 +248,18 @@ async function retakeMathTest(id) {
     if (res.ok) {
         const data = await res.json();
         window.location.href = `/child/${data.child_id}`;
+    } else {
+        alert('Failed to create retake');
+    }
+}
+</script>
+{% else %}
+<script>
+async function retryTest() {
+    const res = await fetch('/api/math-tests/{{ test.id }}/child-retake', { method: 'POST' });
+    if (res.ok) {
+        const data = await res.json();
+        window.location.href = `/child/{{ child.id }}/math-test/${data.id}`;
     } else {
         alert('Failed to create retake');
     }
