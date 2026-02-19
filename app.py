@@ -2405,6 +2405,8 @@ def submit_math_test(test_id):
             merged = json.loads(existing_sub["answers"])
             merged.update(child_answers)
             child_answers = merged
+            # Preserve the original time taken
+            time_taken_seconds = existing_sub["time_taken_seconds"]
 
     correct_count = 0
     total_count = len(answer_key)
