@@ -143,15 +143,19 @@
 <button class="toggle-sidebar" id="toggleBtn" onclick="toggleSidebar()">Details &rsaquo;</button>
 
 <div class="review-layout" id="reviewLayout">
-    <div class="pdf-area">
-        <div class="pdf-col">
+    <div class="pdf-area" id="pdfArea">
+        <div class="pdf-col" id="questionCol">
             <h3>Question PDF</h3>
             <iframe src="/uploads/{{ test.question_pdf }}"></iframe>
         </div>
-        <div class="pdf-col">
-            <h3>Answer Key PDF</h3>
+        <div class="pdf-col" id="answerCol">
+            <h3 style="display: flex; justify-content: space-between; align-items: center;">
+                Answer Key PDF
+                <button onclick="toggleAnswerKey()" id="collapseBtn" style="background:none;border:none;color:#667eea;cursor:pointer;font-size:13px;font-weight:600;">Hide &lsaquo;</button>
+            </h3>
             <iframe src="/uploads/{{ test.answer_pdf }}"></iframe>
         </div>
+        <button id="showAnswerBtn" onclick="toggleAnswerKey()" style="display:none;writing-mode:vertical-rl;background:#667eea;color:white;border:none;border-radius:0 8px 8px 0;padding:10px 6px;cursor:pointer;font-size:12px;font-weight:600;">Answer Key &rsaquo;</button>
     </div>
 
     <div class="details-panel">
@@ -233,6 +237,14 @@ for (let i = 1; i <= totalQ; i++) {
         <td>${correct}</td>
         <td class="${isCorrect ? 'correct icon-correct' : 'wrong icon-wrong'}">${isCorrect ? 'Correct' : 'Wrong'}</td>
     </tr>`;
+}
+
+let answerKeyVisible = true;
+function toggleAnswerKey() {
+    answerKeyVisible = !answerKeyVisible;
+    document.getElementById('answerCol').style.display = answerKeyVisible ? '' : 'none';
+    document.getElementById('showAnswerBtn').style.display = answerKeyVisible ? 'none' : '';
+    document.getElementById('pdfArea').style.gridTemplateColumns = answerKeyVisible ? '1fr 1fr' : '1fr auto';
 }
 
 let sidebarOpen = false;
