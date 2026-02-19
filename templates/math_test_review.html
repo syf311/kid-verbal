@@ -191,7 +191,8 @@
         <thead>
             <tr>
                 <th>Q#</th>
-                <th>Your Answer</th>
+                {% if has_retries %}<th>Original</th>{% endif %}
+                <th>{% if has_retries %}Retry{% else %}Your Answer{% endif %}</th>
                 <th>Result</th>
             </tr>
         </thead>
@@ -199,6 +200,9 @@
             {% for r in results %}
             <tr>
                 <td><strong>{{ r.q }}</strong></td>
+                {% if has_retries %}
+                <td>{% if r.original_answer %}<span style="color:#e53e3e;text-decoration:line-through;">{{ r.original_answer }}</span>{% else %}{{ r.child_answer }}{% endif %}</td>
+                {% endif %}
                 <td>{{ r.child_answer }}</td>
                 <td class="{{ 'correct icon-correct' if r.is_correct else 'wrong icon-wrong' }}">{{ 'Correct' if r.is_correct else 'Wrong' }}</td>
             </tr>

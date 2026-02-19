@@ -2405,8 +2405,6 @@ def submit_math_test(test_id):
             merged = json.loads(existing_sub["answers"])
             merged.update(child_answers)
             child_answers = merged
-            # Delete old submission before inserting updated one
-            conn.execute("DELETE FROM math_test_submission WHERE id = ?", (existing_sub["id"],))
 
     correct_count = 0
     total_count = len(answer_key)
@@ -2423,12 +2421,13 @@ def submit_math_test(test_id):
     )
     submission_id = cursor.lastrowid
 
-    # Mark test as completed
-    conn.execute("UPDATE math_test SET status = 'completed' WHERE id = ?", (test_id,))
-    # Check if this math test belongs to a learning plan
-    mt = conn.execute("SELECT learning_plan_id FROM math_test WHERE id = ?", (test_id,)).fetchone()
-    if mt and mt["learning_plan_id"]:
-        check_plan_completion(mt["learning_plan_id"], conn)
+    # Only update status on first submission, not on retries
+    if not is_retry:
+        conn.execute("UPDATE math_test SET status = 'completed' WHERE id = ?", (test_id,))
+        # Check if this math test belongs to a learning plan
+        mt = conn.execute("SELECT learning_plan_id FROM math_test WHERE id = ?", (test_id,)).fetchone()
+        if mt and mt["learning_plan_id"]:
+            check_plan_completion(mt["learning_plan_id"], conn)
     conn.commit()
     conn.close()
     return jsonify({"submission_id": submission_id, "score": score, "correct_count": correct_count, "total_count": total_count})
@@ -2525,8 +2524,8 @@ def review_math_test(child_id, test_id):
         "SELECT * FROM math_test_submission WHERE math_test_id = ? ORDER BY submitted_at DESC LIMIT 1",
         (test_id,)
     ).fetchone()
-    conn.close()
     if not sub:
+        conn.close()
         return "No submission found", 404
 
     role = session.get("role", "parent")
@@ -2536,16 +2535,30 @@ def review_math_test(child_id, test_id):
     if role != "parent":
         answer_key = json.loads(test["answer_key"])
         child_answers = json.loads(sub["answers"])
+        # Fetch the original (first) submission to compare with retried answers
+        original_sub = conn.execute(
+            "SELECT * FROM math_test_submission WHERE math_test_id = ? ORDER BY submitted_at ASC LIMIT 1",
+            (test_id,)
+        ).fetchone()
+        conn.close()
+        original_answers = json.loads(original_sub["answers"]) if original_sub and original_sub["id"] != sub["id"] else None
         results = []
         for i in range(1, len(answer_key) + 1):
             key = str(i)
             child_ans = child_answers.get(key, "-")
             correct_ans = answer_key.get(key, "?")
-            results.append({"q": i, "child_answer": child_ans, "is_correct": child_ans.upper() == correct_ans.upper()})
+            original_ans = original_answers.get(key, "-") if original_answers else None
+            r = {"q": i, "child_answer": child_ans, "is_correct": child_ans.upper() == correct_ans.upper()}
+            # Show original answer if it differs from current (i.e., was retried)
+            if original_answers and original_ans.upper() != child_ans.upper():
+                r["original_answer"] = original_ans
+            results.append(r)
+        has_retries = original_answers is not None
         test_data.pop("answer_key", None)
         test_data.pop("answer_pdf", None)
-        return render_template("math_test_review.html", child=dict(child), test=test_data, submission=dict(sub), role=role, results=results, learning_plan_id=test["learning_plan_id"])
+        return render_template("math_test_review.html", child=dict(child), test=test_data, submission=dict(sub), role=role, results=results, has_retries=has_retries, learning_plan_id=test["learning_plan_id"])
 
+    conn.close()
     return render_template("math_test_review.html", child=dict(child), test=test_data, submission=dict(sub), role=role, learning_plan_id=test["learning_plan_id"])
 
 
