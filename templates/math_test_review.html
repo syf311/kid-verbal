@@ -271,7 +271,8 @@ async function retryTest() {
     const res = await fetch('/api/math-tests/{{ test.id }}/child-retake', { method: 'POST' });
     if (res.ok) {
         const data = await res.json();
-        window.location.href = `/child/{{ child.id }}/math-test/${data.id}`;
+        const retryParam = data.wrong_questions.join(',');
+        window.location.href = `/child/{{ child.id }}/math-test/${data.id}?retry=${retryParam}`;
     } else {
         alert('Failed to create retake');
     }

@@ -181,6 +181,12 @@ const answers = {};
 let sidebarOpen = true;
 const startTime = Date.now();
 let timerInterval = null;
+// Retry mode: only show specific questions
+const urlParams = new URLSearchParams(window.location.search);
+const retryParam = urlParams.get('retry');
+const retryQuestions = retryParam ? retryParam.split(',') : null;
+const isRetry = retryQuestions !== null;
+const questionsToShow = retryQuestions || Array.from({length: totalQuestions}, (_, i) => String(i + 1));
 document.getElementById('testLayout').classList.add('sidebar-open');
 document.getElementById('toggleBtn').innerHTML = 'Answers &lsaquo;';
 
@@ -192,8 +198,12 @@ function toggleSidebar() {
 
 function buildGrid() {
     const grid = document.getElementById('answerGrid');
+    if (isRetry) {
+        document.getElementById('progressText').textContent = `0 / ${questionsToShow.length} answered (retry)`;
+    }
     let html = '';
-    for (let i = 1; i <= totalQuestions; i++) {
+    for (const qStr of questionsToShow) {
+        const i = parseInt(qStr);
         html += `<div class="question-row">
             <span class="q-label">${i}.</span>`;
         for (const ch of ['A','B','C','D','E']) {
@@ -213,14 +223,17 @@ function selectAnswer(q, ch, btn) {
 
 function updateProgress() {
     const count = Object.keys(answers).length;
-    document.getElementById('progressText').textContent = count + ' / ' + totalQuestions + ' answered';
-    document.getElementById('progressBar').style.width = (count / totalQuestions * 100) + '%';
-    document.getElementById('submitBtn').disabled = count < totalQuestions;
+    const target = questionsToShow.length;
+    const suffix = isRetry ? ' (retry)' : '';
+    document.getElementById('progressText').textContent = count + ' / ' + target + ' answered' + suffix;
+    document.getElementById('progressBar').style.width = (count / target * 100) + '%';
+    document.getElementById('submitBtn').disabled = count < target;
 }
 
 async function submitTest() {
     const timeTaken = Math.round((Date.now() - startTime) / 1000);
-    if (Object.keys(answers).length < totalQuestions) {
+    const target = questionsToShow.length;
+    if (Object.keys(answers).length < target) {
         alert('Please answer all questions before submitting.');
         return;
     }
@@ -238,7 +251,7 @@ async function doSubmit(timeTaken) {
         const res = await fetch(`/api/math-tests/${testId}/submit`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ answers, time_taken_seconds: timeTaken })
+            body: JSON.stringify({ answers, time_taken_seconds: timeTaken, is_retry: isRetry })
         });
         const data = await res.json();
         if (res.ok) {

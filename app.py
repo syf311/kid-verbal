@@ -2392,7 +2392,21 @@ def submit_math_test(test_id):
     data = request.json
     child_answers = data.get("answers", {})
     time_taken_seconds = data.get("time_taken_seconds", 0)
+    is_retry = data.get("is_retry", False)
     answer_key = json.loads(test["answer_key"])
+
+    # If retry, merge new answers into existing submission
+    if is_retry:
+        existing_sub = conn.execute(
+            "SELECT * FROM math_test_submission WHERE math_test_id = ? ORDER BY submitted_at DESC LIMIT 1",
+            (test_id,)
+        ).fetchone()
+        if existing_sub:
+            merged = json.loads(existing_sub["answers"])
+            merged.update(child_answers)
+            child_answers = merged
+            # Delete old submission before inserting updated one
+            conn.execute("DELETE FROM math_test_submission WHERE id = ?", (existing_sub["id"],))
 
     correct_count = 0
     total_count = len(answer_key)
@@ -2564,18 +2578,25 @@ def child_retake_math_test(test_id):
     if not test:
         conn.close()
         return jsonify({"error": "Test not found"}), 404
-    # Delete existing submission so the child can retake the same test
-    conn.execute("DELETE FROM math_test_submission WHERE math_test_id = ?", (test_id,))
-    conn.execute("UPDATE math_test SET status = 'pending' WHERE id = ?", (test_id,))
-    # If test is in a learning plan, mark plan as not completed
-    if test["learning_plan_id"]:
-        conn.execute(
-            "UPDATE learning_plan SET status = 'released', completed_at = NULL WHERE id = ? AND status = 'completed'",
-            (test["learning_plan_id"],)
-        )
-    conn.commit()
+
+    # Find wrong questions from latest submission
+    sub = conn.execute(
+        "SELECT * FROM math_test_submission WHERE math_test_id = ? ORDER BY submitted_at DESC LIMIT 1",
+        (test_id,)
+    ).fetchone()
+    if not sub:
+        conn.close()
+        return jsonify({"error": "No submission found"}), 404
+
+    answer_key = json.loads(test["answer_key"])
+    child_answers = json.loads(sub["answers"])
+    wrong_questions = []
+    for q_num, correct_ans in answer_key.items():
+        if child_answers.get(q_num, "").upper() != correct_ans.upper():
+            wrong_questions.append(q_num)
+
     conn.close()
-    return jsonify({"id": test_id, "child_id": test["child_id"]})
+    return jsonify({"id": test_id, "child_id": test["child_id"], "wrong_questions": wrong_questions})
 
 
 # ── Learning Plan page routes ──
