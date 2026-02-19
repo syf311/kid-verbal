@@ -2531,17 +2531,23 @@ def review_math_test(child_id, test_id):
     role = session.get("role", "parent")
     test_data = dict(test)
 
+    # Fetch the original (first) submission to compare with retried answers
+    original_sub = conn.execute(
+        "SELECT * FROM math_test_submission WHERE math_test_id = ? ORDER BY submitted_at ASC LIMIT 1",
+        (test_id,)
+    ).fetchone()
+    original_answers_json = None
+    original_score = None
+    if original_sub and original_sub["id"] != sub["id"]:
+        original_answers_json = original_sub["answers"]
+        original_score = original_sub["score"]
+
     # For child role, compute results server-side and strip answer key
     if role != "parent":
         answer_key = json.loads(test["answer_key"])
         child_answers = json.loads(sub["answers"])
-        # Fetch the original (first) submission to compare with retried answers
-        original_sub = conn.execute(
-            "SELECT * FROM math_test_submission WHERE math_test_id = ? ORDER BY submitted_at ASC LIMIT 1",
-            (test_id,)
-        ).fetchone()
+        original_answers = json.loads(original_answers_json) if original_answers_json else None
         conn.close()
-        original_answers = json.loads(original_sub["answers"]) if original_sub and original_sub["id"] != sub["id"] else None
         results = []
         for i in range(1, len(answer_key) + 1):
             key = str(i)
@@ -2556,10 +2562,10 @@ def review_math_test(child_id, test_id):
         has_retries = original_answers is not None
         test_data.pop("answer_key", None)
         test_data.pop("answer_pdf", None)
-        return render_template("math_test_review.html", child=dict(child), test=test_data, submission=dict(sub), role=role, results=results, has_retries=has_retries, learning_plan_id=test["learning_plan_id"])
+        return render_template("math_test_review.html", child=dict(child), test=test_data, submission=dict(sub), role=role, results=results, has_retries=has_retries, original_score=original_score, learning_plan_id=test["learning_plan_id"])
 
     conn.close()
-    return render_template("math_test_review.html", child=dict(child), test=test_data, submission=dict(sub), role=role, learning_plan_id=test["learning_plan_id"])
+    return render_template("math_test_review.html", child=dict(child), test=test_data, submission=dict(sub), role=role, original_answers_json=original_answers_json, original_score=original_score, learning_plan_id=test["learning_plan_id"])
 
 
 @app.route("/api/math-tests/<int:test_id>/retake", methods=["POST"])

@@ -130,6 +130,11 @@
 <div class="score-banner {{ 'high' if score >= 80 else ('mid' if score >= 50 else 'low') }}">
     <div class="score-big">{{ score }}%</div>
     <div class="score-detail">{{ submission.correct_count }} / {{ submission.total_count }} correct</div>
+    {% if original_score is not none and original_score != score %}
+    <div class="score-detail" style="margin-top: 4px;">
+        Original: <strong>{{ original_score }}%</strong> &rarr; After retry: <strong>{{ score }}%</strong>
+    </div>
+    {% endif %}
     {% if submission.time_taken_seconds and submission.time_taken_seconds > 0 %}
     <div class="score-detail" style="margin-top: 4px;">Time: {{ submission.time_taken_seconds // 60 }} min {{ submission.time_taken_seconds % 60 }} sec</div>
     {% endif %}
@@ -165,7 +170,8 @@
                 <thead>
                     <tr>
                         <th>Q#</th>
-                        <th>Child</th>
+                        <th id="origHeader" style="display:none;">Original</th>
+                        <th id="childHeader">Child</th>
                         <th>Correct</th>
                         <th>Result</th>
                     </tr>
@@ -227,6 +233,13 @@
 <script>
 const answerKey = {{ test.answer_key | safe }};
 const childAnswers = {{ submission.answers | safe }};
+const originalAnswers = {{ original_answers_json | safe if original_answers_json else 'null' }};
+const hasRetries = originalAnswers !== null;
+
+if (hasRetries) {
+    document.getElementById('origHeader').style.display = '';
+    document.getElementById('childHeader').textContent = 'Retry';
+}
 
 const tbody = document.getElementById('answerBody');
 const totalQ = Object.keys(answerKey).length;
@@ -234,9 +247,15 @@ for (let i = 1; i <= totalQ; i++) {
     const key = String(i);
     const correct = answerKey[key] || '?';
     const child = childAnswers[key] || '-';
+    const original = originalAnswers ? (originalAnswers[key] || '-') : null;
     const isCorrect = child.toUpperCase() === correct.toUpperCase();
+    const wasRetried = hasRetries && original && original.toUpperCase() !== child.toUpperCase();
+    const origCell = hasRetries
+        ? `<td>${wasRetried ? '<span style="color:#e53e3e;text-decoration:line-through;">' + original + '</span>' : child}</td>`
+        : '';
     tbody.innerHTML += `<tr>
         <td><strong>${i}</strong></td>
+        ${origCell}
         <td>${child}</td>
         <td>${correct}</td>
         <td class="${isCorrect ? 'correct icon-correct' : 'wrong icon-wrong'}">${isCorrect ? 'Correct' : 'Wrong'}</td>
