@@ -198,6 +198,23 @@ function render(data) {
             href = completed
                 ? `/child/${childId}/writing-test/${item.item_id}/review`
                 : `/child/${childId}/writing-test/${item.item_id}`;
+        } else if (item.item_type === 'science_study') {
+            icon = '&#x1F52C;';
+            typeLabel = 'Science Study';
+            typeCls = 'type-vocabulary';
+            meta = `${d.question_count || 0} questions`;
+            href = `/child/${childId}/science-study/${item.item_id}`;
+        } else if (item.item_type === 'science_test') {
+            icon = '&#x1F9EA;';
+            typeLabel = 'Science Test';
+            typeCls = 'type-math';
+            meta = `${d.question_count || 0} questions`;
+            if (completed && d.score != null) {
+                meta += ` &middot; ${d.correct_count}/${d.total_count} correct (${d.score}%)`;
+            }
+            href = completed
+                ? `/child/${childId}/science-test/${item.item_id}/review`
+                : `/child/${childId}/science-test/${item.item_id}`;
         }
 
         const badge = completed

@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+
+{% block title %}Review: {{ test.title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .container { max-width: 900px; }
+
+    .score-banner {
+        text-align: center;
+        padding: 24px;
+        border-radius: 12px;
+        margin-bottom: 24px;
+    }
+    .score-banner.high { background: linear-gradient(135deg, #c6f6d5, #9ae6b4); }
+    .score-banner.mid { background: linear-gradient(135deg, #fefcbf, #fbd38d); }
+    .score-banner.low { background: linear-gradient(135deg, #fed7d7, #feb2b2); }
+    .score-big {
+        font-size: 48px;
+        font-weight: 800;
+        color: #333;
+    }
+    .score-detail {
+        font-size: 16px;
+        color: #555;
+        margin-top: 4px;
+    }
+
+    .category-badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 700;
+        color: white;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .type-badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 700;
+        color: white;
+        background: #a0aec0;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .type-badge.toss-up { background: #667eea; }
+    .type-badge.bonus { background: #d69e2e; }
+
+    .question-card {
+        background: #f7fafc;
+        border-radius: 15px;
+        padding: 20px;
+        margin-bottom: 15px;
+        border-left: 4px solid #e2e8f0;
+    }
+    .question-card.correct {
+        border-left-color: #48bb78;
+    }
+    .question-card.wrong {
+        border-left-color: #f56565;
+    }
+
+    .question-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+    }
+    .question-number {
+        font-weight: 700;
+        font-size: 16px;
+        color: #333;
+        margin-right: 4px;
+    }
+
+    .question-text {
+        font-size: 16px;
+        line-height: 1.6;
+        color: #333;
+        margin-bottom: 14px;
+    }
+
+    .result-icon {
+        font-size: 22px;
+        flex-shrink: 0;
+    }
+    .result-icon.correct { color: #38a169; }
+    .result-icon.wrong { color: #e53e3e; }
+
+    /* Multiple choice rendering */
+    .choices-list {
+        margin-bottom: 14px;
+    }
+    .choice-item {
+        padding: 8px 14px;
+        border-radius: 8px;
+        margin: 5px 0;
+        font-size: 15px;
+        border: 2px solid #e2e8f0;
+        background: white;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .choice-item .choice-key {
+        font-weight: 700;
+        color: #555;
+        min-width: 24px;
+    }
+    .choice-item.correct-choice {
+        border-color: #48bb78;
+        background: #f0fff4;
+    }
+    .choice-item.correct-choice .choice-key { color: #276749; }
+    .choice-item.wrong-pick {
+        border-color: #f56565;
+        background: #fff5f5;
+    }
+    .choice-item.wrong-pick .choice-key { color: #c53030; }
+    .choice-label {
+        font-size: 11px;
+        font-weight: 700;
+        margin-left: auto;
+        white-space: nowrap;
+    }
+
+    /* Short answer rendering */
+    .short-answer-display {
+        margin-bottom: 14px;
+    }
+    .short-answer-display .answer-line {
+        font-size: 15px;
+        margin-bottom: 6px;
+        line-height: 1.5;
+    }
+    .short-answer-display .answer-line strong {
+        color: #555;
+    }
+    .child-answer-correct { color: #38a169; font-weight: 600; }
+    .child-answer-wrong { color: #e53e3e; font-weight: 600; }
+
+    .explanation {
+        background: #ebf8ff;
+        border-radius: 8px;
+        padding: 12px 14px;
+        font-size: 14px;
+        line-height: 1.6;
+        color: #2a4365;
+        margin-top: 10px;
+        border-left: 3px solid #4299e1;
+    }
+    .explanation strong {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #2b6cb0;
+    }
+
+    .search-link {
+        display: inline-block;
+        margin-top: 8px;
+        font-size: 13px;
+        color: #667eea;
+        text-decoration: none;
+        font-weight: 600;
+    }
+    .search-link:hover { text-decoration: underline; }
+
+    .result-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    .result-content {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .needs-review-tag {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 8px;
+        font-size: 11px;
+        font-weight: 700;
+        background: #fefcbf;
+        color: #975a16;
+        margin-left: 6px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="{% if learning_plan_id %}/child/{{ child.id }}/learning-plan/{{ learning_plan_id }}{% else %}/child/{{ child.id }}{% endif %}" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back to {% if learning_plan_id %}Learning Plan{% else %}Dashboard{% endif %}</a>
+
+<h2 style="margin-top: 10px;">{{ test.title }} - Review</h2>
+
+{% if submissions|length > 0 %}
+{% set latest = submissions[0] %}
+{% set score = latest.score %}
+<div class="score-banner {{ 'high' if score >= 80 else ('mid' if score >= 50 else 'low') }}">
+    <div class="score-big">{{ score }}%</div>
+    <div class="score-detail">{{ latest.correct_count }} / {{ latest.total_count }} correct</div>
+    {% if latest.time_taken_seconds and latest.time_taken_seconds > 0 %}
+    <div class="score-detail" style="margin-top: 4px;">
+        Time: {{ latest.time_taken_seconds // 60 }} min {{ latest.time_taken_seconds % 60 }} sec
+    </div>
+    {% endif %}
+    <div class="score-detail" style="margin-top: 4px; font-size: 13px; color: #888;">
+        Submitted: {{ latest.submitted_at }}
+    </div>
+</div>
+{% endif %}
+
+<div id="questionsContainer"></div>
+
+{% if submissions|length == 0 %}
+<div class="card" style="text-align: center; padding: 40px;">
+    <p style="font-size: 18px; color: #888;">No submissions found for this test.</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    const questions = {{ questions | tojson }};
+    const submissions = {{ submissions | tojson }};
+
+    if (!submissions.length || !questions.length) return;
+
+    // Parse the latest submission's answers (JSON string)
+    const latest = submissions[0];
+    let answersMap = {};
+    try {
+        answersMap = typeof latest.answers === 'string' ? JSON.parse(latest.answers) : latest.answers;
+    } catch(e) {
+        console.error('Failed to parse answers JSON:', e);
+    }
+
+    const CATEGORY_COLORS = {
+        'LIFE SCIENCE': '#48bb78',
+        'PHYSICAL SCIENCE': '#667eea',
+        'EARTH SCIENCE': '#ed8936',
+        'MATH': '#9f7aea',
+        'GENERAL SCIENCE': '#4299e1',
+        'ENERGY': '#f56565'
+    };
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    const container = document.getElementById('questionsContainer');
+    let html = '';
+
+    questions.forEach(function(q, idx) {
+        const qId = String(q.id);
+        const answerData = answersMap[qId] || {};
+        const childAnswer = answerData.child_answer || '';
+        const isCorrect = !!answerData.is_correct;
+        const needsReview = !!answerData.needs_review;
+
+        const categoryColor = CATEGORY_COLORS[(q.category || '').toUpperCase()] || '#a0aec0';
+
+        // Determine question type badge class
+        const qType = (q.question_type || '').toLowerCase();
+        let typeBadgeClass = 'type-badge';
+        if (qType.indexOf('toss') !== -1) {
+            typeBadgeClass += ' toss-up';
+        } else if (qType.indexOf('bonus') !== -1) {
+            typeBadgeClass += ' bonus';
+        }
+
+        html += '<div class="question-card ' + (isCorrect ? 'correct' : 'wrong') + '">';
+
+        // Header row with badges
+        html += '<div class="question-header">';
+        html += '<span class="question-number">Q' + (idx + 1) + '</span>';
+        html += '<span class="category-badge" style="background:' + categoryColor + ';">' + escapeHtml(q.category || 'Unknown') + '</span>';
+        html += '<span class="' + typeBadgeClass + '">' + escapeHtml(q.question_type || 'Question') + '</span>';
+        if (needsReview) {
+            html += '<span class="needs-review-tag">Needs Review</span>';
+        }
+        html += '</div>';
+
+        // Question text
+        html += '<div class="question-text">' + escapeHtml(q.question_text) + '</div>';
+
+        // Result row with icon
+        html += '<div class="result-row">';
+        html += '<div class="result-icon ' + (isCorrect ? 'correct' : 'wrong') + '">';
+        html += isCorrect ? '&#x2714;' : '&#x2718;';
+        html += '</div>';
+        html += '<div class="result-content">';
+
+        // Answer display depends on format
+        const answerFormat = (q.answer_format || '').toUpperCase();
+        const choices = q.choices;
+
+        if (choices && typeof choices === 'object' && answerFormat !== 'SHORT ANSWER') {
+            // Multiple choice
+            html += '<div class="choices-list">';
+            const keys = Object.keys(choices).sort();
+            keys.forEach(function(key) {
+                const choiceText = choices[key];
+                const correctAnswer = (q.correct_answer || '').toUpperCase().trim();
+                const childPick = (childAnswer || '').toUpperCase().trim();
+                const keyUpper = key.toUpperCase().trim();
+
+                const isCorrectChoice = (keyUpper === correctAnswer);
+                const isChildPick = (keyUpper === childPick);
+                const isWrongPick = isChildPick && !isCorrect;
+
+                let itemClass = 'choice-item';
+                if (isCorrectChoice) itemClass += ' correct-choice';
+                if (isWrongPick) itemClass += ' wrong-pick';
+
+                html += '<div class="' + itemClass + '">';
+                html += '<span class="choice-key">' + escapeHtml(key.toUpperCase()) + ')</span>';
+                html += '<span>' + escapeHtml(choiceText) + '</span>';
+
+                if (isChildPick && isCorrectChoice) {
+                    html += '<span class="choice-label" style="color: #38a169;">&#x2714; Your answer</span>';
+                } else if (isChildPick) {
+                    html += '<span class="choice-label" style="color: #e53e3e;">&#x2718; Your answer</span>';
+                } else if (isCorrectChoice) {
+                    html += '<span class="choice-label" style="color: #38a169;">&#x2714; Correct</span>';
+                }
+
+                html += '</div>';
+            });
+            html += '</div>';
+        } else {
+            // Short answer
+            html += '<div class="short-answer-display">';
+            html += '<div class="answer-line"><strong>Your answer:</strong> ';
+            html += '<span class="' + (isCorrect ? 'child-answer-correct' : 'child-answer-wrong') + '">';
+            html += escapeHtml(childAnswer || '(no answer)');
+            html += '</span></div>';
+            if (!isCorrect) {
+                html += '<div class="answer-line"><strong>Correct answer:</strong> ';
+                html += '<span style="color: #38a169; font-weight: 600;">' + escapeHtml(q.correct_answer) + '</span></div>';
+            }
+            html += '</div>';
+        }
+
+        // Explanation
+        if (q.explanation) {
+            html += '<div class="explanation"><strong>Explanation:</strong> ' + escapeHtml(q.explanation) + '</div>';
+        }
+
+        // Search Online link for wrong answers
+        if (!isCorrect) {
+            const searchQuery = encodeURIComponent(q.question_text || q.category + ' ' + q.correct_answer);
+            html += '<a class="search-link" href="https://www.google.com/search?q=' + searchQuery + '" target="_blank" rel="noopener noreferrer">Search Online &rarr;</a>';
+        }
+
+        html += '</div>'; // .result-content
+        html += '</div>'; // .result-row
+        html += '</div>'; // .question-card
+    });
+
+    container.innerHTML = html;
+})();
+</script>
+{% endblock %}

@@ -130,6 +130,8 @@
     <button class="btn btn-warning" onclick="toggleSection('reading')">+ Reading Assignment</button>
     <button class="btn btn-primary" onclick="toggleSection('math')">+ Math Test</button>
     <button class="btn" onclick="toggleSection('writing')" style="background:#38a169;color:#fff;">+ Writing Test</button>
+    <button class="btn" onclick="toggleSection('science-study')" style="background:#2b6cb0;color:#fff;">+ Science Study</button>
+    <button class="btn" onclick="toggleSection('science-test')" style="background:#c53030;color:#fff;">+ Science Test</button>
     <button class="btn" onclick="toggleSection('existing')" style="background:#805ad5;color:#fff;">+ Existing Item</button>
 </div>
 
@@ -277,6 +279,66 @@
     </div>
 </div>
 
+<!-- Add Science Study -->
+<div class="add-section" id="section-science-study">
+    <div class="section-card">
+        <h3>Add Science Study Session</h3>
+        <div style="margin-bottom: 10px;">
+            <label style="font-weight: 600; font-size: 14px;">Title</label>
+            <input type="text" id="sci-study-title" placeholder="e.g. Life Science Review" style="margin-bottom: 8px;">
+        </div>
+        <div style="margin-bottom: 8px;">
+            <label style="font-weight: 600; font-size: 14px;">Filter by Category</label>
+            <div class="filter-bar" id="sci-study-cat-bar"></div>
+        </div>
+        <div style="display:flex; gap:8px; margin-bottom:8px;">
+            <button class="btn btn-primary" style="padding:4px 10px; font-size:12px;" onclick="sciStudySelectAll()">Select All</button>
+            <button class="btn btn-warning" style="padding:4px 10px; font-size:12px;" onclick="sciStudyDeselectAll()">Deselect All</button>
+            <span style="font-size:13px; color:#666;"><span id="sci-study-count">0</span> selected</span>
+        </div>
+        <div id="sci-study-q-list" style="max-height:300px; overflow-y:auto; border:1px solid #e2e8f0; border-radius:8px; padding:8px;"></div>
+        <button class="btn btn-success" style="margin-top: 10px;" onclick="addSciStudy()" id="add-sci-study-btn" disabled>Add Science Study</button>
+        <span id="sci-study-status" style="margin-left: 10px; font-size: 13px;"></span>
+    </div>
+</div>
+
+<!-- Add Science Test -->
+<div class="add-section" id="section-science-test">
+    <div class="section-card">
+        <h3>Add Science Test</h3>
+        <div style="margin-bottom: 10px;">
+            <label style="font-weight: 600; font-size: 14px;">Title</label>
+            <input type="text" id="sci-test-title" placeholder="e.g. Physical Science Quiz" style="margin-bottom: 8px;">
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+            <div>
+                <label style="font-weight: 600; font-size: 13px;">Timer Mode</label>
+                <select id="sci-test-timer-mode" style="width:100%; padding:8px; font-size:14px; border:1px solid #ccc; border-radius:8px;" onchange="sciTestTimerChange()">
+                    <option value="none">No Timer</option>
+                    <option value="stopwatch">Stopwatch</option>
+                    <option value="countdown">Countdown</option>
+                </select>
+            </div>
+            <div id="sci-test-time-limit-wrap" style="display:none;">
+                <label style="font-weight: 600; font-size: 13px;">Time Limit (minutes)</label>
+                <input type="number" id="sci-test-time-limit" min="1" max="120" value="30" style="padding:8px; font-size:14px;">
+            </div>
+        </div>
+        <div style="margin-bottom: 8px;">
+            <label style="font-weight: 600; font-size: 14px;">Filter by Category</label>
+            <div class="filter-bar" id="sci-test-cat-bar"></div>
+        </div>
+        <div style="display:flex; gap:8px; margin-bottom:8px;">
+            <button class="btn btn-primary" style="padding:4px 10px; font-size:12px;" onclick="sciTestSelectAll()">Select All</button>
+            <button class="btn btn-warning" style="padding:4px 10px; font-size:12px;" onclick="sciTestDeselectAll()">Deselect All</button>
+            <span style="font-size:13px; color:#666;"><span id="sci-test-count">0</span> selected</span>
+        </div>
+        <div id="sci-test-q-list" style="max-height:300px; overflow-y:auto; border:1px solid #e2e8f0; border-radius:8px; padding:8px;"></div>
+        <button class="btn btn-success" style="margin-top: 10px;" onclick="addSciTest()" id="add-sci-test-btn" disabled>Add Science Test</button>
+        <span id="sci-test-status" style="margin-left: 10px; font-size: 13px;"></span>
+    </div>
+</div>
+
 <!-- Add Existing Item -->
 <div class="add-section" id="section-existing">
     <div class="section-card">
@@ -286,6 +348,8 @@
             <button class="filter-btn" onclick="setExistingType('reading_assignment')">Reading Assignments</button>
             <button class="filter-btn" onclick="setExistingType('math_test')">Math Tests</button>
             <button class="filter-btn" onclick="setExistingType('writing_test')">Writing Tests</button>
+            <button class="filter-btn" onclick="setExistingType('science_study_session')">Science Study</button>
+            <button class="filter-btn" onclick="setExistingType('science_test')">Science Tests</button>
         </div>
         <div id="existing-items-list"><span class="empty-msg">Loading...</span></div>
     </div>
@@ -425,6 +489,15 @@ function renderItems(items) {
                 meta = `${d.word_count} words`;
                 if (d.score != null) meta += ` | Score: ${d.score}/100`;
             }
+        } else if (item.item_type === 'science_study') {
+            typeLabel = 'Science Study';
+            meta = `${d.question_count || 0} questions`;
+        } else if (item.item_type === 'science_test') {
+            typeLabel = 'Science Test';
+            meta = `${d.question_count || 0} questions`;
+            if (status === 'completed' && d.score != null) {
+                meta += ` | ${d.correct_count}/${d.total_count} correct (${d.score}%)`;
+            }
         } else if (item.item_type === 'parent_test') {
             typeLabel = '';
             meta = `${d.word_count || 0} words · Auto-created from study`;
@@ -440,6 +513,8 @@ function renderItems(items) {
             else if (item.item_type === 'reading_assignment') href = status === 'completed' ? `/child/${childId}/reading-assignment/${item.item_id}/review` : `/child/${childId}/reading-assignment/${item.item_id}`;
             else if (item.item_type === 'math_test') href = status === 'completed' ? `/child/${childId}/math-test/${item.item_id}/review` : `/child/${childId}/math-test/${item.item_id}`;
             else if (item.item_type === 'writing_test') href = status === 'completed' ? `/child/${childId}/writing-test/${item.item_id}/review` : `/child/${childId}/writing-test/${item.item_id}`;
+            else if (item.item_type === 'science_study') href = `/child/${childId}/science-study/${item.item_id}`;
+            else if (item.item_type === 'science_test') href = status === 'completed' ? `/child/${childId}/science-test/${item.item_id}/review` : `/child/${childId}/science-test/${item.item_id}`;
             else if (item.item_type === 'parent_test') href = `/child/${childId}/test/${item.item_id}`;
             actions += ` <a href="${href}" class="btn btn-primary">View</a>`;
         }
@@ -468,6 +543,9 @@ function toggleSection(section) {
     if (section === 'study' && allWords.length === 0) loadWords();
     if (section === 'reading') loadMaterials();
     if (section === 'writing') loadWritingTopics();
+    if (section === 'science-study' && sciQuestions.length === 0) loadSciQuestions('study');
+    if (section === 'science-test' && sciQuestions.length === 0) loadSciQuestions('test');
+    if (section === 'science-test' && sciQuestions.length > 0) renderSciQList('test');
     if (section === 'existing' && !unassignedData) loadUnassignedItems();
 }
 
@@ -904,7 +982,7 @@ let currentExistingType = 'study_session';
 
 function setExistingType(type) {
     currentExistingType = type;
-    const labels = { 'study_session': 'Study Sessions', 'reading_assignment': 'Reading Assignments', 'math_test': 'Math Tests', 'writing_test': 'Writing Tests' };
+    const labels = { 'study_session': 'Study Sessions', 'reading_assignment': 'Reading Assignments', 'math_test': 'Math Tests', 'writing_test': 'Writing Tests', 'science_study_session': 'Science Study', 'science_test': 'Science Tests' };
     document.querySelectorAll('#existing-type-bar .filter-btn').forEach(btn => {
         btn.classList.toggle('active', btn.textContent.trim() === labels[type]);
     });
@@ -946,6 +1024,18 @@ function renderExistingItems() {
         items = (unassignedData.writing_tests || []).map(t => ({
             id: t.id, title: t.topic_text,
             meta: `${(t.created_at || '').slice(0, 10)}`,
+            status: t.status
+        }));
+    } else if (currentExistingType === 'science_study_session') {
+        items = (unassignedData.science_study_sessions || []).map(s => ({
+            id: s.id, title: s.title || 'Science Study',
+            meta: `${s.question_count || 0} questions | ${(s.created_at || '').slice(0, 10)}`,
+            status: s.status
+        }));
+    } else if (currentExistingType === 'science_test') {
+        items = (unassignedData.science_tests || []).map(t => ({
+            id: t.id, title: t.title || 'Science Test',
+            meta: `${t.question_count || 0} questions | ${(t.created_at || '').slice(0, 10)}`,
             status: t.status
         }));
     }
@@ -1016,6 +1106,202 @@ async function deletePlan() {
 
 // ── Init ──
 loadPlan();
+
+// ── Science study/test ──
+
+let sciQuestions = [];
+let sciStudySelected = new Set();
+let sciTestSelected = new Set();
+let sciStudyFilter = 'all';
+let sciTestFilter = 'all';
+
+const SCI_CAT_COLORS = {
+    'Life Science': '#48bb78', 'Physical Science': '#667eea',
+    'Earth and Space': '#ed8936', 'Earth Science': '#ed8936',
+    'Mathematics': '#e53e3e', 'Math': '#e53e3e',
+    'Energy': '#d69e2e', 'General Science': '#718096',
+    'Technology': '#805ad5', 'Computer Science': '#805ad5',
+};
+
+async function loadSciQuestions(mode) {
+    const res = await fetch(`/api/children/${childId}/science-questions`);
+    if (!res.ok) return;
+    sciQuestions = await res.json();
+    if (sciQuestions.length === 0) {
+        const el = document.getElementById(mode === 'study' ? 'sci-study-q-list' : 'sci-test-q-list');
+        el.innerHTML = '<span class="empty-msg">No science questions imported yet. Import from the parent dashboard Science tab first.</span>';
+        return;
+    }
+    buildSciCatBar('study');
+    buildSciCatBar('test');
+    renderSciQList(mode);
+}
+
+function buildSciCatBar(mode) {
+    const cats = [...new Set(sciQuestions.map(q => q.category))].sort();
+    const bar = document.getElementById(mode === 'study' ? 'sci-study-cat-bar' : 'sci-test-cat-bar');
+    bar.innerHTML = `<button class="filter-btn active" onclick="setSciFilter('${mode}', 'all', this)">All</button>` +
+        cats.map(c => `<button class="filter-btn" onclick="setSciFilter('${mode}', '${escHtml(c)}', this)">${escHtml(c)}</button>`).join('');
+}
+
+function setSciFilter(mode, cat, btn) {
+    if (mode === 'study') sciStudyFilter = cat;
+    else sciTestFilter = cat;
+    const barId = mode === 'study' ? 'sci-study-cat-bar' : 'sci-test-cat-bar';
+    document.querySelectorAll(`#${barId} .filter-btn`).forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderSciQList(mode);
+}
+
+function renderSciQList(mode) {
+    const filter = mode === 'study' ? sciStudyFilter : sciTestFilter;
+    const selected = mode === 'study' ? sciStudySelected : sciTestSelected;
+    const filtered = filter === 'all' ? sciQuestions : sciQuestions.filter(q => q.category === filter);
+    const listId = mode === 'study' ? 'sci-study-q-list' : 'sci-test-q-list';
+    const list = document.getElementById(listId);
+
+    if (filtered.length === 0) {
+        list.innerHTML = '<span class="empty-msg">No questions match this filter.</span>';
+        updateSciCount(mode);
+        return;
+    }
+
+    list.innerHTML = filtered.map(q => {
+        const sel = selected.has(q.id);
+        const catColor = SCI_CAT_COLORS[q.category] || '#718096';
+        let choicesHtml = '';
+        if (q.choices && typeof q.choices === 'object') {
+            choicesHtml = '<div style="margin-top:4px; padding-left:8px;">' +
+                Object.entries(q.choices).map(([k, v]) =>
+                    `<span style="font-size:12px; color:#555; margin-right:10px;"><strong>${escHtml(k)})</strong> ${escHtml(v)}</span>`
+                ).join('') + '</div>';
+        }
+        return `
+        <div onclick="sciToggle('${mode}', ${q.id})" style="background:${sel ? '#ebf4ff' : '#f7fafc'}; border:2px solid ${sel ? '#667eea' : 'transparent'}; border-left:4px solid ${catColor}; border-radius:10px; padding:10px 12px; margin-bottom:8px; cursor:pointer; transition:all 0.15s;">
+            <div style="display:flex; align-items:flex-start; gap:8px;">
+                <input type="checkbox" ${sel ? 'checked' : ''} style="width:16px; height:16px; margin-top:3px; padding:0; pointer-events:none; flex-shrink:0;">
+                <div style="flex:1; min-width:0;">
+                    <div style="font-size:11px; margin-bottom:4px;">
+                        <span style="background:${catColor}22; color:${catColor}; padding:1px 6px; border-radius:4px; font-weight:600;">${escHtml(q.category)}</span>
+                        <span style="color:#888; margin-left:4px;">${q.question_type === 'toss_up' ? 'Toss-Up' : 'Bonus'} &middot; ${q.answer_format === 'multiple_choice' ? 'MC' : 'Short Answer'}</span>
+                    </div>
+                    <div style="font-size:13px; color:#333; line-height:1.4;">${escHtml(q.question_text)}</div>
+                    ${choicesHtml}
+                    <div style="font-size:12px; color:#276749; font-weight:600; margin-top:4px;">Answer: ${escHtml(q.correct_answer)}</div>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+    updateSciCount(mode);
+}
+
+function sciToggle(mode, id) {
+    const selected = mode === 'study' ? sciStudySelected : sciTestSelected;
+    if (selected.has(id)) selected.delete(id); else selected.add(id);
+    renderSciQList(mode);
+}
+
+function sciStudySelectAll() {
+    const filtered = sciStudyFilter === 'all' ? sciQuestions : sciQuestions.filter(q => q.category === sciStudyFilter);
+    filtered.forEach(q => sciStudySelected.add(q.id));
+    renderSciQList('study');
+}
+function sciStudyDeselectAll() {
+    const filtered = sciStudyFilter === 'all' ? sciQuestions : sciQuestions.filter(q => q.category === sciStudyFilter);
+    filtered.forEach(q => sciStudySelected.delete(q.id));
+    renderSciQList('study');
+}
+function sciTestSelectAll() {
+    const filtered = sciTestFilter === 'all' ? sciQuestions : sciQuestions.filter(q => q.category === sciTestFilter);
+    filtered.forEach(q => sciTestSelected.add(q.id));
+    renderSciQList('test');
+}
+function sciTestDeselectAll() {
+    const filtered = sciTestFilter === 'all' ? sciQuestions : sciQuestions.filter(q => q.category === sciTestFilter);
+    filtered.forEach(q => sciTestSelected.delete(q.id));
+    renderSciQList('test');
+}
+
+function updateSciCount(mode) {
+    const selected = mode === 'study' ? sciStudySelected : sciTestSelected;
+    document.getElementById(mode === 'study' ? 'sci-study-count' : 'sci-test-count').textContent = selected.size;
+    const btn = document.getElementById(mode === 'study' ? 'add-sci-study-btn' : 'add-sci-test-btn');
+    if (btn) btn.disabled = selected.size === 0;
+}
+
+function sciTestTimerChange() {
+    const mode = document.getElementById('sci-test-timer-mode').value;
+    document.getElementById('sci-test-time-limit-wrap').style.display = mode === 'countdown' ? '' : 'none';
+}
+
+async function addSciStudy() {
+    const title = document.getElementById('sci-study-title').value.trim() || 'Science Study';
+    const statusEl = document.getElementById('sci-study-status');
+    statusEl.textContent = 'Adding...';
+    statusEl.style.color = '';
+    const btn = document.getElementById('add-sci-study-btn');
+    btn.disabled = true;
+    try {
+        const res = await fetch(`/api/learning-plans/${planId}/items/science-study`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, question_ids: [...sciStudySelected] })
+        });
+        if (res.ok) {
+            statusEl.textContent = '';
+            document.getElementById('sci-study-title').value = '';
+            sciStudySelected.clear();
+            renderSciQList('study');
+            loadPlan();
+        } else {
+            const data = await res.json();
+            statusEl.textContent = data.error || 'Failed';
+            statusEl.style.color = '#f56565';
+        }
+    } catch(e) {
+        statusEl.textContent = 'Network error';
+        statusEl.style.color = '#f56565';
+    }
+    btn.disabled = false;
+}
+
+async function addSciTest() {
+    const title = document.getElementById('sci-test-title').value.trim() || 'Science Test';
+    const timerMode = document.getElementById('sci-test-timer-mode').value;
+    const timeLimitMinutes = parseInt(document.getElementById('sci-test-time-limit').value) || 0;
+    const statusEl = document.getElementById('sci-test-status');
+    statusEl.textContent = 'Adding...';
+    statusEl.style.color = '';
+    const btn = document.getElementById('add-sci-test-btn');
+    btn.disabled = true;
+    try {
+        const res = await fetch(`/api/learning-plans/${planId}/items/science-test`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                title,
+                question_ids: [...sciTestSelected],
+                timer_mode: timerMode,
+                time_limit_seconds: timerMode === 'countdown' ? timeLimitMinutes * 60 : 0
+            })
+        });
+        if (res.ok) {
+            statusEl.textContent = '';
+            document.getElementById('sci-test-title').value = '';
+            sciTestSelected.clear();
+            renderSciQList('test');
+            loadPlan();
+        } else {
+            const data = await res.json();
+            statusEl.textContent = data.error || 'Failed';
+            statusEl.style.color = '#f56565';
+        }
+    } catch(e) {
+        statusEl.textContent = 'Network error';
+        statusEl.style.color = '#f56565';
+    }
+    btn.disabled = false;
+}
 {% endif %}
 </script>
 {% endblock %}

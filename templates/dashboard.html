@@ -139,6 +139,63 @@
 </div>
 {% endif %}
 
+{% if science_study_sessions %}
+<div style="margin-bottom: 30px;">
+    <h2>Science Study Sessions</h2>
+    {% for ss in science_study_sessions %}
+    <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong style="font-size: 18px;">{{ ss.title or 'Science Study' }}</strong>
+            <div style="font-size: 14px; color: #666;">
+                {{ ss.question_count }} questions | Created {{ ss.created_at[:10] }}
+            </div>
+        </div>
+        <a href="/child/{{ child.id }}/science-study/{{ ss.id }}" class="btn btn-success" style="padding: 10px 25px;">
+            Start
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if science_tests %}
+<div style="margin-bottom: 30px;">
+    <h2>Science Tests</h2>
+    {% for st in science_tests %}
+    <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong style="font-size: 18px;">{{ st.title }}</strong>
+            <div style="font-size: 14px; color: #666;">
+                {{ st.question_count }} questions | Created {{ st.created_at[:10] }}
+            </div>
+        </div>
+        <a href="/child/{{ child.id }}/science-test/{{ st.id }}" class="btn btn-success" style="padding: 10px 25px;">
+            Start
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if completed_science_tests %}
+<div style="margin-bottom: 30px;">
+    <h2>Completed Science Tests</h2>
+    {% for st in completed_science_tests %}
+    <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong style="font-size: 18px;">{{ st.title }}</strong>
+            <div style="font-size: 14px; color: #666;">
+                {{ st.correct_count or 0 }}/{{ st.total_count or 0 }} correct ({{ st.score or 0 }}%) | {{ st.created_at[:10] }}
+            </div>
+        </div>
+        <a href="/child/{{ child.id }}/science-test/{{ st.id }}/review" class="btn btn-primary" style="padding: 10px 25px;">
+            Review
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
 {% if pending_assignments %}
 <div style="margin-bottom: 30px;">
     <h2>Reading Assignments</h2>

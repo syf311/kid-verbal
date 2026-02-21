@@ -410,12 +410,32 @@
             </div>
         </div>
 
-        <!-- Science tab (placeholder) -->
+        <!-- Science tab -->
         <div class="tab-panel" data-panel="science" id="panel-science">
-            <div class="placeholder-panel">
-                <div class="icon">&#x1F52C;</div>
-                <p><strong>Coming soon</strong></p>
-                <p>Science activities and assignments will appear here.</p>
+            <div class="quick-links" id="science-links"></div>
+            <div class="dash-card">
+                <h3>Question Bank</h3>
+                <div id="science-question-stats"><span class="empty-msg">Loading...</span></div>
+            </div>
+            <div class="dash-card">
+                <h3>Pending Study Sessions</h3>
+                <div id="science-study-list"><span class="empty-msg">Loading...</span></div>
+            </div>
+            <div class="dash-card">
+                <h3>Pending Tests</h3>
+                <div id="science-test-pending-list"><span class="empty-msg">Loading...</span></div>
+            </div>
+            <div class="dash-card">
+                <h3>Completed Tests</h3>
+                <div id="science-test-completed-list"><span class="empty-msg">Loading...</span></div>
+            </div>
+        </div>
+
+        <!-- Science import modal -->
+        <div id="science-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:999; overflow-y:auto;">
+            <div style="max-width:900px; margin:30px auto; background:white; border-radius:16px; padding:30px; position:relative; max-height:90vh; overflow-y:auto;">
+                <button onclick="closeScienceModal()" style="position:absolute; top:10px; right:15px; background:none; border:none; font-size:24px; cursor:pointer;">&times;</button>
+                <div id="science-modal-content"></div>
             </div>
         </div>
     </div>
@@ -480,6 +500,7 @@ async function loadDashboard(childId) {
     renderMathTab(childId, data);
     renderPlansTab(childId, data);
     renderWritingTests(childId, data);
+    loadScienceTab(childId);
 }
 
 function updateQuickLinks(childId) {
@@ -493,6 +514,11 @@ function updateQuickLinks(childId) {
     `;
     document.getElementById('math-links').innerHTML = `
         <a href="/parent/child/${childId}/math-test/new" class="btn-success">Create Math Test</a>
+    `;
+    document.getElementById('science-links').innerHTML = `
+        <a href="#" class="btn-success" onclick="event.preventDefault(); openScienceImport()">Import Questions</a>
+        <a href="#" class="btn-primary" onclick="event.preventDefault(); openScienceCreateStudy()">Create Study Session</a>
+        <a href="#" class="btn-warning" onclick="event.preventDefault(); openScienceCreateTest()">Create Test</a>
     `;
     document.getElementById('plans-links').innerHTML = `
         <a href="/parent/child/${childId}/learning-plan/new" class="btn-success">Create Learning Plan</a>
@@ -902,6 +928,579 @@ function escHtml(str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+}
+
+// ── Science tab ──
+
+let scienceQuestions = [];
+
+const SCI_CAT_COLORS = {
+    'LIFE SCIENCE': '#48bb78',
+    'PHYSICAL SCIENCE': '#667eea',
+    'EARTH SCIENCE': '#ed8936',
+    'MATH': '#9f7aea',
+    'GENERAL SCIENCE': '#4299e1',
+    'ENERGY': '#f56565'
+};
+
+function sciCatBadge(cat) {
+    const color = SCI_CAT_COLORS[cat] || '#718096';
+    return `<span style="background:${color}; color:white; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;">${escHtml(cat)}</span>`;
+}
+
+function sciTypeBadge(type) {
+    if (type === 'toss_up') return `<span style="background:#2d3748; color:white; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:600;">TOSS-UP</span>`;
+    return `<span style="background:#d69e2e; color:white; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:600;">BONUS</span>`;
+}
+
+function sciFormatBadge(fmt) {
+    if (fmt === 'multiple_choice') return `<span style="background:#e2e8f0; color:#4a5568; padding:2px 6px; border-radius:4px; font-size:11px;">MC</span>`;
+    return `<span style="background:#e2e8f0; color:#4a5568; padding:2px 6px; border-radius:4px; font-size:11px;">Short Answer</span>`;
+}
+
+async function loadScienceTab(childId) {
+    // Load questions
+    const qRes = await fetch(`/api/children/${childId}/science-questions`);
+    if (qRes.ok) scienceQuestions = await qRes.json();
+    else scienceQuestions = [];
+
+    // Question bank stats
+    const statsEl = document.getElementById('science-question-stats');
+    if (scienceQuestions.length === 0) {
+        statsEl.innerHTML = '<span class="empty-msg">No questions imported yet. Click "Import Questions" to upload a Science Bowl PDF.</span>';
+    } else {
+        const cats = {};
+        scienceQuestions.forEach(q => { cats[q.category] = (cats[q.category] || 0) + 1; });
+        const tossups = scienceQuestions.filter(q => q.question_type === 'toss_up').length;
+        const bonuses = scienceQuestions.filter(q => q.question_type === 'bonus').length;
+        const rounds = new Set(scienceQuestions.map(q => q.round_name).filter(Boolean));
+        statsEl.innerHTML = `
+            <div style="font-size:16px; font-weight:600; margin-bottom:8px;">${scienceQuestions.length} questions</div>
+            <div style="font-size:14px; color:#666; margin-bottom:6px;">Toss-ups: ${tossups} | Bonuses: ${bonuses} | Rounds: ${rounds.size || 'N/A'}</div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
+                ${Object.entries(cats).map(([cat, count]) => `<span style="background:#edf2f7; padding:3px 8px; border-radius:6px; font-size:13px;">${escHtml(cat)}: ${count}</span>`).join('')}
+            </div>
+            <button class="btn btn-primary" style="padding:6px 14px; font-size:13px;" onclick="openQuestionBank()">View All Questions</button>
+        `;
+    }
+
+    // Study sessions
+    const ssRes = await fetch(`/api/children/${childId}/science-study-sessions`);
+    const sessions = ssRes.ok ? await ssRes.json() : [];
+    const pendSessions = sessions.filter(s => s.status !== 'completed');
+    const ssList = document.getElementById('science-study-list');
+    if (pendSessions.length === 0) {
+        ssList.innerHTML = '<span class="empty-msg">No pending study sessions.</span>';
+    } else {
+        ssList.innerHTML = pendSessions.map(s => `
+            <div class="list-item">
+                <div class="info">
+                    <strong>${escHtml(s.title || 'Science Study')}</strong>
+                    <div class="meta">${s.created_at.slice(0,10)} &middot; ${s.question_count} questions</div>
+                </div>
+                <div class="actions">
+                    <a href="/child/${childId}/science-study/${s.id}" class="btn btn-primary">Preview</a>
+                    <button class="btn btn-danger" onclick="deleteScienceStudy(${s.id})">Del</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Tests
+    const tRes = await fetch(`/api/children/${childId}/science-tests`);
+    const tests = tRes.ok ? await tRes.json() : [];
+    const pendTests = tests.filter(t => t.status !== 'completed');
+    const compTests = tests.filter(t => t.status === 'completed');
+
+    const tPendList = document.getElementById('science-test-pending-list');
+    if (pendTests.length === 0) {
+        tPendList.innerHTML = '<span class="empty-msg">No pending tests.</span>';
+    } else {
+        tPendList.innerHTML = pendTests.map(t => `
+            <div class="list-item">
+                <div class="info">
+                    <strong>${escHtml(t.title)}</strong>
+                    <div class="meta">${t.created_at.slice(0,10)} &middot; ${t.question_count} questions</div>
+                </div>
+                <div class="actions">
+                    <a href="/child/${childId}/science-test/${t.id}" class="btn btn-primary">Preview</a>
+                    <button class="btn btn-danger" onclick="deleteScienceTest(${t.id})">Del</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    const tCompList = document.getElementById('science-test-completed-list');
+    if (compTests.length === 0) {
+        tCompList.innerHTML = '<span class="empty-msg">No completed tests yet.</span>';
+    } else {
+        tCompList.innerHTML = compTests.map(t => {
+            const sub = t.latest_submission;
+            const scoreInfo = sub ? ` &middot; ${sub.correct_count}/${sub.total_count} correct (${sub.score}%)` : '';
+            return `
+            <div class="list-item">
+                <div class="info">
+                    <strong>${escHtml(t.title)}</strong>
+                    <div class="meta">${t.created_at.slice(0,10)} &middot; ${t.question_count} questions${scoreInfo}</div>
+                </div>
+                <div class="actions">
+                    <a href="/child/${childId}/science-test/${t.id}/review" class="btn btn-success">Review</a>
+                    <button class="btn btn-danger" onclick="deleteScienceTest(${t.id})">Del</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+}
+
+async function deleteScienceStudy(id) {
+    if (!confirm('Delete this science study session?')) return;
+    await fetch(`/api/science-study-sessions/${id}`, { method: 'DELETE' });
+    loadScienceTab(currentChildId);
+}
+
+async function deleteScienceTest(id) {
+    if (!confirm('Delete this science test?')) return;
+    await fetch(`/api/science-tests/${id}`, { method: 'DELETE' });
+    loadScienceTab(currentChildId);
+}
+
+// ── Science modals ──
+
+function closeScienceModal() {
+    document.getElementById('science-modal').style.display = 'none';
+}
+
+function openScienceImport() {
+    const modal = document.getElementById('science-modal');
+    document.getElementById('science-modal-content').innerHTML = `
+        <h2>Import Science Bowl Questions</h2>
+        <div style="margin-bottom:15px;">
+            <label style="font-weight:600;">Upload Science Bowl PDF</label>
+            <div style="border:2px dashed #cbd5e0; border-radius:10px; padding:20px; text-align:center; cursor:pointer; margin-top:8px;" onclick="document.getElementById('sci-pdf-input').click()">
+                <div>Click to select PDF file</div>
+                <div id="sci-pdf-name" style="color:#48bb78; font-weight:600; margin-top:6px;"></div>
+                <input type="file" id="sci-pdf-input" accept=".pdf" style="display:none;" onchange="document.getElementById('sci-pdf-name').textContent=this.files[0]?this.files[0].name:''">
+            </div>
+        </div>
+        <button class="btn btn-success" onclick="uploadSciencePdf()" id="sci-upload-btn">Upload & Parse</button>
+        <span id="sci-upload-status" style="margin-left:10px; font-size:14px;"></span>
+        <div id="sci-preview" style="margin-top:20px;"></div>
+    `;
+    modal.style.display = 'block';
+}
+
+async function uploadSciencePdf() {
+    const fileInput = document.getElementById('sci-pdf-input');
+    if (!fileInput.files[0]) { alert('Please select a PDF file'); return; }
+    const btn = document.getElementById('sci-upload-btn');
+    const status = document.getElementById('sci-upload-status');
+    btn.disabled = true;
+    status.textContent = 'Parsing...';
+    status.style.color = '';
+
+    const fd = new FormData();
+    fd.append('pdf', fileInput.files[0]);
+    try {
+        const res = await fetch('/api/science/upload', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) {
+            status.textContent = data.error || 'Failed to parse';
+            status.style.color = '#f56565';
+            btn.disabled = false;
+            return;
+        }
+        status.textContent = `Parsed ${data.questions.length} questions`;
+        status.style.color = '#48bb78';
+        renderSciencePreview(data.questions, data.source_pdf);
+    } catch(e) {
+        status.textContent = 'Network error';
+        status.style.color = '#f56565';
+    }
+    btn.disabled = false;
+}
+
+let parsedScienceQuestions = [];
+let scienceSourcePdf = '';
+
+function renderSciencePreview(questions, sourcePdf) {
+    parsedScienceQuestions = questions;
+    scienceSourcePdf = sourcePdf;
+    const preview = document.getElementById('sci-preview');
+    preview.innerHTML = `
+        <h3>Preview (${questions.length} questions)</h3>
+        <div style="max-height:400px; overflow-y:auto; border:1px solid #e2e8f0; border-radius:8px;">
+            <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                <thead><tr style="background:#f7fafc; position:sticky; top:0;">
+                    <th style="padding:8px; text-align:left; border-bottom:1px solid #e2e8f0;">#</th>
+                    <th style="padding:8px; text-align:left; border-bottom:1px solid #e2e8f0;">Type</th>
+                    <th style="padding:8px; text-align:left; border-bottom:1px solid #e2e8f0;">Category</th>
+                    <th style="padding:8px; text-align:left; border-bottom:1px solid #e2e8f0;">Format</th>
+                    <th style="padding:8px; text-align:left; border-bottom:1px solid #e2e8f0;">Question</th>
+                    <th style="padding:8px; text-align:left; border-bottom:1px solid #e2e8f0;">Answer</th>
+                    <th style="padding:8px; text-align:left; border-bottom:1px solid #e2e8f0;"></th>
+                </tr></thead>
+                <tbody>
+                    ${questions.map((q, i) => `<tr id="sci-row-${i}" style="border-bottom:1px solid #f0f0f0;">
+                        <td style="padding:6px 8px;">${q.number}</td>
+                        <td style="padding:6px 8px;">${q.question_type === 'toss_up' ? 'Toss-Up' : 'Bonus'}</td>
+                        <td style="padding:6px 8px;">${escHtml(q.category)}</td>
+                        <td style="padding:6px 8px;">${q.answer_format === 'multiple_choice' ? 'MC' : 'SA'}</td>
+                        <td style="padding:6px 8px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escHtml(q.question_text)}</td>
+                        <td style="padding:6px 8px;">${escHtml(q.correct_answer)}</td>
+                        <td style="padding:6px 8px;">
+                            <button style="border:none; background:none; color:#f56565; cursor:pointer; font-size:16px;" onclick="removeSciQ(${i})">&times;</button>
+                        </td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>
+        <button class="btn btn-success" style="margin-top:15px;" onclick="saveScienceQuestions()">Save All ${questions.length} Questions</button>
+        <span id="sci-save-status" style="margin-left:10px; font-size:14px;"></span>
+    `;
+}
+
+function removeSciQ(index) {
+    parsedScienceQuestions.splice(index, 1);
+    renderSciencePreview(parsedScienceQuestions, scienceSourcePdf);
+}
+
+async function saveScienceQuestions() {
+    if (parsedScienceQuestions.length === 0) return;
+    const status = document.getElementById('sci-save-status');
+    status.textContent = 'Saving...';
+    status.style.color = '';
+    try {
+        const res = await fetch('/api/science/questions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                child_id: currentChildId,
+                questions: parsedScienceQuestions,
+                source_pdf: scienceSourcePdf
+            })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            status.textContent = `Saved ${data.saved} questions!`;
+            status.style.color = '#48bb78';
+            setTimeout(() => { closeScienceModal(); loadScienceTab(currentChildId); }, 1000);
+        } else {
+            status.textContent = data.error || 'Failed';
+            status.style.color = '#f56565';
+        }
+    } catch(e) {
+        status.textContent = 'Network error';
+        status.style.color = '#f56565';
+    }
+}
+
+function openQuestionBank() {
+    const cats = [...new Set(scienceQuestions.map(q => q.category))].sort();
+    const modal = document.getElementById('science-modal');
+    document.getElementById('science-modal-content').innerHTML = `
+        <h2>Question Bank (${scienceQuestions.length} questions)</h2>
+        <div style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:12px;">
+            <button class="filter-btn active" onclick="qbFilterCat('all', this)">All</button>
+            ${cats.map(c => `<button class="filter-btn" onclick="qbFilterCat('${escHtml(c)}', this)">${escHtml(c)}</button>`).join('')}
+        </div>
+        <div style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:12px;">
+            <button class="filter-btn active" onclick="qbFilterType('all', this)" data-group="type">All Types</button>
+            <button class="filter-btn" onclick="qbFilterType('toss_up', this)" data-group="type">Toss-Up</button>
+            <button class="filter-btn" onclick="qbFilterType('bonus', this)" data-group="type">Bonus</button>
+        </div>
+        <div id="qb-list" style="max-height:500px; overflow-y:auto;"></div>
+    `;
+    modal.style.display = 'block';
+    qbCatFilter = 'all';
+    qbTypeFilter = 'all';
+    renderQuestionBank();
+}
+
+let qbCatFilter = 'all';
+let qbTypeFilter = 'all';
+
+function qbFilterCat(cat, btn) {
+    qbCatFilter = cat;
+    btn.parentElement.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderQuestionBank();
+}
+
+function qbFilterType(type, btn) {
+    qbTypeFilter = type;
+    btn.parentElement.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderQuestionBank();
+}
+
+function renderQuestionBank() {
+    let filtered = scienceQuestions;
+    if (qbCatFilter !== 'all') filtered = filtered.filter(q => q.category === qbCatFilter);
+    if (qbTypeFilter !== 'all') filtered = filtered.filter(q => q.question_type === qbTypeFilter);
+
+    const list = document.getElementById('qb-list');
+    if (filtered.length === 0) {
+        list.innerHTML = '<span class="empty-msg">No questions match filters.</span>';
+        return;
+    }
+    list.innerHTML = filtered.map(q => {
+        let choicesHtml = '';
+        if (q.choices && typeof q.choices === 'object') {
+            choicesHtml = '<div style="margin-top:6px; padding-left:10px;">' +
+                Object.entries(q.choices).map(([k, v]) =>
+                    `<div style="font-size:13px; color:#555; margin-bottom:2px;"><strong>${escHtml(k)})</strong> ${escHtml(v)}</div>`
+                ).join('') + '</div>';
+        }
+        return `
+        <div style="background:#f7fafc; border-radius:10px; padding:12px 14px; margin-bottom:10px; border-left:4px solid ${SCI_CAT_COLORS[q.category] || '#718096'};">
+            <div style="display:flex; gap:4px; align-items:center; margin-bottom:6px;">
+                ${sciCatBadge(q.category)}
+                ${sciTypeBadge(q.question_type)}
+                ${sciFormatBadge(q.answer_format)}
+                ${q.round_name ? `<span style="color:#999; font-size:11px; margin-left:4px;">${escHtml(q.round_name)}</span>` : ''}
+            </div>
+            <div style="font-size:14px; color:#333; margin-bottom:4px;">${escHtml(q.question_text)}</div>
+            ${choicesHtml}
+            <div style="font-size:13px; color:#276749; font-weight:600; margin-top:6px;">Answer: ${escHtml(q.correct_answer)}</div>
+            ${q.explanation && q.explanation !== 'Answer: ' + q.correct_answer ? `<div style="font-size:12px; color:#666; margin-top:2px;">${escHtml(q.explanation)}</div>` : ''}
+            <div style="display:flex; gap:6px; margin-top:6px;">
+                <button class="btn btn-warning" style="padding:2px 8px; font-size:11px;" onclick="event.stopPropagation(); editSciQuestion(${q.id})">Edit</button>
+                <button class="btn btn-danger" style="padding:2px 8px; font-size:11px;" onclick="event.stopPropagation(); deleteSciQuestion(${q.id})">Delete</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+async function editSciQuestion(qid) {
+    const q = scienceQuestions.find(x => x.id === qid);
+    if (!q) return;
+    const newText = prompt('Edit question text:', q.question_text);
+    if (newText === null) return;
+    const newAnswer = prompt('Edit correct answer:', q.correct_answer);
+    if (newAnswer === null) return;
+    const newExplanation = prompt('Edit explanation:', q.explanation || '');
+    if (newExplanation === null) return;
+    await fetch(`/api/science-questions/${qid}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question_text: newText, correct_answer: newAnswer, explanation: newExplanation })
+    });
+    await loadScienceTab(currentChildId);
+    renderQuestionBank();
+}
+
+async function deleteSciQuestion(qid) {
+    if (!confirm('Delete this question?')) return;
+    await fetch(`/api/science-questions/${qid}`, { method: 'DELETE' });
+    await loadScienceTab(currentChildId);
+    renderQuestionBank();
+}
+
+function openScienceCreateStudy() {
+    if (scienceQuestions.length === 0) { alert('No questions imported yet. Import questions first.'); return; }
+    const cats = [...new Set(scienceQuestions.map(q => q.category))].sort();
+    const modal = document.getElementById('science-modal');
+    document.getElementById('science-modal-content').innerHTML = `
+        <h2>Create Science Study Session</h2>
+        <div style="margin-bottom:10px;">
+            <label style="font-weight:600;">Title</label>
+            <input type="text" id="sci-study-title" placeholder="e.g. Life Science Review" style="margin-top:4px;">
+        </div>
+        <div style="margin-bottom:10px;">
+            <label style="font-weight:600;">Filter by Category</label>
+            <div style="display:flex; gap:4px; flex-wrap:wrap; margin-top:4px;">
+                <button class="filter-btn active" onclick="sciFilterCat('all', this)">All</button>
+                ${cats.map(c => `<button class="filter-btn" onclick="sciFilterCat('${escHtml(c)}', this)">${escHtml(c)}</button>`).join('')}
+            </div>
+        </div>
+        <div style="display:flex; gap:8px; margin-bottom:8px;">
+            <button class="btn btn-primary" style="padding:4px 10px; font-size:12px;" onclick="sciSelectAll()">Select All</button>
+            <button class="btn btn-warning" style="padding:4px 10px; font-size:12px;" onclick="sciDeselectAll()">Deselect All</button>
+            <span style="font-size:13px; color:#666;"><span id="sci-sel-count">0</span> selected</span>
+        </div>
+        <div id="sci-q-list" style="max-height:350px; overflow-y:auto; border:1px solid #e2e8f0; border-radius:8px; padding:8px;"></div>
+        <button class="btn btn-success" style="margin-top:15px;" onclick="createSciStudy()" id="sci-create-study-btn" disabled>Create Study Session</button>
+        <span id="sci-study-status" style="margin-left:10px; font-size:14px;"></span>
+    `;
+    modal.style.display = 'block';
+    sciCurrentFilter = 'all';
+    sciSelectedIds = new Set();
+    renderSciQuestionList();
+}
+
+let sciCurrentFilter = 'all';
+let sciSelectedIds = new Set();
+
+function sciFilterCat(cat, btn) {
+    sciCurrentFilter = cat;
+    document.querySelectorAll('#science-modal-content .filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderSciQuestionList();
+}
+
+function renderSciQuestionList() {
+    const filtered = sciCurrentFilter === 'all' ? scienceQuestions : scienceQuestions.filter(q => q.category === sciCurrentFilter);
+    const list = document.getElementById('sci-q-list');
+    if (filtered.length === 0) {
+        list.innerHTML = '<span class="empty-msg">No questions match this filter.</span>';
+        updateSciSelCount();
+        return;
+    }
+    list.innerHTML = filtered.map(q => {
+        const selected = sciSelectedIds.has(q.id);
+        const catColor = SCI_CAT_COLORS[q.category] || '#718096';
+        let choicesHtml = '';
+        if (q.choices && typeof q.choices === 'object') {
+            choicesHtml = '<div style="margin-top:4px; padding-left:8px;">' +
+                Object.entries(q.choices).map(([k, v]) =>
+                    `<span style="font-size:12px; color:#555; margin-right:10px;"><strong>${escHtml(k)})</strong> ${escHtml(v)}</span>`
+                ).join('') + '</div>';
+        }
+        return `
+        <div onclick="sciToggleQ(${q.id})" style="background:${selected ? '#ebf4ff' : '#f7fafc'}; border:2px solid ${selected ? '#667eea' : 'transparent'}; border-left:4px solid ${catColor}; border-radius:10px; padding:10px 12px; margin-bottom:8px; cursor:pointer; transition:all 0.15s;">
+            <div style="display:flex; align-items:flex-start; gap:8px;">
+                <input type="checkbox" ${selected ? 'checked' : ''} style="width:16px; height:16px; margin-top:3px; padding:0; pointer-events:none; flex-shrink:0;">
+                <div style="flex:1; min-width:0;">
+                    <div style="display:flex; gap:4px; align-items:center; flex-wrap:wrap; margin-bottom:4px;">
+                        ${sciCatBadge(q.category)}
+                        ${sciTypeBadge(q.question_type)}
+                        ${sciFormatBadge(q.answer_format)}
+                    </div>
+                    <div style="font-size:13px; color:#333; line-height:1.4;">${escHtml(q.question_text)}</div>
+                    ${choicesHtml}
+                    <div style="font-size:12px; color:#276749; font-weight:600; margin-top:4px;">Answer: ${escHtml(q.correct_answer)}</div>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+    updateSciSelCount();
+}
+
+function sciToggleQ(id) {
+    if (sciSelectedIds.has(id)) sciSelectedIds.delete(id); else sciSelectedIds.add(id);
+    renderSciQuestionList();
+}
+
+function sciSelectAll() {
+    const filtered = sciCurrentFilter === 'all' ? scienceQuestions : scienceQuestions.filter(q => q.category === sciCurrentFilter);
+    filtered.forEach(q => sciSelectedIds.add(q.id));
+    renderSciQuestionList();
+}
+
+function sciDeselectAll() {
+    const filtered = sciCurrentFilter === 'all' ? scienceQuestions : scienceQuestions.filter(q => q.category === sciCurrentFilter);
+    filtered.forEach(q => sciSelectedIds.delete(q.id));
+    renderSciQuestionList();
+}
+
+function updateSciSelCount() {
+    document.getElementById('sci-sel-count').textContent = sciSelectedIds.size;
+    const btn = document.getElementById('sci-create-study-btn') || document.getElementById('sci-create-test-btn');
+    if (btn) btn.disabled = sciSelectedIds.size === 0;
+}
+
+async function createSciStudy() {
+    const title = document.getElementById('sci-study-title').value.trim() || 'Science Study';
+    const status = document.getElementById('sci-study-status');
+    status.textContent = 'Creating...';
+    try {
+        const res = await fetch('/api/science-study-sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ child_id: currentChildId, title, question_ids: [...sciSelectedIds] })
+        });
+        if (res.ok) {
+            status.textContent = 'Created!';
+            status.style.color = '#48bb78';
+            setTimeout(() => { closeScienceModal(); loadScienceTab(currentChildId); }, 800);
+        } else {
+            const data = await res.json();
+            status.textContent = data.error || 'Failed';
+            status.style.color = '#f56565';
+        }
+    } catch(e) {
+        status.textContent = 'Network error';
+        status.style.color = '#f56565';
+    }
+}
+
+function openScienceCreateTest() {
+    if (scienceQuestions.length === 0) { alert('No questions imported yet. Import questions first.'); return; }
+    const cats = [...new Set(scienceQuestions.map(q => q.category))].sort();
+    const modal = document.getElementById('science-modal');
+    document.getElementById('science-modal-content').innerHTML = `
+        <h2>Create Science Test</h2>
+        <div style="margin-bottom:10px;">
+            <label style="font-weight:600;">Title</label>
+            <input type="text" id="sci-test-title" placeholder="e.g. Science Bowl Practice" style="margin-top:4px;">
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+            <div>
+                <label style="font-weight:600; font-size:13px;">Timer Mode</label>
+                <select id="sci-timer-mode" style="width:100%; padding:8px; font-size:14px; border:1px solid #ccc; border-radius:8px;" onchange="document.getElementById('sci-time-limit-wrap').style.display=this.value==='countdown'?'':'none'">
+                    <option value="none">No Timer</option>
+                    <option value="stopwatch">Stopwatch</option>
+                    <option value="countdown">Countdown</option>
+                </select>
+            </div>
+            <div id="sci-time-limit-wrap" style="display:none;">
+                <label style="font-weight:600; font-size:13px;">Time Limit (minutes)</label>
+                <input type="number" id="sci-time-limit" min="1" max="120" value="30" style="padding:8px; font-size:14px;">
+            </div>
+        </div>
+        <div style="margin-bottom:10px;">
+            <label style="font-weight:600;">Filter by Category</label>
+            <div style="display:flex; gap:4px; flex-wrap:wrap; margin-top:4px;">
+                <button class="filter-btn active" onclick="sciFilterCat('all', this)">All</button>
+                ${cats.map(c => `<button class="filter-btn" onclick="sciFilterCat('${escHtml(c)}', this)">${escHtml(c)}</button>`).join('')}
+            </div>
+        </div>
+        <div style="display:flex; gap:8px; margin-bottom:8px;">
+            <button class="btn btn-primary" style="padding:4px 10px; font-size:12px;" onclick="sciSelectAll()">Select All</button>
+            <button class="btn btn-warning" style="padding:4px 10px; font-size:12px;" onclick="sciDeselectAll()">Deselect All</button>
+            <span style="font-size:13px; color:#666;"><span id="sci-sel-count">0</span> selected</span>
+        </div>
+        <div id="sci-q-list" style="max-height:350px; overflow-y:auto; border:1px solid #e2e8f0; border-radius:8px; padding:8px;"></div>
+        <button class="btn btn-success" style="margin-top:15px;" onclick="createSciTest()" id="sci-create-test-btn" disabled>Create Test</button>
+        <span id="sci-test-status" style="margin-left:10px; font-size:14px;"></span>
+    `;
+    modal.style.display = 'block';
+    sciCurrentFilter = 'all';
+    sciSelectedIds = new Set();
+    renderSciQuestionList();
+}
+
+async function createSciTest() {
+    const title = document.getElementById('sci-test-title').value.trim() || 'Science Test';
+    const timerMode = document.getElementById('sci-timer-mode').value;
+    const timeLimitMinutes = parseInt(document.getElementById('sci-time-limit').value) || 0;
+    const status = document.getElementById('sci-test-status');
+    status.textContent = 'Creating...';
+    try {
+        const res = await fetch('/api/science-tests', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                child_id: currentChildId,
+                title,
+                question_ids: [...sciSelectedIds],
+                timer_mode: timerMode,
+                time_limit_seconds: timerMode === 'countdown' ? timeLimitMinutes * 60 : 0
+            })
+        });
+        if (res.ok) {
+            status.textContent = 'Created!';
+            status.style.color = '#48bb78';
+            setTimeout(() => { closeScienceModal(); loadScienceTab(currentChildId); }, 800);
+        } else {
+            const data = await res.json();
+            status.textContent = data.error || 'Failed';
+            status.style.color = '#f56565';
+        }
+    } catch(e) {
+        status.textContent = 'Network error';
+        status.style.color = '#f56565';
+    }
 }
 
 // ── Init ──

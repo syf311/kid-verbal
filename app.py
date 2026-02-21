@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 from datetime import datetime
 from functools import wraps
@@ -12,6 +13,7 @@ from dictionary import fetch_definition
 from test_engine import get_test_words, generate_choices, generate_word_choices, update_progress, record_test_session
 from ocr import extract_text
 from pdf_parser import parse_answer_pdf, parse_grid_answer_pdf, extract_row_answers, pdf_page_to_png
+from science_parser import parse_science_bowl_pdf
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -86,6 +88,10 @@ def check_plan_completion(plan_id, conn):
             row = conn.execute("SELECT status FROM parent_test WHERE id = ?", (item["item_id"],)).fetchone()
         elif item["item_type"] == "writing_test":
             row = conn.execute("SELECT status FROM writing_test WHERE id = ?", (item["item_id"],)).fetchone()
+        elif item["item_type"] == "science_study":
+            row = conn.execute("SELECT status FROM science_study_session WHERE id = ?", (item["item_id"],)).fetchone()
+        elif item["item_type"] == "science_test":
+            row = conn.execute("SELECT status FROM science_test WHERE id = ?", (item["item_id"],)).fetchone()
         else:
             continue
         if not row or row["status"] != "completed":
@@ -830,6 +836,38 @@ def child_dashboard(child_id):
                ORDER BY wt.created_at DESC LIMIT 20""",
             (child_id,)
         ).fetchall()
+
+        # Get pending science study sessions
+        science_study_sessions = conn.execute(
+            """SELECT ss.id, ss.title, ss.status, ss.created_at,
+                      (SELECT COUNT(*) FROM science_study_session_question WHERE session_id = ss.id) as question_count
+               FROM science_study_session ss
+               WHERE ss.child_id = ? AND ss.status = 'pending' AND ss.learning_plan_id IS NULL
+               ORDER BY ss.created_at DESC""",
+            (child_id,)
+        ).fetchall()
+
+        # Get pending science tests
+        science_tests = conn.execute(
+            """SELECT st.id, st.title, st.status, st.created_at,
+                      (SELECT COUNT(*) FROM science_test_question WHERE test_id = st.id) as question_count
+               FROM science_test st
+               WHERE st.child_id = ? AND st.status = 'pending' AND st.learning_plan_id IS NULL
+               ORDER BY st.created_at DESC""",
+            (child_id,)
+        ).fetchall()
+
+        # Get completed science tests
+        completed_science_tests = conn.execute(
+            """SELECT st.id, st.title, st.created_at,
+                      (SELECT correct_count FROM science_test_submission WHERE science_test_id = st.id ORDER BY submitted_at DESC LIMIT 1) as correct_count,
+                      (SELECT total_count FROM science_test_submission WHERE science_test_id = st.id ORDER BY submitted_at DESC LIMIT 1) as total_count,
+                      (SELECT score FROM science_test_submission WHERE science_test_id = st.id ORDER BY submitted_at DESC LIMIT 1) as score
+               FROM science_test st
+               WHERE st.child_id = ? AND st.status = 'completed' AND st.learning_plan_id IS NULL
+               ORDER BY st.created_at DESC LIMIT 20""",
+            (child_id,)
+        ).fetchall()
     else:
         # Children only see learning plans, not individual items
         study_sessions = []
@@ -841,6 +879,9 @@ def child_dashboard(child_id):
         completed_math_tests = []
         writing_tests = []
         completed_writing_tests = []
+        science_study_sessions = []
+        science_tests = []
+        completed_science_tests = []
 
     # Get learning plans (released or completed)
     learning_plans = conn.execute(
@@ -867,6 +908,9 @@ def child_dashboard(child_id):
         completed_math_tests=[dict(t) for t in completed_math_tests],
         writing_tests=[dict(t) for t in writing_tests],
         completed_writing_tests=[dict(t) for t in completed_writing_tests],
+        science_study_sessions=[dict(s) for s in science_study_sessions],
+        science_tests=[dict(t) for t in science_tests],
+        completed_science_tests=[dict(t) for t in completed_science_tests],
         learning_plans=[dict(p) for p in learning_plans],
         role=role
     )
@@ -3027,6 +3071,23 @@ def get_learning_plan(plan_id):
                    FROM writing_test wt WHERE wt.id = ?""",
                 (item["item_id"],)
             ).fetchone()
+        elif item["item_type"] == "science_study":
+            row = conn.execute(
+                """SELECT ss.id, ss.title, ss.status,
+                          (SELECT COUNT(*) FROM science_study_session_question WHERE session_id = ss.id) as question_count
+                   FROM science_study_session ss WHERE ss.id = ?""",
+                (item["item_id"],)
+            ).fetchone()
+        elif item["item_type"] == "science_test":
+            row = conn.execute(
+                """SELECT st.id, st.title, st.status,
+                          (SELECT COUNT(*) FROM science_test_question WHERE test_id = st.id) as question_count,
+                          (SELECT score FROM science_test_submission WHERE science_test_id = st.id ORDER BY submitted_at DESC LIMIT 1) as score,
+                          (SELECT correct_count FROM science_test_submission WHERE science_test_id = st.id ORDER BY submitted_at DESC LIMIT 1) as correct_count,
+                          (SELECT total_count FROM science_test_submission WHERE science_test_id = st.id ORDER BY submitted_at DESC LIMIT 1) as total_count
+                   FROM science_test st WHERE st.id = ?""",
+                (item["item_id"],)
+            ).fetchone()
         else:
             row = None
         if row:
@@ -3327,12 +3388,32 @@ def get_unassigned_items(child_id):
         (child_id,)
     ).fetchall()
 
+    science_study_sessions = conn.execute(
+        """SELECT ss.id, ss.title, ss.status, ss.created_at,
+                  (SELECT COUNT(*) FROM science_study_session_question WHERE session_id = ss.id) as question_count
+           FROM science_study_session ss
+           WHERE ss.child_id = ? AND ss.learning_plan_id IS NULL
+           ORDER BY ss.created_at DESC""",
+        (child_id,)
+    ).fetchall()
+
+    science_tests = conn.execute(
+        """SELECT st.id, st.title, st.status, st.created_at,
+                  (SELECT COUNT(*) FROM science_test_question WHERE test_id = st.id) as question_count
+           FROM science_test st
+           WHERE st.child_id = ? AND st.learning_plan_id IS NULL
+           ORDER BY st.created_at DESC""",
+        (child_id,)
+    ).fetchall()
+
     conn.close()
     return jsonify({
         "study_sessions": [dict(s) for s in study_sessions],
         "reading_assignments": [dict(a) for a in reading_assignments],
         "math_tests": [dict(t) for t in math_tests],
         "writing_tests": [dict(t) for t in writing_tests],
+        "science_study_sessions": [dict(s) for s in science_study_sessions],
+        "science_tests": [dict(t) for t in science_tests],
     })
 
 
@@ -3343,7 +3424,7 @@ def link_item_to_plan(plan_id):
     item_type = data.get("item_type")
     item_id = data.get("item_id")
 
-    if item_type not in ("study_session", "reading_assignment", "math_test", "writing_test"):
+    if item_type not in ("study_session", "reading_assignment", "math_test", "writing_test", "science_study_session", "science_test"):
         return jsonify({"error": "Invalid item_type"}), 400
     if not item_id:
         return jsonify({"error": "item_id required"}), 400
@@ -3358,7 +3439,11 @@ def link_item_to_plan(plan_id):
         return jsonify({"error": "Plan is not in draft status"}), 400
 
     # Verify item exists, belongs to same child, and is unassigned
-    table = item_type  # study_session, reading_assignment, math_test
+    table = item_type  # study_session, reading_assignment, math_test, science_study_session, science_test
+    # Map item_type to learning_plan_item type
+    plan_item_type = item_type
+    if item_type == "science_study_session":
+        plan_item_type = "science_study"
     item = conn.execute(
         f"SELECT id, child_id, learning_plan_id FROM {table} WHERE id = ?", (item_id,)
     ).fetchone()
@@ -3383,11 +3468,561 @@ def link_item_to_plan(plan_id):
     )
     conn.execute(
         "INSERT INTO learning_plan_item (plan_id, item_type, item_id, sort_order) VALUES (?, ?, ?, ?)",
-        (plan_id, item_type, item_id, max_sort + 1)
+        (plan_id, plan_item_type, item_id, max_sort + 1)
     )
     conn.commit()
     conn.close()
     return jsonify({"success": True}), 200
+
+
+# ── Science Bowl routes ──
+
+@app.route("/api/science/upload", methods=["POST"])
+@parent_required
+def upload_science_pdf():
+    if "pdf" not in request.files:
+        return jsonify({"error": "PDF file required"}), 400
+    pdf_file = request.files["pdf"]
+    if not pdf_file.filename:
+        return jsonify({"error": "No file selected"}), 400
+
+    ts = int(time.time())
+    filename = f"science_{ts}_{secure_filename(pdf_file.filename)}"
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    pdf_file.save(filepath)
+
+    questions, error = parse_science_bowl_pdf(filepath)
+    if error:
+        os.remove(filepath)
+        return jsonify({"error": error}), 400
+
+    return jsonify({"questions": questions, "source_pdf": filename}), 200
+
+
+@app.route("/api/science/questions", methods=["POST"])
+@parent_required
+def save_science_questions():
+    data = request.json
+    child_id = data.get("child_id")
+    questions = data.get("questions", [])
+    source_pdf = data.get("source_pdf", "")
+    if not child_id or not questions:
+        return jsonify({"error": "child_id and questions required"}), 400
+
+    conn = get_db()
+    saved_ids = []
+    for q in questions:
+        cursor = conn.execute(
+            """INSERT INTO science_question
+               (child_id, category, question_type, answer_format, question_text, choices, correct_answer, explanation, source_pdf, round_name)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (child_id, q["category"], q["question_type"], q["answer_format"],
+             q["question_text"], json.dumps(q.get("choices")) if q.get("choices") else None,
+             q["correct_answer"], q.get("explanation", ""), source_pdf, q.get("round_name", ""))
+        )
+        saved_ids.append(cursor.lastrowid)
+    conn.commit()
+    conn.close()
+    return jsonify({"saved": len(saved_ids), "ids": saved_ids}), 201
+
+
+@app.route("/api/children/<int:child_id>/science-questions", methods=["GET"])
+@login_required
+def list_science_questions(child_id):
+    category = request.args.get("category")
+    conn = get_db()
+    if category:
+        questions = conn.execute(
+            "SELECT * FROM science_question WHERE child_id = ? AND category = ? ORDER BY round_name, question_type, id",
+            (child_id, category)
+        ).fetchall()
+    else:
+        questions = conn.execute(
+            "SELECT * FROM science_question WHERE child_id = ? ORDER BY round_name, question_type, id",
+            (child_id,)
+        ).fetchall()
+    conn.close()
+    result = []
+    for q in questions:
+        d = dict(q)
+        if d["choices"]:
+            d["choices"] = json.loads(d["choices"])
+        result.append(d)
+    return jsonify(result)
+
+
+@app.route("/api/science-questions/<int:question_id>", methods=["PUT"])
+@parent_required
+def update_science_question(question_id):
+    data = request.json
+    conn = get_db()
+    q = conn.execute("SELECT * FROM science_question WHERE id = ?", (question_id,)).fetchone()
+    if not q:
+        conn.close()
+        return jsonify({"error": "Question not found"}), 404
+    conn.execute(
+        """UPDATE science_question SET category=?, question_type=?, answer_format=?,
+           question_text=?, choices=?, correct_answer=?, explanation=? WHERE id=?""",
+        (data.get("category", q["category"]), data.get("question_type", q["question_type"]),
+         data.get("answer_format", q["answer_format"]), data.get("question_text", q["question_text"]),
+         json.dumps(data["choices"]) if "choices" in data and data["choices"] else q["choices"],
+         data.get("correct_answer", q["correct_answer"]),
+         data.get("explanation", q["explanation"]), question_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/science-questions/<int:question_id>", methods=["DELETE"])
+@parent_required
+def delete_science_question(question_id):
+    conn = get_db()
+    conn.execute("DELETE FROM science_question WHERE id = ?", (question_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+# ── Science Study Sessions ──
+
+@app.route("/api/science-study-sessions", methods=["POST"])
+@parent_required
+def create_science_study_session():
+    data = request.json
+    child_id = data.get("child_id")
+    title = data.get("title", "").strip()
+    question_ids = data.get("question_ids", [])
+    if not child_id or not question_ids:
+        return jsonify({"error": "child_id and question_ids required"}), 400
+
+    account = get_current_account()
+    conn = get_db()
+    cursor = conn.execute(
+        "INSERT INTO science_study_session (child_id, created_by, title) VALUES (?, ?, ?)",
+        (child_id, account["id"], title or "Science Study")
+    )
+    session_id = cursor.lastrowid
+    for qid in question_ids:
+        conn.execute(
+            "INSERT INTO science_study_session_question (session_id, question_id) VALUES (?, ?)",
+            (session_id, qid)
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({"id": session_id}), 201
+
+
+@app.route("/api/children/<int:child_id>/science-study-sessions", methods=["GET"])
+@login_required
+def list_science_study_sessions(child_id):
+    conn = get_db()
+    sessions = conn.execute(
+        "SELECT * FROM science_study_session WHERE child_id = ? ORDER BY created_at DESC",
+        (child_id,)
+    ).fetchall()
+    result = []
+    for s in sessions:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM science_study_session_question WHERE session_id = ?", (s["id"],)
+        ).fetchone()[0]
+        d = dict(s)
+        d["question_count"] = count
+        result.append(d)
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/science-study-sessions/<int:session_id>/questions", methods=["GET"])
+@login_required
+def get_science_study_session_questions(session_id):
+    conn = get_db()
+    questions = conn.execute(
+        """SELECT q.* FROM science_question q
+           JOIN science_study_session_question ssq ON q.id = ssq.question_id
+           WHERE ssq.session_id = ?
+           ORDER BY q.question_type DESC, q.id""",
+        (session_id,)
+    ).fetchall()
+    conn.close()
+    result = []
+    for q in questions:
+        d = dict(q)
+        if d["choices"]:
+            d["choices"] = json.loads(d["choices"])
+        result.append(d)
+    return jsonify(result)
+
+
+@app.route("/api/science-study-sessions/<int:session_id>/complete", methods=["POST"])
+@login_required
+def complete_science_study_session(session_id):
+    conn = get_db()
+    session_row = conn.execute("SELECT * FROM science_study_session WHERE id = ?", (session_id,)).fetchone()
+    if not session_row:
+        conn.close()
+        return jsonify({"error": "Session not found"}), 404
+    conn.execute("UPDATE science_study_session SET status = 'completed' WHERE id = ?", (session_id,))
+
+    plan_id = session_row["learning_plan_id"]
+    test_id = None
+
+    if plan_id:
+        # Auto-create a science test from the same questions
+        questions = conn.execute(
+            "SELECT question_id FROM science_study_session_question WHERE session_id = ?", (session_id,)
+        ).fetchall()
+        if questions:
+            title = f"Science Test: {session_row['title'] or 'Science'}"
+            cursor = conn.execute(
+                """INSERT INTO science_test (child_id, created_by, title, timer_mode, time_limit_seconds, learning_plan_id)
+                   VALUES (?, ?, ?, 'none', 0, ?)""",
+                (session_row["child_id"], session_row["created_by"], title, plan_id)
+            )
+            test_id = cursor.lastrowid
+            for q in questions:
+                conn.execute(
+                    "INSERT INTO science_test_question (test_id, question_id) VALUES (?, ?)",
+                    (test_id, q["question_id"])
+                )
+            # Add the test to the same learning plan
+            max_sort = conn.execute(
+                "SELECT COALESCE(MAX(sort_order), 0) FROM learning_plan_item WHERE plan_id = ?", (plan_id,)
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO learning_plan_item (plan_id, item_type, item_id, sort_order) VALUES (?, 'science_test', ?, ?)",
+                (plan_id, test_id, max_sort + 1)
+            )
+
+        check_plan_completion(plan_id, conn)
+
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "test_id": test_id})
+
+
+@app.route("/api/science-study-sessions/<int:session_id>", methods=["DELETE"])
+@parent_required
+def delete_science_study_session(session_id):
+    conn = get_db()
+    conn.execute("DELETE FROM science_study_session WHERE id = ?", (session_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+# ── Science Tests ──
+
+@app.route("/api/science-tests", methods=["POST"])
+@parent_required
+def create_science_test():
+    data = request.json
+    child_id = data.get("child_id")
+    title = data.get("title", "").strip()
+    question_ids = data.get("question_ids", [])
+    timer_mode = data.get("timer_mode", "none")
+    time_limit_seconds = data.get("time_limit_seconds", 0)
+    if not child_id or not question_ids:
+        return jsonify({"error": "child_id and question_ids required"}), 400
+
+    account = get_current_account()
+    conn = get_db()
+    cursor = conn.execute(
+        """INSERT INTO science_test (child_id, created_by, title, timer_mode, time_limit_seconds)
+           VALUES (?, ?, ?, ?, ?)""",
+        (child_id, account["id"], title or "Science Test", timer_mode, time_limit_seconds)
+    )
+    test_id = cursor.lastrowid
+    for qid in question_ids:
+        conn.execute(
+            "INSERT INTO science_test_question (test_id, question_id) VALUES (?, ?)",
+            (test_id, qid)
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({"id": test_id, "total_questions": len(question_ids)}), 201
+
+
+@app.route("/api/children/<int:child_id>/science-tests", methods=["GET"])
+@login_required
+def list_science_tests(child_id):
+    conn = get_db()
+    tests = conn.execute(
+        "SELECT * FROM science_test WHERE child_id = ? ORDER BY created_at DESC",
+        (child_id,)
+    ).fetchall()
+    result = []
+    for t in tests:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM science_test_question WHERE test_id = ?", (t["id"],)
+        ).fetchone()[0]
+        sub = conn.execute(
+            "SELECT * FROM science_test_submission WHERE science_test_id = ? ORDER BY submitted_at DESC LIMIT 1",
+            (t["id"],)
+        ).fetchone()
+        d = dict(t)
+        d["question_count"] = count
+        d["latest_submission"] = dict(sub) if sub else None
+        result.append(d)
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/science-tests/<int:test_id>", methods=["GET"])
+@login_required
+def get_science_test(test_id):
+    conn = get_db()
+    test = conn.execute("SELECT * FROM science_test WHERE id = ?", (test_id,)).fetchone()
+    if not test:
+        conn.close()
+        return jsonify({"error": "Test not found"}), 404
+    questions = conn.execute(
+        """SELECT q.* FROM science_question q
+           JOIN science_test_question stq ON q.id = stq.question_id
+           WHERE stq.test_id = ?
+           ORDER BY q.question_type DESC, q.id""",
+        (test_id,)
+    ).fetchall()
+    result = dict(test)
+    qs = []
+    for q in questions:
+        d = dict(q)
+        if d["choices"]:
+            d["choices"] = json.loads(d["choices"])
+        qs.append(d)
+    result["questions"] = qs
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/science-tests/<int:test_id>/submit", methods=["POST"])
+@login_required
+def submit_science_test(test_id):
+    data = request.json
+    answers = data.get("answers", {})
+    time_taken = data.get("time_taken_seconds", 0)
+
+    conn = get_db()
+    test = conn.execute("SELECT * FROM science_test WHERE id = ?", (test_id,)).fetchone()
+    if not test:
+        conn.close()
+        return jsonify({"error": "Test not found"}), 404
+
+    questions = conn.execute(
+        """SELECT q.* FROM science_question q
+           JOIN science_test_question stq ON q.id = stq.question_id
+           WHERE stq.test_id = ?""",
+        (test_id,)
+    ).fetchall()
+
+    correct_count = 0
+    total_count = len(questions)
+    graded_answers = {}
+
+    for q in questions:
+        qid_str = str(q["id"])
+        child_answer = answers.get(qid_str, "").strip()
+        correct = q["correct_answer"].strip()
+
+        if q["answer_format"] == "multiple_choice":
+            is_correct = child_answer.upper() == correct.upper()
+        else:
+            # Short answer: check main answer and ACCEPT alternatives
+            main_answer = re.split(r'\s*\(', correct)[0].strip()
+            is_correct = child_answer.upper() == main_answer.upper()
+            if not is_correct and "ACCEPT:" in correct.upper():
+                accepts = re.findall(r'ACCEPT:\s*([^)]+)', correct, re.IGNORECASE)
+                for acc in accepts:
+                    for alt in acc.split(';'):
+                        if child_answer.upper().strip() == alt.strip().upper():
+                            is_correct = True
+                            break
+
+        if is_correct:
+            correct_count += 1
+
+        graded_answers[qid_str] = {
+            "child_answer": child_answer,
+            "correct_answer": correct,
+            "is_correct": is_correct,
+            "needs_review": q["answer_format"] == "short_answer" and not is_correct
+        }
+
+    score = round(correct_count / total_count * 100) if total_count > 0 else 0
+
+    account = get_current_account()
+    conn.execute(
+        """INSERT INTO science_test_submission
+           (science_test_id, child_id, answers, score, correct_count, total_count, time_taken_seconds)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (test_id, account.get("child_id") or test["child_id"],
+         json.dumps(graded_answers), score, correct_count, total_count, time_taken)
+    )
+    conn.execute("UPDATE science_test SET status = 'completed' WHERE id = ?", (test_id,))
+    conn.commit()
+
+    if test["learning_plan_id"]:
+        check_plan_completion(test["learning_plan_id"], conn)
+    conn.close()
+
+    return jsonify({
+        "score": score,
+        "correct_count": correct_count,
+        "total_count": total_count,
+        "answers": graded_answers
+    })
+
+
+@app.route("/api/science-tests/<int:test_id>", methods=["DELETE"])
+@parent_required
+def delete_science_test(test_id):
+    conn = get_db()
+    conn.execute("DELETE FROM science_test WHERE id = ?", (test_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/science-test-submissions/<int:submission_id>", methods=["GET"])
+@login_required
+def get_science_test_submission(submission_id):
+    conn = get_db()
+    sub = conn.execute("SELECT * FROM science_test_submission WHERE id = ?", (submission_id,)).fetchone()
+    if not sub:
+        conn.close()
+        return jsonify({"error": "Submission not found"}), 404
+    result = dict(sub)
+    result["answers"] = json.loads(result["answers"])
+    conn.close()
+    return jsonify(result)
+
+
+# ── Science Page Routes ──
+
+@app.route("/child/<int:child_id>/science-study/<int:session_id>")
+@login_required
+def take_science_study(child_id, session_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    session_row = conn.execute("SELECT * FROM science_study_session WHERE id = ?", (session_id,)).fetchone()
+    conn.close()
+    if not child or not session_row:
+        return "Not found", 404
+    return render_template("science_study.html", child=dict(child), session=dict(session_row),
+                           learning_plan_id=session_row["learning_plan_id"])
+
+
+@app.route("/child/<int:child_id>/science-test/<int:test_id>")
+@login_required
+def take_science_test(child_id, test_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    test = conn.execute("SELECT * FROM science_test WHERE id = ?", (test_id,)).fetchone()
+    conn.close()
+    if not child or not test:
+        return "Not found", 404
+    return render_template("science_test.html", child=dict(child), test=dict(test),
+                           learning_plan_id=test["learning_plan_id"])
+
+
+@app.route("/child/<int:child_id>/science-test/<int:test_id>/review")
+@login_required
+def review_science_test(child_id, test_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    test = conn.execute("SELECT * FROM science_test WHERE id = ?", (test_id,)).fetchone()
+    if not child or not test:
+        conn.close()
+        return "Not found", 404
+    questions = conn.execute(
+        """SELECT q.* FROM science_question q
+           JOIN science_test_question stq ON q.id = stq.question_id
+           WHERE stq.test_id = ? ORDER BY q.question_type DESC, q.id""",
+        (test_id,)
+    ).fetchall()
+    submissions = conn.execute(
+        "SELECT * FROM science_test_submission WHERE science_test_id = ? ORDER BY submitted_at DESC",
+        (test_id,)
+    ).fetchall()
+    conn.close()
+    qs = []
+    for q in questions:
+        d = dict(q)
+        if d["choices"]:
+            d["choices"] = json.loads(d["choices"])
+        qs.append(d)
+    return render_template("science_test_review.html", child=dict(child), test=dict(test),
+                           questions=qs, submissions=[dict(s) for s in submissions],
+                           learning_plan_id=test["learning_plan_id"])
+
+
+# ── Science Learning Plan Integration ──
+
+@app.route("/api/learning-plans/<int:plan_id>/items/science-study", methods=["POST"])
+@parent_required
+def add_plan_science_study(plan_id):
+    conn = get_db()
+    plan = conn.execute("SELECT * FROM learning_plan WHERE id = ?", (plan_id,)).fetchone()
+    if not plan or plan["status"] != "draft":
+        conn.close()
+        return jsonify({"error": "Plan not found or not in draft"}), 400
+    data = request.json
+    title = data.get("title", "Science Study").strip()
+    question_ids = data.get("question_ids", [])
+    if not question_ids:
+        conn.close()
+        return jsonify({"error": "question_ids required"}), 400
+    account = get_current_account()
+    cursor = conn.execute(
+        "INSERT INTO science_study_session (child_id, created_by, title, learning_plan_id) VALUES (?, ?, ?, ?)",
+        (plan["child_id"], account["id"], title, plan_id)
+    )
+    ss_id = cursor.lastrowid
+    for qid in question_ids:
+        conn.execute("INSERT INTO science_study_session_question (session_id, question_id) VALUES (?, ?)", (ss_id, qid))
+    max_order = conn.execute("SELECT COALESCE(MAX(sort_order), 0) FROM learning_plan_item WHERE plan_id = ?", (plan_id,)).fetchone()[0]
+    conn.execute(
+        "INSERT INTO learning_plan_item (plan_id, item_type, item_id, sort_order) VALUES (?, 'science_study', ?, ?)",
+        (plan_id, ss_id, max_order + 1)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"id": ss_id}), 201
+
+
+@app.route("/api/learning-plans/<int:plan_id>/items/science-test", methods=["POST"])
+@parent_required
+def add_plan_science_test(plan_id):
+    conn = get_db()
+    plan = conn.execute("SELECT * FROM learning_plan WHERE id = ?", (plan_id,)).fetchone()
+    if not plan or plan["status"] != "draft":
+        conn.close()
+        return jsonify({"error": "Plan not found or not in draft"}), 400
+    data = request.json
+    title = data.get("title", "Science Test").strip()
+    question_ids = data.get("question_ids", [])
+    timer_mode = data.get("timer_mode", "none")
+    time_limit_seconds = data.get("time_limit_seconds", 0)
+    if not question_ids:
+        conn.close()
+        return jsonify({"error": "question_ids required"}), 400
+    account = get_current_account()
+    cursor = conn.execute(
+        """INSERT INTO science_test (child_id, created_by, title, timer_mode, time_limit_seconds, learning_plan_id)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (plan["child_id"], account["id"], title, timer_mode, time_limit_seconds, plan_id)
+    )
+    st_id = cursor.lastrowid
+    for qid in question_ids:
+        conn.execute("INSERT INTO science_test_question (test_id, question_id) VALUES (?, ?)", (st_id, qid))
+    max_order = conn.execute("SELECT COALESCE(MAX(sort_order), 0) FROM learning_plan_item WHERE plan_id = ?", (plan_id,)).fetchone()[0]
+    conn.execute(
+        "INSERT INTO learning_plan_item (plan_id, item_type, item_id, sort_order) VALUES (?, 'science_test', ?, ?)",
+        (plan_id, st_id, max_order + 1)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"id": st_id, "total_questions": len(question_ids)}), 201
 
 
 if __name__ == "__main__":

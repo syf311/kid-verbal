@@ -1,0 +1,419 @@
+{% extends "base.html" %}
+
+{% block title %}{{ child.name }} - Science Bowl Study{% endblock %}
+
+{% block extra_css %}
+<style>
+    .flashcard {
+        min-height: 300px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        border: 3px solid #e2e8f0;
+        border-radius: 20px;
+        padding: 40px 30px;
+        margin: 20px 0;
+        transition: all 0.3s;
+        background: white;
+        user-select: none;
+    }
+    .flashcard:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+    .flashcard.revealed { border-color: #667eea; }
+
+    .flashcard .question-text {
+        font-size: 20px;
+        color: #4a5568;
+        text-align: center;
+        line-height: 1.6;
+        margin-top: 15px;
+    }
+    .flashcard .hint {
+        font-size: 16px;
+        color: #a0aec0;
+        margin-top: 15px;
+    }
+    .flashcard .answer-text {
+        font-size: 28px;
+        font-weight: bold;
+        color: #2d3748;
+        margin-top: 10px;
+    }
+    .flashcard .explanation-text {
+        font-size: 18px;
+        color: #4a5568;
+        text-align: center;
+        line-height: 1.6;
+        margin-top: 15px;
+    }
+
+    .category-badge {
+        display: inline-block;
+        padding: 5px 14px;
+        border-radius: 20px;
+        font-size: 13px;
+        font-weight: bold;
+        color: white;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .category-life-science { background: #48bb78; }
+    .category-physical-science { background: #667eea; }
+    .category-earth-science { background: #ed8936; }
+    .category-math { background: #9f7aea; }
+    .category-general-science { background: #4299e1; }
+    .category-energy { background: #f56565; }
+
+    .type-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 13px;
+        font-weight: bold;
+        color: white;
+        margin-bottom: 15px;
+        margin-left: 6px;
+    }
+    .type-toss-up { background: #2d3748; }
+    .type-bonus { background: #d69e2e; }
+
+    .choices-list {
+        list-style: none;
+        padding: 0;
+        margin: 15px 0 0 0;
+        width: 100%;
+        max-width: 500px;
+    }
+    .choices-list li {
+        padding: 10px 16px;
+        margin: 6px 0;
+        font-size: 17px;
+        border: 2px solid #e2e8f0;
+        border-radius: 10px;
+        background: #f7fafc;
+        color: #4a5568;
+    }
+    .choices-list li .choice-letter {
+        font-weight: bold;
+        color: #667eea;
+        margin-right: 10px;
+    }
+
+    .nav-btns {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 20px;
+    }
+    .nav-btns .btn { flex: 1; text-align: center; }
+
+    .progress-bar-bg {
+        width: 100%;
+        height: 8px;
+        background: #e2e8f0;
+        border-radius: 4px;
+        margin-bottom: 20px;
+    }
+    .progress-bar-fill {
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.3s;
+        background: linear-gradient(90deg, #667eea, #764ba2);
+    }
+
+    .search-btn {
+        display: inline-block;
+        margin-top: 18px;
+        padding: 10px 20px;
+        font-size: 15px;
+        border: 2px solid #4299e1;
+        border-radius: 10px;
+        background: white;
+        color: #4299e1;
+        cursor: pointer;
+        text-decoration: none;
+        transition: all 0.2s;
+    }
+    .search-btn:hover {
+        background: #4299e1;
+        color: white;
+    }
+
+    .loading-spinner {
+        text-align: center;
+        padding: 60px 20px;
+        color: #666;
+        font-size: 18px;
+    }
+
+    .error-message {
+        text-align: center;
+        padding: 40px 20px;
+        color: #f56565;
+        font-size: 18px;
+    }
+
+    .complete-section {
+        text-align: center;
+        margin-top: 25px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="back-link">
+    {% if learning_plan_id %}
+    <a href="/child/{{ child.id }}/learning-plan/{{ learning_plan_id }}" style="color: #667eea; text-decoration: none;">&larr; Back to Learning Plan</a>
+    {% else %}
+    <a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none;">&larr; Back to Dashboard</a>
+    {% endif %}
+</div>
+
+<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+    <h1>{{ session.title or 'Science Bowl Study' }}</h1>
+    <div style="color: #666;" id="card-counter">Loading...</div>
+</div>
+
+<div class="progress-bar-bg">
+    <div class="progress-bar-fill" id="progress-bar" style="width: 0%;"></div>
+</div>
+
+<!-- Loading State -->
+<div id="loading-state" class="loading-spinner">
+    Loading questions...
+</div>
+
+<!-- Error State -->
+<div id="error-state" class="error-message" style="display: none;"></div>
+
+<!-- Flashcard Screen -->
+<div id="flashcard-screen" style="display: none;">
+    <div class="flashcard" id="flashcard" onclick="flipCard()">
+        <!-- Front -->
+        <div id="card-front">
+            <div id="card-badges"></div>
+            <div class="question-text" id="card-question"></div>
+            <ul class="choices-list" id="card-choices"></ul>
+            <div class="hint">(tap to reveal answer)</div>
+        </div>
+        <!-- Back -->
+        <div id="card-back" style="display: none;">
+            <div id="back-badges"></div>
+            <div class="answer-text" id="card-answer"></div>
+            <div class="explanation-text" id="card-explanation"></div>
+            <a class="search-btn" id="search-link" href="#" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();">Search Online</a>
+        </div>
+    </div>
+
+    <div class="nav-btns">
+        <button class="btn btn-warning" id="prev-btn" onclick="prevCard()" disabled>&larr; Previous</button>
+        <button class="btn btn-primary" id="next-btn" onclick="nextCard()">Next &rarr;</button>
+    </div>
+
+    <div class="complete-section" id="complete-section" style="display: none;">
+        <button class="btn btn-success" style="width: 100%; font-size: 20px; padding: 20px;" onclick="completeStudy()">
+            Complete Study
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const childId = {{ child.id }};
+const sessionId = {{ session.id }};
+const learningPlanId = {{ learning_plan_id|tojson }};
+
+const CATEGORY_CLASSES = {
+    'LIFE SCIENCE': 'category-life-science',
+    'PHYSICAL SCIENCE': 'category-physical-science',
+    'EARTH SCIENCE': 'category-earth-science',
+    'MATH': 'category-math',
+    'GENERAL SCIENCE': 'category-general-science',
+    'ENERGY': 'category-energy'
+};
+
+let questions = [];
+let cardIndex = 0;
+let cardFlipped = false;
+let viewedCards = new Set();
+
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function getCategoryClass(category) {
+    const upper = (category || '').toUpperCase();
+    return CATEGORY_CLASSES[upper] || 'category-general-science';
+}
+
+function getTypeLabel(questionType) {
+    if (questionType === 'bonus') return 'Bonus';
+    return 'Toss-Up';
+}
+
+function getTypeClass(questionType) {
+    if (questionType === 'bonus') return 'type-bonus';
+    return 'type-toss-up';
+}
+
+function buildBadges(question) {
+    const catClass = getCategoryClass(question.category);
+    const typeClass = getTypeClass(question.question_type);
+    const typeLabel = getTypeLabel(question.question_type);
+    return `<span class="category-badge ${catClass}">${escapeHtml(question.category)}</span>` +
+           `<span class="type-badge ${typeClass}">${escapeHtml(typeLabel)}</span>`;
+}
+
+function buildSearchUrl(question) {
+    const query = encodeURIComponent((question.category || '') + ' ' + (question.correct_answer || ''));
+    return 'https://www.google.com/search?q=' + query;
+}
+
+async function loadQuestions() {
+    try {
+        const res = await fetch(`/api/science-study-sessions/${sessionId}/questions`);
+        if (!res.ok) {
+            throw new Error('Failed to load questions (status ' + res.status + ')');
+        }
+        questions = await res.json();
+        if (questions.length === 0) {
+            showError('No questions found for this study session.');
+            return;
+        }
+        document.getElementById('loading-state').style.display = 'none';
+        document.getElementById('flashcard-screen').style.display = 'block';
+        showCard();
+    } catch (err) {
+        showError(err.message || 'Failed to load questions.');
+    }
+}
+
+function showError(message) {
+    document.getElementById('loading-state').style.display = 'none';
+    const errorDiv = document.getElementById('error-state');
+    errorDiv.textContent = message;
+    errorDiv.style.display = 'block';
+}
+
+function showCard() {
+    const q = questions[cardIndex];
+    cardFlipped = false;
+
+    // Update counter
+    document.getElementById('card-counter').textContent = 'Card ' + (cardIndex + 1) + ' of ' + questions.length;
+
+    // Update progress bar
+    document.getElementById('progress-bar').style.width =
+        ((cardIndex / questions.length) * 100) + '%';
+
+    // Mark as viewed
+    viewedCards.add(cardIndex);
+
+    // Front
+    document.getElementById('card-badges').innerHTML = buildBadges(q);
+    document.getElementById('card-question').textContent = q.question_text;
+
+    // Choices (only for multiple choice)
+    const choicesList = document.getElementById('card-choices');
+    choicesList.innerHTML = '';
+    if (q.answer_format === 'multiple_choice' && q.choices) {
+        const sortedKeys = Object.keys(q.choices).sort();
+        sortedKeys.forEach(function(key) {
+            const li = document.createElement('li');
+            li.innerHTML = '<span class="choice-letter">' + escapeHtml(key) + ')</span> ' + escapeHtml(q.choices[key]);
+            choicesList.appendChild(li);
+        });
+        choicesList.style.display = '';
+    } else {
+        choicesList.style.display = 'none';
+    }
+
+    document.getElementById('card-front').style.display = '';
+    document.getElementById('card-back').style.display = 'none';
+    document.getElementById('flashcard').classList.remove('revealed');
+
+    // Back
+    document.getElementById('back-badges').innerHTML = buildBadges(q);
+    document.getElementById('card-answer').textContent = 'Answer: ' + (q.correct_answer || '');
+    document.getElementById('card-explanation').textContent = q.explanation || '';
+    document.getElementById('search-link').href = buildSearchUrl(q);
+
+    // Navigation
+    document.getElementById('prev-btn').disabled = (cardIndex === 0);
+    if (cardIndex === questions.length - 1) {
+        document.getElementById('next-btn').textContent = 'Done';
+    } else {
+        document.getElementById('next-btn').textContent = 'Next \u2192';
+    }
+
+    // Show complete button if all viewed
+    updateCompleteVisibility();
+}
+
+function flipCard() {
+    cardFlipped = !cardFlipped;
+    document.getElementById('card-front').style.display = cardFlipped ? 'none' : '';
+    document.getElementById('card-back').style.display = cardFlipped ? '' : 'none';
+    document.getElementById('flashcard').classList.toggle('revealed', cardFlipped);
+}
+
+function prevCard() {
+    if (cardIndex > 0) {
+        cardIndex--;
+        showCard();
+    }
+}
+
+function nextCard() {
+    if (cardIndex < questions.length - 1) {
+        cardIndex++;
+        showCard();
+    } else {
+        // Last card reached
+        viewedCards.add(cardIndex);
+        document.getElementById('progress-bar').style.width = '100%';
+        updateCompleteVisibility();
+    }
+}
+
+function updateCompleteVisibility() {
+    const allViewed = viewedCards.size >= questions.length;
+    document.getElementById('complete-section').style.display = allViewed ? '' : 'none';
+}
+
+async function completeStudy() {
+    const btn = document.querySelector('#complete-section .btn');
+    btn.disabled = true;
+    btn.textContent = 'Completing...';
+
+    try {
+        const res = await fetch(`/api/science-study-sessions/${sessionId}/complete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        if (!res.ok) {
+            throw new Error('Failed to complete session.');
+        }
+        // Redirect back
+        if (learningPlanId) {
+            window.location.href = `/child/${childId}/learning-plan/${learningPlanId}`;
+        } else {
+            window.location.href = `/child/${childId}`;
+        }
+    } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Complete Study';
+        alert(err.message || 'Something went wrong. Please try again.');
+    }
+}
+
+// Init
+loadQuestions();
+</script>
+{% endblock %}

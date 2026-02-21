@@ -269,6 +269,78 @@ def init_db():
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (plan_id) REFERENCES learning_plan(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS science_question (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id INTEGER NOT NULL,
+            category TEXT NOT NULL,
+            question_type TEXT NOT NULL,
+            answer_format TEXT NOT NULL,
+            question_text TEXT NOT NULL,
+            choices TEXT,
+            correct_answer TEXT NOT NULL,
+            explanation TEXT,
+            source_pdf TEXT,
+            round_name TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS science_study_session (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id INTEGER NOT NULL,
+            created_by INTEGER NOT NULL,
+            title TEXT,
+            status TEXT DEFAULT 'pending',
+            learning_plan_id INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE,
+            FOREIGN KEY (created_by) REFERENCES account(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS science_study_session_question (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            question_id INTEGER NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES science_study_session(id) ON DELETE CASCADE,
+            FOREIGN KEY (question_id) REFERENCES science_question(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS science_test (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id INTEGER NOT NULL,
+            created_by INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            timer_mode TEXT DEFAULT 'none',
+            time_limit_seconds INTEGER DEFAULT 0,
+            learning_plan_id INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE,
+            FOREIGN KEY (created_by) REFERENCES account(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS science_test_question (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            test_id INTEGER NOT NULL,
+            question_id INTEGER NOT NULL,
+            FOREIGN KEY (test_id) REFERENCES science_test(id) ON DELETE CASCADE,
+            FOREIGN KEY (question_id) REFERENCES science_question(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS science_test_submission (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            science_test_id INTEGER NOT NULL,
+            child_id INTEGER NOT NULL,
+            answers TEXT NOT NULL,
+            score INTEGER NOT NULL,
+            correct_count INTEGER NOT NULL,
+            total_count INTEGER NOT NULL,
+            time_taken_seconds INTEGER DEFAULT 0,
+            submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (science_test_id) REFERENCES science_test(id) ON DELETE CASCADE,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE
+        );
     """)
     conn.commit()
 

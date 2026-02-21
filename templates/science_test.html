@@ -1,0 +1,437 @@
+{% extends "base.html" %}
+
+{% block title %}{{ test.title }} - Science Test{% endblock %}
+
+{% block extra_css %}
+<style>
+    .container { max-width: 900px; }
+    .header-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    .timer-display {
+        position: fixed;
+        right: 20px;
+        top: 80px;
+        z-index: 100;
+        background: white;
+        border: 2px solid #667eea;
+        border-radius: 10px;
+        padding: 6px 14px;
+        font-size: 18px;
+        font-weight: 700;
+        font-family: 'Courier New', monospace;
+        color: #333;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .timer-display.warning { border-color: #ed8936; color: #ed8936; }
+    .timer-display.danger { border-color: #e53e3e; color: #e53e3e; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+    .progress-bar-wrap {
+        background: #e2e8f0;
+        border-radius: 20px;
+        height: 12px;
+        margin-bottom: 8px;
+        overflow: hidden;
+    }
+    .progress-bar-fill {
+        background: linear-gradient(90deg, #667eea, #48bb78);
+        height: 100%;
+        border-radius: 20px;
+        transition: width 0.3s;
+    }
+    .progress-text {
+        text-align: center;
+        font-size: 14px;
+        color: #666;
+        margin-bottom: 20px;
+    }
+    .question-list {
+        max-height: calc(100vh - 320px);
+        overflow-y: auto;
+        padding-right: 4px;
+    }
+    .question-card {
+        background: #f7fafc;
+        border-radius: 15px;
+        padding: 20px;
+        margin-bottom: 15px;
+        border: 2px solid #e2e8f0;
+        transition: border-color 0.2s;
+    }
+    .question-card.answered {
+        border-color: #48bb78;
+    }
+    .question-badges {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+    .category-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 700;
+        color: white;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .category-life-science { background: #48bb78; }
+    .category-physical-science { background: #667eea; }
+    .category-earth-science { background: #ed8936; }
+    .category-math { background: #9f7aea; }
+    .category-general-science { background: #4299e1; }
+    .category-energy { background: #f56565; }
+    .type-badge {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+        border: 1px solid #cbd5e0;
+        color: #4a5568;
+        background: white;
+    }
+    .question-number {
+        font-weight: 700;
+        font-size: 14px;
+        color: #a0aec0;
+    }
+    .question-text {
+        font-size: 17px;
+        color: #2d3748;
+        line-height: 1.6;
+        margin-bottom: 15px;
+    }
+    .choices-group {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .choice-radio {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        border: 2px solid #e2e8f0;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: all 0.15s;
+        background: white;
+    }
+    .choice-radio:hover {
+        border-color: #667eea;
+        background: #eef2ff;
+    }
+    .choice-radio.selected {
+        border-color: #667eea;
+        background: #ebf4ff;
+    }
+    .choice-radio input[type="radio"] {
+        width: auto;
+        margin: 0;
+        transform: scale(1.2);
+    }
+    .choice-letter {
+        font-weight: 700;
+        font-size: 16px;
+        color: #667eea;
+        min-width: 20px;
+    }
+    .choice-text {
+        font-size: 16px;
+        color: #333;
+    }
+    .short-answer-input {
+        width: 100%;
+        padding: 12px 16px;
+        font-size: 16px;
+        border: 2px solid #e2e8f0;
+        border-radius: 10px;
+        background: white;
+        box-sizing: border-box;
+    }
+    .short-answer-input:focus {
+        border-color: #667eea;
+        outline: none;
+    }
+    .submit-area {
+        margin-top: 20px;
+        text-align: center;
+    }
+    .submit-area .btn {
+        padding: 14px 50px;
+        font-size: 18px;
+    }
+    .loading-spinner {
+        text-align: center;
+        padding: 60px 20px;
+        color: #666;
+        font-size: 18px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="header-row">
+    <a href="{% if learning_plan_id %}/child/{{ child.id }}/learning-plan/{{ learning_plan_id }}{% else %}/child/{{ child.id }}{% endif %}" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back</a>
+    <h2 style="margin: 0;">{{ test.title }}</h2>
+    <span></span>
+</div>
+
+{% if test.timer_mode != 'none' %}
+<div class="timer-display" id="timerDisplay">00:00</div>
+{% endif %}
+
+<div class="progress-text" id="progressText">0 / 0 answered</div>
+<div class="progress-bar-wrap">
+    <div class="progress-bar-fill" id="progressBar" style="width: 0%"></div>
+</div>
+
+<div id="loadingArea" class="loading-spinner">Loading questions...</div>
+
+<div id="questionsArea" class="question-list" style="display: none;"></div>
+
+<div class="submit-area" id="submitArea" style="display: none;">
+    <button class="btn btn-success" id="submitBtn" onclick="submitTest()" disabled>Submit Test</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const childId = {{ child.id }};
+const testId = {{ test.id }};
+const timerMode = '{{ test.timer_mode }}';
+const timeLimitSeconds = {{ test.time_limit_seconds }};
+const startTime = Date.now();
+let timerInterval = null;
+let questions = [];
+const answers = {};
+
+const CATEGORY_CLASSES = {
+    'LIFE SCIENCE': 'category-life-science',
+    'PHYSICAL SCIENCE': 'category-physical-science',
+    'EARTH SCIENCE': 'category-earth-science',
+    'MATH': 'category-math',
+    'GENERAL SCIENCE': 'category-general-science',
+    'ENERGY': 'category-energy'
+};
+
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function formatTime(seconds) {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+function getCategoryClass(category) {
+    if (!category) return '';
+    const upper = category.toUpperCase().trim();
+    return CATEGORY_CLASSES[upper] || '';
+}
+
+function getTypeLabel(questionType) {
+    if (questionType === 'toss_up') return 'Toss-Up';
+    if (questionType === 'bonus') return 'Bonus';
+    return questionType || '';
+}
+
+async function loadQuestions() {
+    try {
+        const res = await fetch(`/api/science-tests/${testId}`);
+        if (!res.ok) {
+            document.getElementById('loadingArea').textContent = 'Failed to load questions.';
+            return;
+        }
+        const data = await res.json();
+        questions = data.questions || [];
+        renderQuestions();
+    } catch (e) {
+        document.getElementById('loadingArea').textContent = 'Network error loading questions.';
+    }
+}
+
+function renderQuestions() {
+    const container = document.getElementById('questionsArea');
+    const loading = document.getElementById('loadingArea');
+
+    if (questions.length === 0) {
+        loading.textContent = 'No questions found for this test.';
+        return;
+    }
+
+    loading.style.display = 'none';
+    container.style.display = 'block';
+    document.getElementById('submitArea').style.display = 'block';
+
+    let html = '';
+    questions.forEach((q, idx) => {
+        const catClass = getCategoryClass(q.category);
+        const typeLabel = getTypeLabel(q.question_type);
+        const isMultipleChoice = q.answer_format === 'multiple_choice' && q.choices;
+
+        html += `<div class="question-card" id="qcard-${q.id}">`;
+        html += `<div class="question-badges">`;
+        html += `<span class="question-number">#${idx + 1}</span>`;
+        if (q.category) {
+            html += `<span class="category-badge ${escapeHtml(catClass)}">${escapeHtml(q.category)}</span>`;
+        }
+        if (typeLabel) {
+            html += `<span class="type-badge">${escapeHtml(typeLabel)}</span>`;
+        }
+        html += `</div>`;
+        html += `<div class="question-text">${escapeHtml(q.question_text)}</div>`;
+
+        if (isMultipleChoice) {
+            html += `<div class="choices-group">`;
+            const choiceKeys = Object.keys(q.choices);
+            choiceKeys.forEach(key => {
+                html += `<label class="choice-radio" id="choice-${q.id}-${escapeHtml(key)}" onclick="selectChoice(${q.id}, '${escapeHtml(key)}')">`;
+                html += `<input type="radio" name="q-${q.id}" value="${escapeHtml(key)}" onchange="selectChoice(${q.id}, '${escapeHtml(key)}')">`;
+                html += `<span class="choice-letter">${escapeHtml(key)})</span>`;
+                html += `<span class="choice-text">${escapeHtml(q.choices[key])}</span>`;
+                html += `</label>`;
+            });
+            html += `</div>`;
+        } else {
+            html += `<input type="text" class="short-answer-input" id="sa-${q.id}" placeholder="Type your answer..." oninput="onShortAnswer(${q.id})" autocomplete="off">`;
+        }
+
+        html += `</div>`;
+    });
+
+    container.innerHTML = html;
+    updateProgress();
+}
+
+function selectChoice(questionId, choiceKey) {
+    answers[questionId] = choiceKey;
+
+    // Update visual selection
+    const card = document.getElementById('qcard-' + questionId);
+    if (card) {
+        card.querySelectorAll('.choice-radio').forEach(el => el.classList.remove('selected'));
+        const selected = document.getElementById('choice-' + questionId + '-' + choiceKey);
+        if (selected) selected.classList.add('selected');
+        card.classList.add('answered');
+    }
+
+    updateProgress();
+}
+
+function onShortAnswer(questionId) {
+    const input = document.getElementById('sa-' + questionId);
+    const val = input ? input.value.trim() : '';
+    const card = document.getElementById('qcard-' + questionId);
+
+    if (val) {
+        answers[questionId] = val;
+        if (card) card.classList.add('answered');
+    } else {
+        delete answers[questionId];
+        if (card) card.classList.remove('answered');
+    }
+
+    updateProgress();
+}
+
+function updateProgress() {
+    const total = questions.length;
+    const answered = Object.keys(answers).length;
+    document.getElementById('progressText').textContent = answered + ' / ' + total + ' answered';
+    document.getElementById('progressBar').style.width = (total > 0 ? (answered / total * 100) : 0) + '%';
+    document.getElementById('submitBtn').disabled = answered < total;
+}
+
+async function submitTest() {
+    if (Object.keys(answers).length < questions.length) {
+        alert('Please answer all questions before submitting.');
+        return;
+    }
+    if (!confirm('Submit your answers? You cannot change them after submitting.')) return;
+    await doSubmit();
+}
+
+async function doSubmit() {
+    if (timerInterval) clearInterval(timerInterval);
+    const timeTaken = Math.round((Date.now() - startTime) / 1000);
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
+
+    // Build answers payload with string keys
+    const payload = {};
+    for (const [qId, ans] of Object.entries(answers)) {
+        payload[String(qId)] = ans;
+    }
+
+    try {
+        const res = await fetch(`/api/science-tests/${testId}/submit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ answers: payload, time_taken_seconds: timeTaken })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            alert(`Score: ${data.score}% (${data.correct_count}/${data.total_count} correct)`);
+            window.location.href = `/child/${childId}/science-test/${testId}/review`;
+        } else {
+            alert(data.error || 'Failed to submit');
+            btn.disabled = false;
+            btn.textContent = 'Submit Test';
+        }
+    } catch (e) {
+        alert('Network error');
+        btn.disabled = false;
+        btn.textContent = 'Submit Test';
+    }
+}
+
+function startTimer() {
+    const display = document.getElementById('timerDisplay');
+    if (!display) return;
+
+    if (timerMode === 'countdown') {
+        let remaining = timeLimitSeconds;
+        display.textContent = formatTime(remaining);
+        timerInterval = setInterval(() => {
+            remaining--;
+            if (remaining <= 0) {
+                remaining = 0;
+                display.textContent = '00:00';
+                clearInterval(timerInterval);
+                alert("Time's up! Your answers have been submitted.");
+                doSubmit();
+                return;
+            }
+            display.textContent = formatTime(remaining);
+            if (remaining <= 60) {
+                display.className = 'timer-display danger';
+            } else if (remaining <= 300) {
+                display.className = 'timer-display warning';
+            }
+        }, 1000);
+    } else if (timerMode === 'stopwatch') {
+        timerInterval = setInterval(() => {
+            const elapsed = Math.round((Date.now() - startTime) / 1000);
+            display.textContent = formatTime(elapsed);
+        }, 1000);
+    }
+}
+
+// Initialize
+loadQuestions();
+startTimer();
+</script>
+{% endblock %}
