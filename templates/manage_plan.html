@@ -129,6 +129,7 @@
     <button class="btn btn-success" onclick="toggleSection('study')">+ Study Session</button>
     <button class="btn btn-warning" onclick="toggleSection('reading')">+ Reading Assignment</button>
     <button class="btn btn-primary" onclick="toggleSection('math')">+ Math Test</button>
+    <button class="btn" onclick="toggleSection('writing')" style="background:#38a169;color:#fff;">+ Writing Test</button>
     <button class="btn" onclick="toggleSection('existing')" style="background:#805ad5;color:#fff;">+ Existing Item</button>
 </div>
 
@@ -236,6 +237,46 @@
     </div>
 </div>
 
+<!-- Add Writing Test -->
+<div class="add-section" id="section-writing">
+    <div class="section-card">
+        <h3>Add Writing Test</h3>
+        <div style="margin-bottom: 10px;">
+            <label style="font-weight: 600; font-size: 14px;">Topic</label>
+            <select id="wt-topic-select" style="width:100%; padding:8px; font-size:14px; border:1px solid #ccc; border-radius:8px; margin-bottom:8px;" onchange="wtOnTopicSelect()">
+                <option value="">Select from topic pool...</option>
+            </select>
+            <textarea id="wt-topic-text" rows="2" placeholder="Or enter a custom topic..." style="min-height: 50px;"></textarea>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+            <div>
+                <label style="font-weight: 600; font-size: 13px;">Timer Mode</label>
+                <select id="wt-timer-mode" style="width:100%; padding:8px; font-size:14px; border:1px solid #ccc; border-radius:8px;" onchange="wtTimerChange()">
+                    <option value="none">No Timer</option>
+                    <option value="stopwatch">Stopwatch</option>
+                    <option value="countdown">Countdown</option>
+                </select>
+            </div>
+            <div id="wt-time-limit-wrap" style="display:none;">
+                <label style="font-weight: 600; font-size: 13px;">Time Limit (minutes)</label>
+                <input type="number" id="wt-time-limit" min="1" max="120" value="30" style="padding:8px; font-size:14px;">
+            </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+            <div>
+                <label style="font-weight: 600; font-size: 13px;">Min Words (0 = none)</label>
+                <input type="number" id="wt-min-words" min="0" value="0" style="padding:8px; font-size:14px;">
+            </div>
+            <div>
+                <label style="font-weight: 600; font-size: 13px;">Max Words (0 = none)</label>
+                <input type="number" id="wt-max-words" min="0" value="0" style="padding:8px; font-size:14px;">
+            </div>
+        </div>
+        <button class="btn btn-success" onclick="addWritingTest()" id="add-wt-btn">Add Writing Test</button>
+        <span id="wt-status" style="margin-left: 10px; font-size: 13px;"></span>
+    </div>
+</div>
+
 <!-- Add Existing Item -->
 <div class="add-section" id="section-existing">
     <div class="section-card">
@@ -244,6 +285,7 @@
             <button class="filter-btn active" onclick="setExistingType('study_session')">Study Sessions</button>
             <button class="filter-btn" onclick="setExistingType('reading_assignment')">Reading Assignments</button>
             <button class="filter-btn" onclick="setExistingType('math_test')">Math Tests</button>
+            <button class="filter-btn" onclick="setExistingType('writing_test')">Writing Tests</button>
         </div>
         <div id="existing-items-list"><span class="empty-msg">Loading...</span></div>
     </div>
@@ -349,7 +391,7 @@ async function loadPlan() {
 function renderItems(items) {
     const list = document.getElementById('items-list');
     if (items.length === 0) {
-        list.innerHTML = '<span class="empty-msg">No items yet. Add study sessions, reading assignments, or math tests below.</span>';
+        list.innerHTML = '<span class="empty-msg">No items yet. Add study sessions, reading assignments, math tests, or writing tests below.</span>';
         return;
     }
     list.innerHTML = items.map(item => {
@@ -376,6 +418,13 @@ function renderItems(items) {
             if (status === 'completed' && d.score != null) {
                 meta += ` | ${d.correct_count}/${d.total_count} correct (${d.score}%)`;
             }
+        } else if (item.item_type === 'writing_test') {
+            typeLabel = 'Writing';
+            meta = '';
+            if (status === 'completed' && d.word_count != null) {
+                meta = `${d.word_count} words`;
+                if (d.score != null) meta += ` | Score: ${d.score}/100`;
+            }
         } else if (item.item_type === 'parent_test') {
             typeLabel = '';
             meta = `${d.word_count || 0} words · Auto-created from study`;
@@ -390,6 +439,7 @@ function renderItems(items) {
             if (item.item_type === 'study_session') href = `/child/${childId}/study/${item.item_id}`;
             else if (item.item_type === 'reading_assignment') href = status === 'completed' ? `/child/${childId}/reading-assignment/${item.item_id}/review` : `/child/${childId}/reading-assignment/${item.item_id}`;
             else if (item.item_type === 'math_test') href = status === 'completed' ? `/child/${childId}/math-test/${item.item_id}/review` : `/child/${childId}/math-test/${item.item_id}`;
+            else if (item.item_type === 'writing_test') href = status === 'completed' ? `/child/${childId}/writing-test/${item.item_id}/review` : `/child/${childId}/writing-test/${item.item_id}`;
             else if (item.item_type === 'parent_test') href = `/child/${childId}/test/${item.item_id}`;
             actions += ` <a href="${href}" class="btn btn-primary">View</a>`;
         }
@@ -417,6 +467,7 @@ function toggleSection(section) {
     document.getElementById('section-' + section).classList.add('open');
     if (section === 'study' && allWords.length === 0) loadWords();
     if (section === 'reading') loadMaterials();
+    if (section === 'writing') loadWritingTopics();
     if (section === 'existing' && !unassignedData) loadUnassignedItems();
 }
 
@@ -764,6 +815,88 @@ async function addMathTest() {
     btn.disabled = false;
 }
 
+// ── Writing test ──
+
+let wtTopicsLoaded = false;
+
+async function loadWritingTopics() {
+    if (wtTopicsLoaded) return;
+    const res = await fetch(`/api/children/${childId}/writing-topics`);
+    if (!res.ok) return;
+    const topics = await res.json();
+    const select = document.getElementById('wt-topic-select');
+    topics.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.dataset.text = t.topic_text;
+        opt.textContent = t.topic_text.length > 80 ? t.topic_text.substring(0, 80) + '...' : t.topic_text;
+        select.appendChild(opt);
+    });
+    wtTopicsLoaded = true;
+}
+
+function wtOnTopicSelect() {
+    const select = document.getElementById('wt-topic-select');
+    const opt = select.options[select.selectedIndex];
+    if (opt && opt.dataset.text) {
+        document.getElementById('wt-topic-text').value = opt.dataset.text;
+    }
+}
+
+function wtTimerChange() {
+    const mode = document.getElementById('wt-timer-mode').value;
+    document.getElementById('wt-time-limit-wrap').style.display = mode === 'countdown' ? '' : 'none';
+}
+
+async function addWritingTest() {
+    const topicText = document.getElementById('wt-topic-text').value.trim();
+    if (!topicText) { alert('Please enter or select a topic'); return; }
+
+    const select = document.getElementById('wt-topic-select');
+    const topicId = select.value ? parseInt(select.value) : null;
+    const timerMode = document.getElementById('wt-timer-mode').value;
+    const timeLimitMinutes = parseInt(document.getElementById('wt-time-limit').value) || 0;
+    const minWords = parseInt(document.getElementById('wt-min-words').value) || 0;
+    const maxWords = parseInt(document.getElementById('wt-max-words').value) || 0;
+
+    const statusEl = document.getElementById('wt-status');
+    statusEl.textContent = 'Adding...';
+    statusEl.style.color = '';
+    const btn = document.getElementById('add-wt-btn');
+    btn.disabled = true;
+
+    try {
+        const res = await fetch(`/api/learning-plans/${planId}/items/writing-test`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic_text: topicText,
+                topic_id: topicId,
+                timer_mode: timerMode,
+                time_limit_seconds: timerMode === 'countdown' ? timeLimitMinutes * 60 : 0,
+                min_word_count: minWords,
+                max_word_count: maxWords
+            })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            statusEl.textContent = '';
+            document.getElementById('wt-topic-text').value = '';
+            document.getElementById('wt-topic-select').value = '';
+            document.getElementById('wt-min-words').value = '0';
+            document.getElementById('wt-max-words').value = '0';
+            loadPlan();
+        } else {
+            statusEl.textContent = data.error || 'Failed';
+            statusEl.style.color = '#f56565';
+        }
+    } catch(e) {
+        statusEl.textContent = 'Network error';
+        statusEl.style.color = '#f56565';
+    }
+    btn.disabled = false;
+}
+
 // ── Existing items ──
 
 let unassignedData = null;
@@ -771,7 +904,7 @@ let currentExistingType = 'study_session';
 
 function setExistingType(type) {
     currentExistingType = type;
-    const labels = { 'study_session': 'Study Sessions', 'reading_assignment': 'Reading Assignments', 'math_test': 'Math Tests' };
+    const labels = { 'study_session': 'Study Sessions', 'reading_assignment': 'Reading Assignments', 'math_test': 'Math Tests', 'writing_test': 'Writing Tests' };
     document.querySelectorAll('#existing-type-bar .filter-btn').forEach(btn => {
         btn.classList.toggle('active', btn.textContent.trim() === labels[type]);
     });
@@ -807,6 +940,12 @@ function renderExistingItems() {
         items = (unassignedData.math_tests || []).map(t => ({
             id: t.id, title: t.title,
             meta: `${t.total_questions || 0} questions | ${(t.created_at || '').slice(0, 10)}`,
+            status: t.status
+        }));
+    } else if (currentExistingType === 'writing_test') {
+        items = (unassignedData.writing_tests || []).map(t => ({
+            id: t.id, title: t.topic_text,
+            meta: `${(t.created_at || '').slice(0, 10)}`,
             status: t.status
         }));
     }

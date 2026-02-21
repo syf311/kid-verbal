@@ -101,6 +101,44 @@
 </div>
 {% endif %}
 
+{% if writing_tests %}
+<div style="margin-bottom: 30px;">
+    <h2>Writing Tests</h2>
+    {% for wt in writing_tests %}
+    <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong style="font-size: 18px;">{{ wt.topic_text[:60] }}{{ '...' if wt.topic_text|length > 60 else '' }}</strong>
+            <div style="font-size: 14px; color: #666;">
+                Created {{ wt.created_at[:10] }}
+            </div>
+        </div>
+        <a href="/child/{{ child.id }}/writing-test/{{ wt.id }}" class="btn btn-success" style="padding: 10px 25px;">
+            Start
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if completed_writing_tests %}
+<div style="margin-bottom: 30px;">
+    <h2>Completed Writing Tests</h2>
+    {% for wt in completed_writing_tests %}
+    <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong style="font-size: 18px;">{{ wt.topic_text[:60] }}{{ '...' if wt.topic_text|length > 60 else '' }}</strong>
+            <div style="font-size: 14px; color: #666;">
+                {{ wt.word_count or 0 }} words{% if wt.score is not none %} | Score: {{ wt.score }}/100{% endif %} | {{ wt.created_at[:10] }}
+            </div>
+        </div>
+        <a href="/child/{{ child.id }}/writing-test/{{ wt.id }}/review" class="btn btn-primary" style="padding: 10px 25px;">
+            Review
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
 {% if pending_assignments %}
 <div style="margin-bottom: 30px;">
     <h2>Reading Assignments</h2>

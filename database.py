@@ -205,6 +205,48 @@ def init_db():
             FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS writing_topic (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id INTEGER NOT NULL,
+            topic_text TEXT NOT NULL,
+            created_by INTEGER NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE,
+            FOREIGN KEY (created_by) REFERENCES account(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS writing_test (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id INTEGER NOT NULL,
+            created_by INTEGER NOT NULL,
+            topic_text TEXT NOT NULL,
+            topic_id INTEGER,
+            timer_mode TEXT DEFAULT 'none',
+            time_limit_seconds INTEGER DEFAULT 0,
+            min_word_count INTEGER DEFAULT 0,
+            max_word_count INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'pending',
+            learning_plan_id INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE,
+            FOREIGN KEY (created_by) REFERENCES account(id),
+            FOREIGN KEY (topic_id) REFERENCES writing_topic(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS writing_test_submission (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            writing_test_id INTEGER NOT NULL,
+            child_id INTEGER NOT NULL,
+            writing_text TEXT NOT NULL,
+            word_count INTEGER NOT NULL DEFAULT 0,
+            time_taken_seconds INTEGER DEFAULT 0,
+            score INTEGER,
+            feedback TEXT,
+            submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (writing_test_id) REFERENCES writing_test(id) ON DELETE CASCADE,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS learning_plan (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             child_id INTEGER NOT NULL,
@@ -341,6 +383,13 @@ def init_db():
 
     try:
         conn.execute("ALTER TABLE math_test ADD COLUMN learning_plan_id INTEGER")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    # Migration: Add annotations column to writing_test_submission
+    try:
+        conn.execute("ALTER TABLE writing_test_submission ADD COLUMN annotations TEXT")
         conn.commit()
     except sqlite3.OperationalError:
         pass

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Writing Topics - {{ child.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .topic-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        margin-bottom: 6px;
+        background: #f7fafc;
+    }
+    .topic-item .text { flex: 1; font-size: 15px; }
+    .topic-item .btn { padding: 4px 10px; font-size: 12px; margin: 0; }
+    .empty-msg { color: #999; font-size: 14px; padding: 12px 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="/parent" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back to Dashboard</a>
+<h1 style="margin-top: 10px;">Writing Topics for {{ child.name }}</h1>
+
+<div class="card">
+    <h3 style="margin-bottom: 10px;">Add Topics</h3>
+    <p style="font-size: 13px; color: #888; margin-bottom: 8px;">Enter one topic per line</p>
+    <textarea id="topics-input" rows="4" placeholder="Describe your favorite place&#10;What would you do with a superpower?&#10;Write about a time you helped someone"></textarea>
+    <button class="btn btn-success" onclick="addTopics()" style="padding: 10px 20px; font-size: 15px;">Add Topics</button>
+</div>
+
+<div class="card">
+    <h3 style="margin-bottom: 10px;">Topic Pool</h3>
+    <div id="topics-list"><span class="empty-msg">Loading...</span></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const childId = {{ child.id }};
+
+async function loadTopics() {
+    const res = await fetch(`/api/children/${childId}/writing-topics`);
+    if (!res.ok) return;
+    const topics = await res.json();
+    const list = document.getElementById('topics-list');
+    if (topics.length === 0) {
+        list.innerHTML = '<span class="empty-msg">No topics yet. Add some above.</span>';
+        return;
+    }
+    list.innerHTML = topics.map(t => `
+        <div class="topic-item">
+            <span class="text">${escHtml(t.topic_text)}</span>
+            <button class="btn btn-danger" onclick="deleteTopic(${t.id})">Del</button>
+        </div>
+    `).join('');
+}
+
+async function addTopics() {
+    const input = document.getElementById('topics-input');
+    const lines = input.value.split('\n').map(l => l.trim()).filter(l => l);
+    if (lines.length === 0) { alert('Please enter at least one topic'); return; }
+    const res = await fetch(`/api/children/${childId}/writing-topics`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topics: lines })
+    });
+    if (res.ok) {
+        input.value = '';
+        loadTopics();
+    } else {
+        const data = await res.json();
+        alert('Error: ' + (data.error || 'Failed'));
+    }
+}
+
+async function deleteTopic(id) {
+    if (!confirm('Delete this topic?')) return;
+    await fetch(`/api/writing-topics/${id}`, { method: 'DELETE' });
+    loadTopics();
+}
+
+function escHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+loadTopics();
+</script>
+{% endblock %}

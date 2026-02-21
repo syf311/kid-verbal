@@ -387,6 +387,14 @@
                 <h3>Completed Reading Assignments</h3>
                 <div id="completed-assignments-list"><span class="empty-msg">Loading...</span></div>
             </div>
+            <div class="dash-card">
+                <h3>Pending Writing Tests</h3>
+                <div id="writing-pending-list"><span class="empty-msg">Loading...</span></div>
+            </div>
+            <div class="dash-card">
+                <h3>Completed Writing Tests</h3>
+                <div id="writing-completed-list"><span class="empty-msg">Loading...</span></div>
+            </div>
         </div>
 
         <!-- Math tab -->
@@ -471,6 +479,7 @@ async function loadDashboard(childId) {
     renderLanguageArts(childId, data);
     renderMathTab(childId, data);
     renderPlansTab(childId, data);
+    renderWritingTests(childId, data);
 }
 
 function updateQuickLinks(childId) {
@@ -480,6 +489,7 @@ function updateQuickLinks(childId) {
         <a href="/parent/child/${childId}/study/new" class="btn-success">Create Study Session</a>
         <a href="/parent/child/${childId}/test/new" class="btn-warning">Create Test</a>
         <a href="/materials?child_id=${childId}" class="btn-warning">Reading Materials</a>
+        <a href="/parent/child/${childId}/writing-topics" style="background:#38a169;">Writing Topics</a>
     `;
     document.getElementById('math-links').innerHTML = `
         <a href="/parent/child/${childId}/math-test/new" class="btn-success">Create Math Test</a>
@@ -653,6 +663,77 @@ function renderMathTab(childId, data) {
     }
 }
 
+// ── Render writing tests (in Language Arts tab) ──
+
+function renderWritingTests(childId, data) {
+    const tests = data.writing_tests || [];
+    const pending = tests.filter(t => t.status !== 'completed');
+    const completed = tests.filter(t => t.status === 'completed');
+
+    const pendList = document.getElementById('writing-pending-list');
+    if (pending.length === 0) {
+        pendList.innerHTML = '<span class="empty-msg">No pending writing tests.</span>';
+    } else {
+        pendList.innerHTML = pending.map(t => {
+            let timerInfo = '';
+            if (t.timer_mode === 'countdown' && t.time_limit_seconds > 0) {
+                timerInfo = ` &middot; ${Math.round(t.time_limit_seconds / 60)} min limit`;
+            } else if (t.timer_mode === 'stopwatch') {
+                timerInfo = ' &middot; Timed';
+            }
+            let wordInfo = '';
+            if (t.min_word_count > 0) wordInfo += ` &middot; Min ${t.min_word_count} words`;
+            if (t.max_word_count > 0) wordInfo += ` &middot; Max ${t.max_word_count} words`;
+            const planBadge = t.plan_title
+                ? `<span style="background:#ebf4ff;color:#667eea;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">${escHtml(t.plan_title)}</span>`
+                : '';
+            const topicPreview = t.topic_text.length > 60 ? t.topic_text.substring(0, 60) + '...' : t.topic_text;
+            return `
+            <div class="list-item">
+                <div class="info">
+                    <strong>${escHtml(topicPreview)}</strong>${planBadge}
+                    <div class="meta">${t.created_at.slice(0,10)}${timerInfo}${wordInfo}</div>
+                </div>
+                <div class="actions">
+                    <a href="/child/${childId}/writing-test/${t.id}" class="btn btn-primary">Open</a>
+                    <button class="btn btn-danger" onclick="deleteWritingTest(${t.id})">Del</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    const compList = document.getElementById('writing-completed-list');
+    if (completed.length === 0) {
+        compList.innerHTML = '<span class="empty-msg">No completed writing tests yet.</span>';
+    } else {
+        compList.innerHTML = completed.map(t => {
+            let timeInfo = '';
+            if (t.time_taken_seconds && t.time_taken_seconds > 0) {
+                const m = Math.floor(t.time_taken_seconds / 60);
+                const s = t.time_taken_seconds % 60;
+                timeInfo = ` &middot; Took ${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+            }
+            const scoreInfo = t.score != null ? ` &middot; Score: ${t.score}/100` : '';
+            const wordInfo = t.word_count != null ? ` &middot; ${t.word_count} words` : '';
+            const planBadge = t.plan_title
+                ? `<span style="background:#ebf4ff;color:#667eea;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">${escHtml(t.plan_title)}</span>`
+                : '';
+            const topicPreview = t.topic_text.length > 60 ? t.topic_text.substring(0, 60) + '...' : t.topic_text;
+            return `
+            <div class="list-item">
+                <div class="info">
+                    <strong>${escHtml(topicPreview)}</strong>${planBadge}
+                    <div class="meta">${t.created_at.slice(0,10)}${wordInfo}${scoreInfo}${timeInfo}</div>
+                </div>
+                <div class="actions">
+                    <a href="/child/${childId}/writing-test/${t.id}/review" class="btn btn-success">Review</a>
+                    <button class="btn btn-danger" onclick="deleteWritingTest(${t.id})">Del</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+}
+
 // ── Render plans tab ──
 
 function renderPlansTab(childId, data) {
@@ -750,6 +831,12 @@ async function deleteAssignment(id) {
 async function deleteMathTest(id) {
     if (!confirm('Delete this math test?')) return;
     await fetch(`/api/math-tests/${id}`, { method: 'DELETE' });
+    loadDashboard(currentChildId);
+}
+
+async function deleteWritingTest(id) {
+    if (!confirm('Delete this writing test?')) return;
+    await fetch(`/api/writing-tests/${id}`, { method: 'DELETE' });
     loadDashboard(currentChildId);
 }
 

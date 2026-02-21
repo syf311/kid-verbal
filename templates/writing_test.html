@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+
+{% block title %}Writing Test{% endblock %}
+
+{% block extra_css %}
+<style>
+    .container { max-width: 900px; }
+    .topic-prompt {
+        background: linear-gradient(135deg, #ebf4ff, #f0fff4);
+        border-radius: 12px;
+        padding: 20px 24px;
+        margin-bottom: 20px;
+        border-left: 4px solid #667eea;
+    }
+    .topic-prompt h3 { font-size: 14px; color: #667eea; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .topic-prompt p { font-size: 18px; color: #333; line-height: 1.5; }
+    .writing-area textarea {
+        width: 100%;
+        min-height: 350px;
+        padding: 16px;
+        font-size: 16px;
+        line-height: 1.8;
+        border: 2px solid #e2e8f0;
+        border-radius: 12px;
+        resize: vertical;
+        font-family: Georgia, 'Times New Roman', serif;
+        box-sizing: border-box;
+    }
+    .writing-area textarea:focus {
+        border-color: #667eea;
+        outline: none;
+    }
+    .word-count-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 8px;
+        font-size: 14px;
+    }
+    .word-count { font-weight: 700; }
+    .word-count.under { color: #e53e3e; }
+    .word-count.good { color: #48bb78; }
+    .word-count.over { color: #ed8936; }
+    .timer-display {
+        position: fixed;
+        right: 20px;
+        top: 80px;
+        z-index: 100;
+        background: white;
+        border: 2px solid #667eea;
+        border-radius: 10px;
+        padding: 6px 14px;
+        font-size: 18px;
+        font-weight: 700;
+        font-family: 'Courier New', monospace;
+        color: #333;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .timer-display.warning { border-color: #ed8936; color: #ed8936; }
+    .timer-display.danger { border-color: #e53e3e; color: #e53e3e; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+    .submit-area { margin-top: 16px; text-align: center; }
+    .submit-area .btn { padding: 14px 40px; font-size: 18px; }
+    .limits-info { font-size: 13px; color: #888; }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="{% if learning_plan_id %}/child/{{ child.id }}/learning-plan/{{ learning_plan_id }}{% else %}/child/{{ child.id }}{% endif %}" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back</a>
+<h1 style="margin-top: 10px;">Writing Test</h1>
+
+{% if test.timer_mode != 'none' %}
+<div class="timer-display" id="timerDisplay">00:00</div>
+{% endif %}
+
+<div class="topic-prompt">
+    <h3>Topic</h3>
+    <p>{{ test.topic_text }}</p>
+</div>
+
+<div class="writing-area">
+    <textarea id="writing-input" placeholder="Start writing here..." oninput="updateWordCount()"></textarea>
+    <div class="word-count-bar">
+        <div>
+            <span class="word-count good" id="wordCount">0 words</span>
+            {% if test.min_word_count > 0 or test.max_word_count > 0 %}
+            <span class="limits-info">
+                {% if test.min_word_count > 0 %}(min: {{ test.min_word_count }}){% endif %}
+                {% if test.max_word_count > 0 %}(max: {{ test.max_word_count }}){% endif %}
+            </span>
+            {% endif %}
+        </div>
+        <div id="limitMsg" style="font-size: 13px;"></div>
+    </div>
+</div>
+
+<div class="submit-area">
+    <button class="btn btn-success" id="submitBtn" onclick="submitWriting()" disabled>Submit Writing</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const childId = {{ child.id }};
+const testId = {{ test.id }};
+const timerMode = '{{ test.timer_mode }}';
+const timeLimitSeconds = {{ test.time_limit_seconds }};
+const minWords = {{ test.min_word_count }};
+const maxWords = {{ test.max_word_count }};
+const startTime = Date.now();
+let timerInterval = null;
+
+function updateWordCount() {
+    const text = document.getElementById('writing-input').value.trim();
+    const count = text ? text.split(/\s+/).length : 0;
+    const el = document.getElementById('wordCount');
+    const msg = document.getElementById('limitMsg');
+    const btn = document.getElementById('submitBtn');
+    el.textContent = count + ' word' + (count !== 1 ? 's' : '');
+
+    let canSubmit = text.length > 0;
+    el.className = 'word-count good';
+    msg.textContent = '';
+
+    if (minWords > 0 && count < minWords) {
+        el.className = 'word-count under';
+        msg.textContent = `Need ${minWords - count} more words`;
+        msg.style.color = '#e53e3e';
+        canSubmit = false;
+    } else if (maxWords > 0 && count > maxWords) {
+        el.className = 'word-count over';
+        msg.textContent = `${count - maxWords} words over limit`;
+        msg.style.color = '#ed8936';
+        canSubmit = false;
+    }
+
+    btn.disabled = !canSubmit;
+}
+
+async function submitWriting() {
+    const text = document.getElementById('writing-input').value.trim();
+    if (!text) return;
+    if (!confirm('Submit your writing? You cannot change it after submitting.')) return;
+    await doSubmit();
+}
+
+async function doSubmit() {
+    const text = document.getElementById('writing-input').value.trim();
+    if (!text) return;
+    if (timerInterval) clearInterval(timerInterval);
+    const timeTaken = Math.round((Date.now() - startTime) / 1000);
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
+
+    try {
+        const res = await fetch(`/api/writing-tests/${testId}/submit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ writing_text: text, time_taken_seconds: timeTaken })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            window.location.href = `/child/${childId}/writing-test/${testId}/review`;
+        } else {
+            alert(data.error || 'Failed to submit');
+            btn.disabled = false;
+            btn.textContent = 'Submit Writing';
+        }
+    } catch (e) {
+        alert('Network error');
+        btn.disabled = false;
+        btn.textContent = 'Submit Writing';
+    }
+}
+
+function formatTime(seconds) {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+function startTimer() {
+    const display = document.getElementById('timerDisplay');
+    if (!display) return;
+
+    if (timerMode === 'countdown') {
+        let remaining = timeLimitSeconds;
+        display.textContent = formatTime(remaining);
+        timerInterval = setInterval(() => {
+            remaining--;
+            if (remaining <= 0) {
+                remaining = 0;
+                display.textContent = '00:00';
+                clearInterval(timerInterval);
+                alert("Time's up! Your writing has been submitted.");
+                doSubmit();
+                return;
+            }
+            display.textContent = formatTime(remaining);
+            if (remaining <= 60) {
+                display.className = 'timer-display danger';
+            } else if (remaining <= 300) {
+                display.className = 'timer-display warning';
+            }
+        }, 1000);
+    } else if (timerMode === 'stopwatch') {
+        timerInterval = setInterval(() => {
+            const elapsed = Math.round((Date.now() - startTime) / 1000);
+            display.textContent = formatTime(elapsed);
+        }, 1000);
+    }
+}
+
+startTimer();
+</script>
+{% endblock %}

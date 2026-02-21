@@ -56,6 +56,7 @@
     .type-reading { background: #fefcbf; color: #975a16; }
     .type-math { background: #fed7d7; color: #c53030; }
     .type-test { background: #e9d8fd; color: #6b46c1; }
+    .type-writing { background: #c6f6d5; color: #276749; }
     .badge-done {
         display: inline-block;
         background: #c6f6d5;
@@ -185,6 +186,18 @@ function render(data) {
             href = completed
                 ? `/child/${childId}/tests/${d.test_session_id || ''}`
                 : `/child/${childId}/test/${item.item_id}`;
+        } else if (item.item_type === 'writing_test') {
+            icon = '&#x270D;';
+            typeLabel = 'Writing';
+            typeCls = 'type-writing';
+            meta = '';
+            if (completed && d.word_count != null) {
+                meta = `${d.word_count} words`;
+                if (d.score != null) meta += ` &middot; Score: ${d.score}/100`;
+            }
+            href = completed
+                ? `/child/${childId}/writing-test/${item.item_id}/review`
+                : `/child/${childId}/writing-test/${item.item_id}`;
         }
 
         const badge = completed

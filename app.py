@@ -84,6 +84,8 @@ def check_plan_completion(plan_id, conn):
             row = conn.execute("SELECT status FROM math_test WHERE id = ?", (item["item_id"],)).fetchone()
         elif item["item_type"] == "parent_test":
             row = conn.execute("SELECT status FROM parent_test WHERE id = ?", (item["item_id"],)).fetchone()
+        elif item["item_type"] == "writing_test":
+            row = conn.execute("SELECT status FROM writing_test WHERE id = ?", (item["item_id"],)).fetchone()
         else:
             continue
         if not row or row["status"] != "completed":
@@ -288,6 +290,23 @@ def child_dashboard_summary(child_id):
         (child_id,)
     ).fetchall()
 
+    writing_tests = conn.execute(
+        """SELECT wt.id, wt.topic_text, wt.status, wt.created_at,
+                  wt.timer_mode, wt.time_limit_seconds, wt.min_word_count, wt.max_word_count,
+                  wt.learning_plan_id,
+                  lp.title as plan_title,
+                  (SELECT id FROM writing_test_submission WHERE writing_test_id = wt.id LIMIT 1) as submission_id,
+                  (SELECT word_count FROM writing_test_submission WHERE writing_test_id = wt.id LIMIT 1) as word_count,
+                  (SELECT score FROM writing_test_submission WHERE writing_test_id = wt.id LIMIT 1) as score,
+                  (SELECT time_taken_seconds FROM writing_test_submission WHERE writing_test_id = wt.id LIMIT 1) as time_taken_seconds
+           FROM writing_test wt
+           LEFT JOIN learning_plan lp ON wt.learning_plan_id = lp.id
+           WHERE wt.child_id = ?
+           ORDER BY wt.created_at DESC
+           LIMIT 20""",
+        (child_id,)
+    ).fetchall()
+
     learning_plans = conn.execute(
         """SELECT lp.*,
                   (SELECT COUNT(*) FROM learning_plan_item WHERE plan_id = lp.id) as item_count,
@@ -295,7 +314,8 @@ def child_dashboard_summary(child_id):
                    WHERE lpi.plan_id = lp.id AND (
                        (lpi.item_type = 'study_session' AND (SELECT status FROM study_session WHERE id = lpi.item_id) = 'completed') OR
                        (lpi.item_type = 'reading_assignment' AND (SELECT status FROM reading_assignment WHERE id = lpi.item_id) = 'completed') OR
-                       (lpi.item_type = 'math_test' AND (SELECT status FROM math_test WHERE id = lpi.item_id) = 'completed')
+                       (lpi.item_type = 'math_test' AND (SELECT status FROM math_test WHERE id = lpi.item_id) = 'completed') OR
+                       (lpi.item_type = 'writing_test' AND (SELECT status FROM writing_test WHERE id = lpi.item_id) = 'completed')
                    )) as completed_item_count
            FROM learning_plan lp
            WHERE lp.child_id = ?
@@ -311,6 +331,7 @@ def child_dashboard_summary(child_id):
         "pending_assignments": [dict(a) for a in pending_assignments],
         "completed_assignments": [dict(a) for a in completed_assignments],
         "math_tests": [dict(t) for t in math_tests],
+        "writing_tests": [dict(t) for t in writing_tests],
         "learning_plans": [dict(p) for p in learning_plans],
     })
 
@@ -668,6 +689,9 @@ def delete_child(child_id):
     conn.execute("DELETE FROM learning_plan WHERE child_id = ?", (child_id,))
     conn.execute("DELETE FROM math_test_submission WHERE math_test_id IN (SELECT id FROM math_test WHERE child_id = ?)", (child_id,))
     conn.execute("DELETE FROM math_test WHERE child_id = ?", (child_id,))
+    conn.execute("DELETE FROM writing_test_submission WHERE writing_test_id IN (SELECT id FROM writing_test WHERE child_id = ?)", (child_id,))
+    conn.execute("DELETE FROM writing_test WHERE child_id = ?", (child_id,))
+    conn.execute("DELETE FROM writing_topic WHERE child_id = ?", (child_id,))
     conn.execute("DELETE FROM reading_assignment_answer WHERE assignment_id IN (SELECT id FROM reading_assignment WHERE child_id = ?)", (child_id,))
     conn.execute("DELETE FROM reading_assignment WHERE child_id = ?", (child_id,))
     conn.execute("DELETE FROM parent_test_word WHERE parent_test_id IN (SELECT id FROM parent_test WHERE child_id = ?)", (child_id,))
@@ -786,6 +810,26 @@ def child_dashboard(child_id):
                ORDER BY mt.created_at DESC LIMIT 20""",
             (child_id,)
         ).fetchall()
+
+        # Get pending writing tests
+        writing_tests = conn.execute(
+            """SELECT wt.id, wt.topic_text, wt.status, wt.created_at
+               FROM writing_test wt
+               WHERE wt.child_id = ? AND wt.status = 'pending' AND wt.learning_plan_id IS NULL
+               ORDER BY wt.created_at DESC""",
+            (child_id,)
+        ).fetchall()
+
+        # Get completed writing tests
+        completed_writing_tests = conn.execute(
+            """SELECT wt.id, wt.topic_text, wt.created_at,
+                      (SELECT word_count FROM writing_test_submission WHERE writing_test_id = wt.id LIMIT 1) as word_count,
+                      (SELECT score FROM writing_test_submission WHERE writing_test_id = wt.id LIMIT 1) as score
+               FROM writing_test wt
+               WHERE wt.child_id = ? AND wt.status = 'completed' AND wt.learning_plan_id IS NULL
+               ORDER BY wt.created_at DESC LIMIT 20""",
+            (child_id,)
+        ).fetchall()
     else:
         # Children only see learning plans, not individual items
         study_sessions = []
@@ -795,6 +839,8 @@ def child_dashboard(child_id):
         completed_assignments = []
         math_tests = []
         completed_math_tests = []
+        writing_tests = []
+        completed_writing_tests = []
 
     # Get learning plans (released or completed)
     learning_plans = conn.execute(
@@ -819,6 +865,8 @@ def child_dashboard(child_id):
         completed_assignments=[dict(a) for a in completed_assignments],
         math_tests=[dict(t) for t in math_tests],
         completed_math_tests=[dict(t) for t in completed_math_tests],
+        writing_tests=[dict(t) for t in writing_tests],
+        completed_writing_tests=[dict(t) for t in completed_writing_tests],
         learning_plans=[dict(p) for p in learning_plans],
         role=role
     )
@@ -2627,6 +2675,227 @@ def child_retake_math_test(test_id):
     return jsonify({"id": test_id, "child_id": test["child_id"], "wrong_questions": wrong_questions})
 
 
+# ── Writing Topics ──
+
+@app.route("/parent/child/<int:child_id>/writing-topics")
+@parent_required
+def writing_topics_page(child_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    conn.close()
+    if not child:
+        return "Child not found", 404
+    return render_template("writing_topics.html", child=dict(child))
+
+
+@app.route("/api/children/<int:child_id>/writing-topics", methods=["GET"])
+@login_required
+def get_writing_topics(child_id):
+    conn = get_db()
+    topics = conn.execute(
+        "SELECT * FROM writing_topic WHERE child_id = ? ORDER BY created_at DESC", (child_id,)
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(t) for t in topics])
+
+
+@app.route("/api/children/<int:child_id>/writing-topics", methods=["POST"])
+@parent_required
+def add_writing_topics(child_id):
+    data = request.json
+    topics = data.get("topics", [])
+    if not topics:
+        return jsonify({"error": "topics required"}), 400
+    account = get_current_account()
+    conn = get_db()
+    added = []
+    for topic_text in topics:
+        topic_text = topic_text.strip()
+        if not topic_text:
+            continue
+        cursor = conn.execute(
+            "INSERT INTO writing_topic (child_id, topic_text, created_by) VALUES (?, ?, ?)",
+            (child_id, topic_text, account["id"])
+        )
+        added.append({"id": cursor.lastrowid, "topic_text": topic_text})
+    conn.commit()
+    conn.close()
+    return jsonify({"added": added}), 201
+
+
+@app.route("/api/writing-topics/<int:topic_id>", methods=["DELETE"])
+@parent_required
+def delete_writing_topic(topic_id):
+    conn = get_db()
+    conn.execute("DELETE FROM writing_topic WHERE id = ?", (topic_id,))
+    conn.commit()
+    conn.close()
+    return "", 204
+
+
+# ── Writing Tests ──
+
+@app.route("/api/writing-tests", methods=["POST"])
+@parent_required
+def create_writing_test():
+    data = request.json
+    child_id = data.get("child_id")
+    topic_text = data.get("topic_text", "").strip()
+    if not child_id or not topic_text:
+        return jsonify({"error": "child_id and topic_text required"}), 400
+    account = get_current_account()
+    conn = get_db()
+    cursor = conn.execute(
+        """INSERT INTO writing_test (child_id, created_by, topic_text, topic_id, timer_mode, time_limit_seconds, min_word_count, max_word_count)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (child_id, account["id"], topic_text, data.get("topic_id"),
+         data.get("timer_mode", "none"), data.get("time_limit_seconds", 0),
+         data.get("min_word_count", 0), data.get("max_word_count", 0))
+    )
+    test_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({"id": test_id}), 201
+
+
+@app.route("/api/writing-tests/<int:test_id>", methods=["GET"])
+@login_required
+def get_writing_test(test_id):
+    conn = get_db()
+    test = conn.execute("SELECT * FROM writing_test WHERE id = ?", (test_id,)).fetchone()
+    conn.close()
+    if not test:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify(dict(test))
+
+
+@app.route("/api/writing-tests/<int:test_id>", methods=["DELETE"])
+@parent_required
+def delete_writing_test(test_id):
+    conn = get_db()
+    test = conn.execute("SELECT * FROM writing_test WHERE id = ?", (test_id,)).fetchone()
+    if not test:
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+    conn.execute("DELETE FROM writing_test_submission WHERE writing_test_id = ?", (test_id,))
+    conn.execute("DELETE FROM writing_test WHERE id = ?", (test_id,))
+    conn.commit()
+    conn.close()
+    return "", 204
+
+
+@app.route("/api/writing-tests/<int:test_id>/submit", methods=["POST"])
+@login_required
+def submit_writing_test(test_id):
+    conn = get_db()
+    test = conn.execute("SELECT * FROM writing_test WHERE id = ?", (test_id,)).fetchone()
+    if not test:
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+
+    data = request.json
+    writing_text = data.get("writing_text", "").strip()
+    time_taken_seconds = data.get("time_taken_seconds", 0)
+    if not writing_text:
+        conn.close()
+        return jsonify({"error": "writing_text required"}), 400
+
+    word_count = len(writing_text.split())
+
+    cursor = conn.execute(
+        """INSERT INTO writing_test_submission (writing_test_id, child_id, writing_text, word_count, time_taken_seconds)
+           VALUES (?, ?, ?, ?, ?)""",
+        (test_id, test["child_id"], writing_text, word_count, time_taken_seconds)
+    )
+    submission_id = cursor.lastrowid
+    conn.execute("UPDATE writing_test SET status = 'completed' WHERE id = ?", (test_id,))
+
+    if test["learning_plan_id"]:
+        check_plan_completion(test["learning_plan_id"], conn)
+    conn.commit()
+    conn.close()
+    return jsonify({"submission_id": submission_id, "word_count": word_count})
+
+
+@app.route("/api/writing-test-submissions/<int:sub_id>/review", methods=["PUT"])
+@parent_required
+def review_writing_test_submission(sub_id):
+    data = request.json
+    score = data.get("score")
+    feedback = data.get("feedback", "").strip()
+    if score is None:
+        return jsonify({"error": "score required"}), 400
+    score = max(0, min(100, int(score)))
+    conn = get_db()
+    conn.execute(
+        "UPDATE writing_test_submission SET score = ?, feedback = ? WHERE id = ?",
+        (score, feedback, sub_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/writing-test-submissions/<int:sub_id>/annotations", methods=["PUT"])
+@parent_required
+def update_writing_test_annotations(sub_id):
+    data = request.json
+    annotations = data.get("annotations", [])
+    if not isinstance(annotations, list):
+        return jsonify({"error": "annotations must be a list"}), 400
+    import json
+    conn = get_db()
+    conn.execute(
+        "UPDATE writing_test_submission SET annotations = ? WHERE id = ?",
+        (json.dumps(annotations), sub_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/child/<int:child_id>/writing-test/<int:test_id>")
+@login_required
+def take_writing_test(child_id, test_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    test = conn.execute("SELECT * FROM writing_test WHERE id = ?", (test_id,)).fetchone()
+    conn.close()
+    if not child or not test:
+        return "Not found", 404
+    learning_plan_id = request.args.get("plan_id") or test["learning_plan_id"]
+    return render_template("writing_test.html", child=dict(child), test=dict(test), learning_plan_id=learning_plan_id)
+
+
+@app.route("/child/<int:child_id>/writing-test/<int:test_id>/review")
+@login_required
+def review_writing_test(child_id, test_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    test = conn.execute("SELECT * FROM writing_test WHERE id = ?", (test_id,)).fetchone()
+    if not child or not test:
+        conn.close()
+        return "Not found", 404
+    submission = conn.execute(
+        "SELECT * FROM writing_test_submission WHERE writing_test_id = ? ORDER BY submitted_at DESC LIMIT 1",
+        (test_id,)
+    ).fetchone()
+    conn.close()
+    learning_plan_id = request.args.get("plan_id") or test["learning_plan_id"]
+    role = session.get("role", "parent")
+    import json
+    annotations = []
+    if submission and submission["annotations"]:
+        try:
+            annotations = json.loads(submission["annotations"])
+        except (json.JSONDecodeError, TypeError):
+            annotations = []
+    return render_template("writing_test_review.html", child=dict(child), test=dict(test),
+                           submission=dict(submission) if submission else None,
+                           learning_plan_id=learning_plan_id, role=role,
+                           annotations=annotations)
+
+
 # ── Learning Plan page routes ──
 
 @app.route("/api/children/<int:child_id>/reading-materials", methods=["GET"])
@@ -2750,6 +3019,14 @@ def get_learning_plan(plan_id):
                    FROM parent_test pt WHERE pt.id = ?""",
                 (item["item_id"],)
             ).fetchone()
+        elif item["item_type"] == "writing_test":
+            row = conn.execute(
+                """SELECT wt.id, wt.topic_text as title, wt.status,
+                          (SELECT word_count FROM writing_test_submission WHERE writing_test_id = wt.id LIMIT 1) as word_count,
+                          (SELECT score FROM writing_test_submission WHERE writing_test_id = wt.id LIMIT 1) as score
+                   FROM writing_test wt WHERE wt.id = ?""",
+                (item["item_id"],)
+            ).fetchone()
         else:
             row = None
         if row:
@@ -2785,6 +3062,9 @@ def delete_learning_plan(plan_id):
         elif item["item_type"] == "parent_test":
             conn.execute("DELETE FROM parent_test_word WHERE parent_test_id = ?", (item["item_id"],))
             conn.execute("DELETE FROM parent_test WHERE id = ?", (item["item_id"],))
+        elif item["item_type"] == "writing_test":
+            conn.execute("DELETE FROM writing_test_submission WHERE writing_test_id = ?", (item["item_id"],))
+            conn.execute("DELETE FROM writing_test WHERE id = ?", (item["item_id"],))
     conn.execute("DELETE FROM learning_plan_item WHERE plan_id = ?", (plan_id,))
     conn.execute("DELETE FROM learning_plan WHERE id = ?", (plan_id,))
     conn.commit()
@@ -2945,6 +3225,38 @@ def add_plan_math_test(plan_id):
     return jsonify({"id": mt_id, "total_questions": len(answers)}), 201
 
 
+@app.route("/api/learning-plans/<int:plan_id>/items/writing-test", methods=["POST"])
+@parent_required
+def add_plan_writing_test(plan_id):
+    conn = get_db()
+    plan = conn.execute("SELECT * FROM learning_plan WHERE id = ?", (plan_id,)).fetchone()
+    if not plan or plan["status"] != "draft":
+        conn.close()
+        return jsonify({"error": "Plan not found or not in draft"}), 400
+    data = request.json
+    topic_text = data.get("topic_text", "").strip()
+    if not topic_text:
+        conn.close()
+        return jsonify({"error": "topic_text required"}), 400
+    account = get_current_account()
+    cursor = conn.execute(
+        """INSERT INTO writing_test (child_id, created_by, topic_text, topic_id, timer_mode, time_limit_seconds, min_word_count, max_word_count, learning_plan_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (plan["child_id"], account["id"], topic_text, data.get("topic_id"),
+         data.get("timer_mode", "none"), data.get("time_limit_seconds", 0),
+         data.get("min_word_count", 0), data.get("max_word_count", 0), plan_id)
+    )
+    wt_id = cursor.lastrowid
+    max_order = conn.execute("SELECT COALESCE(MAX(sort_order), 0) FROM learning_plan_item WHERE plan_id = ?", (plan_id,)).fetchone()[0]
+    conn.execute(
+        "INSERT INTO learning_plan_item (plan_id, item_type, item_id, sort_order) VALUES (?, 'writing_test', ?, ?)",
+        (plan_id, wt_id, max_order + 1)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"id": wt_id}), 201
+
+
 @app.route("/api/learning-plans/<int:plan_id>/items/<int:item_id>", methods=["DELETE"])
 @parent_required
 def delete_plan_item(plan_id, item_id):
@@ -2967,6 +3279,9 @@ def delete_plan_item(plan_id, item_id):
     elif item["item_type"] == "parent_test":
         conn.execute("DELETE FROM parent_test_word WHERE parent_test_id = ?", (item["item_id"],))
         conn.execute("DELETE FROM parent_test WHERE id = ?", (item["item_id"],))
+    elif item["item_type"] == "writing_test":
+        conn.execute("DELETE FROM writing_test_submission WHERE writing_test_id = ?", (item["item_id"],))
+        conn.execute("DELETE FROM writing_test WHERE id = ?", (item["item_id"],))
     conn.execute("DELETE FROM learning_plan_item WHERE id = ?", (item_id,))
     conn.commit()
     conn.close()
@@ -3004,11 +3319,20 @@ def get_unassigned_items(child_id):
         (child_id,)
     ).fetchall()
 
+    writing_tests = conn.execute(
+        """SELECT wt.id, wt.topic_text, wt.status, wt.created_at
+           FROM writing_test wt
+           WHERE wt.child_id = ? AND wt.learning_plan_id IS NULL
+           ORDER BY wt.created_at DESC""",
+        (child_id,)
+    ).fetchall()
+
     conn.close()
     return jsonify({
         "study_sessions": [dict(s) for s in study_sessions],
         "reading_assignments": [dict(a) for a in reading_assignments],
         "math_tests": [dict(t) for t in math_tests],
+        "writing_tests": [dict(t) for t in writing_tests],
     })
 
 
@@ -3019,7 +3343,7 @@ def link_item_to_plan(plan_id):
     item_type = data.get("item_type")
     item_id = data.get("item_id")
 
-    if item_type not in ("study_session", "reading_assignment", "math_test"):
+    if item_type not in ("study_session", "reading_assignment", "math_test", "writing_test"):
         return jsonify({"error": "Invalid item_type"}), 400
     if not item_id:
         return jsonify({"error": "item_id required"}), 400
