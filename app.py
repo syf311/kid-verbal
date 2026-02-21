@@ -600,6 +600,13 @@ def complete_parent_test(pt_id):
         "UPDATE parent_test SET status = 'completed' WHERE id = ?",
         (pt_id,)
     )
+    # Check if this parent test belongs to a learning plan
+    plan_item = conn.execute(
+        "SELECT plan_id FROM learning_plan_item WHERE item_type = 'parent_test' AND item_id = ?",
+        (pt_id,)
+    ).fetchone()
+    if plan_item:
+        check_plan_completion(plan_item["plan_id"], conn)
     conn.commit()
     conn.close()
     return jsonify({"status": "completed"})
