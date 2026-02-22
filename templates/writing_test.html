@@ -62,15 +62,89 @@
     .submit-area { margin-top: 16px; text-align: center; }
     .submit-area .btn { padding: 14px 40px; font-size: 18px; }
     .limits-info { font-size: 13px; color: #888; }
+    .revision-banner {
+        background: linear-gradient(135deg, #fffaf0, #fff5f5);
+        border: 2px solid #ed8936;
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin-bottom: 20px;
+    }
+    .revision-banner h3 {
+        color: #c05621;
+        font-size: 16px;
+        margin-bottom: 8px;
+    }
+    .revision-feedback {
+        background: #f0fff4;
+        border: 1px solid #c6f6d5;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-top: 10px;
+        font-size: 15px;
+        line-height: 1.6;
+        color: #333;
+    }
+    .revision-feedback h4 { font-size: 13px; color: #276749; margin-bottom: 6px; text-transform: uppercase; }
+    .revision-annotations {
+        margin-top: 10px;
+    }
+    .revision-annotations h4 { font-size: 13px; color: #c05621; margin-bottom: 8px; text-transform: uppercase; }
+    .revision-annotation-item {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-left: 3px solid #ed8936;
+        border-radius: 8px;
+        padding: 10px 14px;
+        margin-bottom: 8px;
+    }
+    .revision-annotation-item .quoted {
+        font-style: italic;
+        font-size: 13px;
+        color: #666;
+        border-left: 2px solid #ccc;
+        padding-left: 8px;
+        margin-bottom: 4px;
+    }
+    .revision-annotation-item .comment {
+        font-size: 14px;
+        color: #333;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 <a href="{% if learning_plan_id %}/child/{{ child.id }}/learning-plan/{{ learning_plan_id }}{% else %}/child/{{ child.id }}{% endif %}" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back</a>
-<h1 style="margin-top: 10px;">Writing Test</h1>
+<h1 style="margin-top: 10px;">Writing Test{% if previous_submission %} — Revision{% endif %}</h1>
 
 {% if test.timer_mode != 'none' %}
 <div class="timer-display" id="timerDisplay">00:00</div>
+{% endif %}
+
+{% if previous_submission %}
+<div class="revision-banner">
+    <h3>Revision Required</h3>
+    <p style="font-size: 14px; color: #666;">Your teacher has reviewed your writing and sent it back for revision. Review the feedback below and revise your writing.</p>
+    {% if previous_submission.feedback %}
+    <div class="revision-feedback">
+        <h4>Teacher Feedback</h4>
+        <p>{{ previous_submission.feedback }}</p>
+    </div>
+    {% endif %}
+    {% if prev_annotations %}
+    <div class="revision-annotations">
+        <h4>Inline Comments ({{ prev_annotations|length }})</h4>
+        {% for ann in prev_annotations %}
+        <div class="revision-annotation-item">
+            <div class="quoted">"{{ previous_submission.writing_text[ann.start:ann.end][:80] }}{{ '...' if (ann.end - ann.start) > 80 else '' }}"</div>
+            <div class="comment">{{ ann.text }}</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% if previous_submission.score is not none %}
+    <p style="font-size: 14px; color: #888; margin-top: 8px;">Previous score: <strong>{{ previous_submission.score }}/100</strong></p>
+    {% endif %}
+</div>
 {% endif %}
 
 <div class="topic-prompt">
@@ -79,7 +153,7 @@
 </div>
 
 <div class="writing-area">
-    <textarea id="writing-input" placeholder="Start writing here..." oninput="updateWordCount()"></textarea>
+    <textarea id="writing-input" placeholder="Start writing here..." oninput="updateWordCount()">{% if previous_submission %}{{ previous_submission.writing_text }}{% endif %}</textarea>
     <div class="word-count-bar">
         <div>
             <span class="word-count good" id="wordCount">0 words</span>
@@ -213,5 +287,6 @@ function startTimer() {
 }
 
 startTimer();
+updateWordCount();
 </script>
 {% endblock %}

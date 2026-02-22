@@ -188,10 +188,12 @@ function render(data) {
                 : `/child/${childId}/test/${item.item_id}`;
         } else if (item.item_type === 'writing_test') {
             icon = '&#x270D;';
-            typeLabel = 'Writing';
+            typeLabel = status === 'revision' ? 'Writing (Revision)' : 'Writing';
             typeCls = 'type-writing';
             meta = '';
-            if (completed && d.word_count != null) {
+            if (status === 'revision') {
+                meta = 'Sent back for revision';
+            } else if (completed && d.word_count != null) {
                 meta = `${d.word_count} words`;
                 if (d.score != null) meta += ` &middot; Score: ${d.score}/100`;
             }

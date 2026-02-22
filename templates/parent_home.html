@@ -719,15 +719,18 @@ function renderWritingTests(childId, data) {
             const planBadge = t.plan_title
                 ? `<span style="background:#ebf4ff;color:#667eea;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">${escHtml(t.plan_title)}</span>`
                 : '';
+            const revisionBadge = t.status === 'revision'
+                ? `<span style="background:#fefcbf;color:#c05621;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">Sent Back</span>`
+                : '';
             const topicPreview = t.topic_text.length > 60 ? t.topic_text.substring(0, 60) + '...' : t.topic_text;
             return `
             <div class="list-item">
                 <div class="info">
-                    <strong>${escHtml(topicPreview)}</strong>${planBadge}
+                    <strong>${escHtml(topicPreview)}</strong>${planBadge}${revisionBadge}
                     <div class="meta">${t.created_at.slice(0,10)}${timerInfo}${wordInfo}</div>
                 </div>
                 <div class="actions">
-                    <a href="/child/${childId}/writing-test/${t.id}" class="btn btn-primary">Open</a>
+                    <a href="/child/${childId}/writing-test/${t.id}${t.status === 'revision' ? '/review' : ''}" class="btn btn-primary">${t.status === 'revision' ? 'Review' : 'Open'}</a>
                     <button class="btn btn-danger" onclick="deleteWritingTest(${t.id})">Del</button>
                 </div>
             </div>`;

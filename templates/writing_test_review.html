@@ -270,8 +270,11 @@
     <input type="number" id="score-input" min="0" max="100" value="{{ submission.score if submission.score is not none else '' }}" placeholder="Enter score...">
     <label>Feedback</label>
     <textarea id="feedback-input" placeholder="Write feedback for the student...">{{ submission.feedback or '' }}</textarea>
-    <button class="btn btn-success" onclick="saveReview()" style="margin-top: 10px; padding: 12px 30px; font-size: 16px;">Save Review</button>
-    <span id="review-status" style="margin-left: 10px; font-size: 14px;"></span>
+    <div style="display: flex; gap: 10px; margin-top: 10px; align-items: center; flex-wrap: wrap;">
+        <button class="btn btn-success" onclick="saveReview()" style="padding: 12px 30px; font-size: 16px;">Save Review</button>
+        <button class="btn btn-warning" onclick="sendBack()" style="padding: 12px 24px; font-size: 16px;">Send Back for Revision</button>
+        <span id="review-status" style="font-size: 14px;"></span>
+    </div>
 </div>
 {% else %}
 <!-- Child view -->
@@ -554,6 +557,34 @@ async function saveReview() {
     } catch(e) {
         status.textContent = 'Network error';
         status.style.color = '#f56565';
+    }
+}
+
+async function sendBack() {
+    if (!confirm('Send this writing back for revision? The child will see your annotations and feedback.')) return;
+    // Save any unsaved review first (annotations + feedback)
+    const feedback = document.getElementById('feedback-input').value.trim();
+    if (feedback) {
+        const score = document.getElementById('score-input').value;
+        if (score !== '' && !isNaN(score)) {
+            await fetch(`/api/writing-test-submissions/${submissionId}/review`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ score: parseInt(score), feedback })
+            });
+        }
+    }
+    try {
+        const res = await fetch(`/api/writing-tests/{{ test.id }}/send-back`, { method: 'POST' });
+        if (res.ok) {
+            alert('Writing test sent back for revision.');
+            window.location.href = '{% if learning_plan_id %}/child/{{ child.id }}/learning-plan/{{ learning_plan_id }}{% else %}/{% endif %}';
+        } else {
+            const data = await res.json();
+            alert(data.error || 'Failed to send back');
+        }
+    } catch(e) {
+        alert('Network error');
     }
 }
 {% endif %}

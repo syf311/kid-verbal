@@ -109,11 +109,14 @@
         <div>
             <strong style="font-size: 18px;">{{ wt.topic_text[:60] }}{{ '...' if wt.topic_text|length > 60 else '' }}</strong>
             <div style="font-size: 14px; color: #666;">
+                {% if wt.status == 'revision' %}
+                <span style="color: #c05621; font-weight: 600;">Revision Required</span> &middot;
+                {% endif %}
                 Created {{ wt.created_at[:10] }}
             </div>
         </div>
-        <a href="/child/{{ child.id }}/writing-test/{{ wt.id }}" class="btn btn-success" style="padding: 10px 25px;">
-            Start
+        <a href="/child/{{ child.id }}/writing-test/{{ wt.id }}" class="btn {{ 'btn-warning' if wt.status == 'revision' else 'btn-success' }}" style="padding: 10px 25px;">
+            {{ 'Revise' if wt.status == 'revision' else 'Start' }}
         </a>
     </div>
     {% endfor %}

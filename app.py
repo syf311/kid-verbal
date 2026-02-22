@@ -819,11 +819,11 @@ def child_dashboard(child_id):
             (child_id,)
         ).fetchall()
 
-        # Get pending writing tests
+        # Get pending writing tests (including revision)
         writing_tests = conn.execute(
             """SELECT wt.id, wt.topic_text, wt.status, wt.created_at
                FROM writing_test wt
-               WHERE wt.child_id = ? AND wt.status = 'pending' AND wt.learning_plan_id IS NULL
+               WHERE wt.child_id = ? AND wt.status IN ('pending', 'revision') AND wt.learning_plan_id IS NULL
                ORDER BY wt.created_at DESC""",
             (child_id,)
         ).fetchall()
@@ -2900,17 +2900,64 @@ def update_writing_test_annotations(sub_id):
     return jsonify({"success": True})
 
 
+@app.route("/api/writing-tests/<int:test_id>/send-back", methods=["POST"])
+@parent_required
+def send_back_writing_test(test_id):
+    conn = get_db()
+    test = conn.execute("SELECT * FROM writing_test WHERE id = ?", (test_id,)).fetchone()
+    if not test:
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+    if test["status"] != "completed":
+        conn.close()
+        return jsonify({"error": "Test is not completed"}), 400
+
+    conn.execute("UPDATE writing_test SET status = 'revision' WHERE id = ?", (test_id,))
+
+    # If part of a learning plan that was completed, revert to released
+    if test["learning_plan_id"]:
+        conn.execute(
+            "UPDATE learning_plan SET status = 'released', completed_at = NULL WHERE id = ? AND status = 'completed'",
+            (test["learning_plan_id"],)
+        )
+
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
 @app.route("/child/<int:child_id>/writing-test/<int:test_id>")
 @login_required
 def take_writing_test(child_id, test_id):
     conn = get_db()
     child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
     test = conn.execute("SELECT * FROM writing_test WHERE id = ?", (test_id,)).fetchone()
-    conn.close()
     if not child or not test:
+        conn.close()
         return "Not found", 404
+
+    previous_submission = None
+    prev_annotations = []
+    if test["status"] == "revision":
+        sub = conn.execute(
+            "SELECT * FROM writing_test_submission WHERE writing_test_id = ? ORDER BY submitted_at DESC LIMIT 1",
+            (test_id,)
+        ).fetchone()
+        if sub:
+            previous_submission = dict(sub)
+            if sub["annotations"]:
+                import json
+                try:
+                    prev_annotations = json.loads(sub["annotations"])
+                except (json.JSONDecodeError, TypeError):
+                    prev_annotations = []
+
+    conn.close()
     learning_plan_id = request.args.get("plan_id") or test["learning_plan_id"]
-    return render_template("writing_test.html", child=dict(child), test=dict(test), learning_plan_id=learning_plan_id)
+    return render_template("writing_test.html", child=dict(child), test=dict(test),
+                           learning_plan_id=learning_plan_id,
+                           previous_submission=previous_submission,
+                           prev_annotations=prev_annotations)
 
 
 @app.route("/child/<int:child_id>/writing-test/<int:test_id>/review")
