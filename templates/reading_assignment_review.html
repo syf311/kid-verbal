@@ -283,12 +283,16 @@
 
 <div class="review-layout" id="reviewLayout">
     <div class="reading-area">
+        {% if assignment.content_pdf %}
+        <iframe src="/uploads/{{ assignment.content_pdf }}" style="width: 100%; height: 100%; border: none; min-height: 500px;"></iframe>
+        {% else %}
         {% if assignment.image_path %}
         <div style="margin-bottom: 15px;">
             <img src="/uploads/{{ assignment.image_path }}" style="max-width: 100%; border-radius: 12px;">
         </div>
         {% endif %}
         <div class="reading-text">{{ assignment.content }}</div>
+        {% endif %}
     </div>
 
     <div class="details-panel">

@@ -495,6 +495,13 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # Migration: Add content_pdf to reading_material
+    try:
+        conn.execute("ALTER TABLE reading_material ADD COLUMN content_pdf TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
     conn.close()
 
 

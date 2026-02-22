@@ -1485,6 +1485,18 @@ def create_material():
     source_url = request.form.get("source_url", "").strip() or None
     child_id = request.form.get("child_id", "").strip() or None
     image_path = None
+    content_pdf = None
+
+    # Handle PDF upload
+    if "content_pdf" in request.files:
+        pdf_file = request.files["content_pdf"]
+        if pdf_file.filename:
+            filename = secure_filename(pdf_file.filename)
+            filepath = os.path.join(UPLOAD_FOLDER, filename)
+            pdf_file.save(filepath)
+            content_pdf = filename
+            if not content:
+                content = "[PDF content]"
 
     if "image" in request.files:
         file = request.files["image"]
@@ -1500,8 +1512,8 @@ def create_material():
 
     conn = get_db()
     cursor = conn.execute(
-        "INSERT INTO reading_material (title, content, image_path, source_url, child_id) VALUES (?, ?, ?, ?, ?)",
-        (title, content, image_path, source_url, child_id)
+        "INSERT INTO reading_material (title, content, image_path, source_url, child_id, content_pdf) VALUES (?, ?, ?, ?, ?, ?)",
+        (title, content, image_path, source_url, child_id, content_pdf)
     )
     material_id = cursor.lastrowid
     conn.commit()
@@ -2187,7 +2199,7 @@ def reading_assignment_page(child_id, assignment_id):
         return "Child not found", 404
 
     assignment = conn.execute(
-        """SELECT ra.*, rm.title, rm.content, rm.image_path
+        """SELECT ra.*, rm.title, rm.content, rm.image_path, rm.content_pdf
            FROM reading_assignment ra
            JOIN reading_material rm ON ra.material_id = rm.id
            WHERE ra.id = ? AND ra.child_id = ?""",
@@ -2222,7 +2234,7 @@ def reading_assignment_review_page(child_id, assignment_id):
         return "Child not found", 404
 
     assignment = conn.execute(
-        """SELECT ra.*, rm.title, rm.content
+        """SELECT ra.*, rm.title, rm.content, rm.content_pdf
            FROM reading_assignment ra
            JOIN reading_material rm ON ra.material_id = rm.id
            WHERE ra.id = ? AND ra.child_id = ?""",

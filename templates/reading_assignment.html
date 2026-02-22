@@ -198,6 +198,9 @@
 
 <div class="assignment-layout" id="assignmentLayout">
     <div class="reading-area">
+        {% if assignment.content_pdf %}
+        <iframe src="/uploads/{{ assignment.content_pdf }}" style="width: 100%; height: 100%; border: none; min-height: 500px;"></iframe>
+        {% else %}
         {% if assignment.image_path %}
         <div style="margin-bottom: 15px;">
             <img src="/uploads/{{ assignment.image_path }}" style="max-width: 100%; border-radius: 12px;">
@@ -207,6 +210,7 @@
             <div class="marked-count-badge" id="marked-badge"></div>
             {{ assignment.content }}
         </div>
+        {% endif %}
     </div>
 
     <div class="answer-panel">
@@ -250,11 +254,14 @@ const assignmentId = {{ assignment.id }};
 const totalQuestions = {{ questions|length }};
 const selectedAnswers = {};
 const markedWords = new Set();
-let sidebarOpen = true;
+const hasPdf = {{ 'true' if assignment.content_pdf else 'false' }};
+let sidebarOpen = !hasPdf;
 
-// Open sidebar by default
-document.getElementById('assignmentLayout').classList.add('sidebar-open');
-document.getElementById('toggleBtn').innerHTML = 'Questions &lsaquo;';
+// Open sidebar by default (unless PDF mode)
+if (sidebarOpen) {
+    document.getElementById('assignmentLayout').classList.add('sidebar-open');
+    document.getElementById('toggleBtn').innerHTML = 'Questions &lsaquo;';
+}
 
 function toggleSidebar() {
     sidebarOpen = !sidebarOpen;
@@ -262,7 +269,8 @@ function toggleSidebar() {
     document.getElementById('toggleBtn').innerHTML = sidebarOpen ? 'Questions &lsaquo;' : 'Questions &rsaquo;';
 }
 
-// Wrap each word in the reading content with a clickable span
+// Wrap each word in the reading content with a clickable span (text mode only)
+if (!hasPdf) {
 (function() {
     const contentEl = document.getElementById('reading-content');
     const text = `{{ assignment.content | e }}`;
@@ -278,6 +286,7 @@ function toggleSidebar() {
     }).join('');
     contentEl.innerHTML = '<div class="marked-count-badge" id="marked-badge"></div>' + html;
 })();
+}
 
 function toggleMark(el) {
     const word = el.dataset.word;
