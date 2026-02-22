@@ -341,6 +341,21 @@ def init_db():
             FOREIGN KEY (science_test_id) REFERENCES science_test(id) ON DELETE CASCADE,
             FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS science_question_progress (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id INTEGER NOT NULL,
+            question_id INTEGER NOT NULL,
+            correct_count INTEGER DEFAULT 0,
+            wrong_count INTEGER DEFAULT 0,
+            streak INTEGER DEFAULT 0,
+            difficulty_level INTEGER DEFAULT 1,
+            last_tested DATETIME,
+            last_correct_at DATETIME,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE,
+            FOREIGN KEY (question_id) REFERENCES science_question(id) ON DELETE CASCADE,
+            UNIQUE(child_id, question_id)
+        );
     """)
     conn.commit()
 

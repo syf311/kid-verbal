@@ -2,6 +2,8 @@ import json
 import os
 import re
 import time
+import threading
+import tempfile
 from datetime import datetime
 from functools import wraps
 from flask import Flask, render_template, request, jsonify, send_from_directory, session, redirect, url_for
@@ -10,7 +12,7 @@ from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from database import init_db, get_db
 from dictionary import fetch_definition
-from test_engine import get_test_words, generate_choices, generate_word_choices, update_progress, record_test_session
+from test_engine import get_test_words, generate_choices, generate_word_choices, update_progress, record_test_session, update_science_progress
 from ocr import extract_text
 from pdf_parser import parse_answer_pdf, parse_grid_answer_pdf, extract_row_answers, pdf_page_to_png
 from science_parser import parse_science_bowl_pdf
@@ -3526,6 +3528,160 @@ def save_science_questions():
     return jsonify({"saved": len(saved_ids), "ids": saved_ids}), 201
 
 
+# ── NSB Bulk Import ──
+
+_bulk_import_progress = {}
+
+NSB_BASE_URL = "https://science.osti.gov"
+NSB_PAGE_URL = NSB_BASE_URL + "/wdts/nsb/Regional-Competitions/Resources/MS-Sample-Questions"
+
+
+def _do_bulk_import(child_id, job_id):
+    """Background worker: download all NSB PDFs, parse, deduplicate, save."""
+    import requests as req_lib
+
+    progress = _bulk_import_progress[job_id]
+    progress["status"] = "fetching_links"
+
+    try:
+        # Step 1: Fetch the page and extract PDF links
+        resp = req_lib.get(NSB_PAGE_URL, timeout=30)
+        resp.raise_for_status()
+        pdf_paths = re.findall(r'href="(/-/media/wdts/nsb/pdf/MS-Sample-Questions/[^"]+\.pdf)"', resp.text)
+        pdf_paths = list(dict.fromkeys(pdf_paths))  # dedupe, preserve order
+
+        progress["total_pdfs"] = len(pdf_paths)
+        progress["status"] = "downloading"
+
+        # Step 2: Load existing question texts for dedup (with ids for updating source_pdf)
+        conn = get_db()
+        existing = conn.execute(
+            "SELECT id, question_text, source_pdf FROM science_question WHERE child_id = ?", (child_id,)
+        ).fetchall()
+        existing_map = {}  # norm_text -> {id, source_pdf}
+        for row in existing:
+            norm = row["question_text"].strip().lower()
+            existing_map[norm] = {"id": row["id"], "source_pdf": row["source_pdf"] or ""}
+        conn.close()
+
+        total_new = 0
+        total_skipped = 0
+        total_updated = 0
+        total_failed = 0
+        errors = []
+
+        # Step 3: Process each PDF
+        for i, pdf_path in enumerate(pdf_paths):
+            progress["current_pdf"] = i + 1
+            progress["current_file"] = pdf_path.split("/")[-1]
+
+            url = NSB_BASE_URL + pdf_path
+
+            try:
+                pdf_resp = req_lib.get(url, timeout=30)
+                pdf_resp.raise_for_status()
+
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                    tmp.write(pdf_resp.content)
+                    tmp_path = tmp.name
+
+                questions, error = parse_science_bowl_pdf(tmp_path)
+                os.unlink(tmp_path)
+
+                if error or not questions:
+                    total_failed += 1
+                    errors.append({"file": pdf_path.split("/")[-1], "url": url, "error": error or "No questions found"})
+                    continue
+
+                # Save new questions (dedup by question_text)
+                conn = get_db()
+                pdf_new = 0
+                pdf_skip = 0
+                pdf_updated = 0
+                for q in questions:
+                    norm_text = q["question_text"].strip().lower()
+                    if norm_text in existing_map:
+                        # Question exists - update source_pdf if it doesn't have a URL
+                        ex = existing_map[norm_text]
+                        if not ex["source_pdf"].startswith("http"):
+                            conn.execute(
+                                "UPDATE science_question SET source_pdf = ? WHERE id = ?",
+                                (url, ex["id"])
+                            )
+                            ex["source_pdf"] = url
+                            pdf_updated += 1
+                        pdf_skip += 1
+                        continue
+
+                    round_name = q.get("round_name", "")
+
+                    conn.execute(
+                        """INSERT INTO science_question
+                           (child_id, category, question_type, answer_format, question_text, choices, correct_answer, explanation, source_pdf, round_name)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (child_id, q["category"], q["question_type"], q["answer_format"],
+                         q["question_text"], json.dumps(q.get("choices")) if q.get("choices") else None,
+                         q["correct_answer"], q.get("explanation", ""), url, round_name)
+                    )
+                    existing_map[norm_text] = {"id": 0, "source_pdf": url}
+                    pdf_new += 1
+
+                conn.commit()
+                conn.close()
+                total_new += pdf_new
+                total_skipped += pdf_skip
+                total_updated += pdf_updated
+
+            except Exception as e:
+                total_failed += 1
+                errors.append({"file": pdf_path.split("/")[-1], "url": url, "error": str(e)})
+
+        progress["status"] = "done"
+        progress["total_new"] = total_new
+        progress["total_skipped"] = total_skipped
+        progress["total_updated"] = total_updated
+        progress["total_failed"] = total_failed
+        progress["errors"] = errors[:20]  # cap error list
+
+    except Exception as e:
+        progress["status"] = "error"
+        progress["error"] = str(e)
+
+
+@app.route("/api/science/bulk-import-nsb", methods=["POST"])
+@parent_required
+def bulk_import_nsb():
+    data = request.json
+    child_id = data.get("child_id")
+    if not child_id:
+        return jsonify({"error": "child_id required"}), 400
+
+    job_id = f"nsb_{child_id}_{int(time.time())}"
+    _bulk_import_progress[job_id] = {
+        "status": "starting",
+        "total_pdfs": 0,
+        "current_pdf": 0,
+        "current_file": "",
+        "total_new": 0,
+        "total_skipped": 0,
+        "total_updated": 0,
+        "total_failed": 0,
+    }
+
+    t = threading.Thread(target=_do_bulk_import, args=(child_id, job_id), daemon=True)
+    t.start()
+    return jsonify({"job_id": job_id}), 200
+
+
+@app.route("/api/science/bulk-import-status/<job_id>", methods=["GET"])
+@parent_required
+def bulk_import_status(job_id):
+    progress = _bulk_import_progress.get(job_id)
+    if not progress:
+        return jsonify({"error": "Job not found"}), 404
+    return jsonify(progress), 200
+
+
 @app.route("/api/children/<int:child_id>/science-questions", methods=["GET"])
 @login_required
 def list_science_questions(child_id):
@@ -3851,6 +4007,14 @@ def submit_science_test(test_id):
     score = round(correct_count / total_count * 100) if total_count > 0 else 0
 
     account = get_current_account()
+    progress_child_id = account.get("child_id") or test["child_id"]
+
+    # Update per-question mastery tracking
+    for q in questions:
+        ga = graded_answers.get(str(q["id"]))
+        if ga:
+            update_science_progress(progress_child_id, q["id"], ga["is_correct"])
+
     conn.execute(
         """INSERT INTO science_test_submission
            (science_test_id, child_id, answers, score, correct_count, total_count, time_taken_seconds)
@@ -4023,6 +4187,171 @@ def add_plan_science_test(plan_id):
     conn.commit()
     conn.close()
     return jsonify({"id": st_id, "total_questions": len(question_ids)}), 201
+
+
+@app.route("/child/<int:child_id>/science-progress")
+def science_progress_page(child_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    if not child:
+        conn.close()
+        return "Child not found", 404
+
+    questions = conn.execute(
+        """SELECT sq.id, sq.question_text, sq.category, sq.question_type, sq.answer_format,
+                  COALESCE(sp.correct_count, 0) as correct_count,
+                  COALESCE(sp.wrong_count, 0) as wrong_count,
+                  COALESCE(sp.streak, 0) as streak,
+                  COALESCE(sp.difficulty_level, 1) as difficulty_level,
+                  sp.last_tested, sp.last_correct_at
+           FROM science_question sq
+           LEFT JOIN science_question_progress sp ON sq.id = sp.question_id AND sp.child_id = sq.child_id
+           WHERE sq.child_id = ?
+           ORDER BY sq.category, sq.id""",
+        (child_id,)
+    ).fetchall()
+    conn.close()
+
+    from datetime import datetime, timedelta
+    cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+
+    q_list = []
+    for q in questions:
+        q = dict(q)
+        # Compute status
+        if not q["last_tested"]:
+            q["status"] = "never"
+        elif q["wrong_count"] > q["correct_count"]:
+            q["status"] = "wrong"
+        elif q["streak"] == 0 and q["last_tested"]:
+            q["status"] = "wrong"
+        elif q["difficulty_level"] >= 4:
+            q["status"] = "mastered"
+        elif not q["last_correct_at"] or q["last_correct_at"] < cutoff:
+            q["status"] = "due"
+        else:
+            q["status"] = "good"
+        q_list.append(q)
+
+    # Stats
+    total = len(q_list)
+    never_tested = sum(1 for q in q_list if q["status"] == "never")
+    needs_work = sum(1 for q in q_list if q["status"] == "wrong")
+    mastered = sum(1 for q in q_list if q["status"] == "mastered")
+
+    # Category rollups
+    cat_data = {}
+    for q in q_list:
+        cat = q["category"]
+        if cat not in cat_data:
+            cat_data[cat] = {"total": 0, "mastered": 0}
+        cat_data[cat]["total"] += 1
+        if q["status"] == "mastered":
+            cat_data[cat]["mastered"] += 1
+
+    categories = []
+    for name in sorted(cat_data.keys()):
+        d = cat_data[name]
+        pct = round(d["mastered"] * 100 / d["total"]) if d["total"] else 0
+        categories.append({"name": name, "total": d["total"], "mastered": d["mastered"], "pct": pct})
+
+    # Fastest mastered: questions with difficulty_level >= 4, fewest total attempts
+    fastest = []
+    for q in q_list:
+        if q["difficulty_level"] >= 4:
+            total_attempts = q["correct_count"] + q["wrong_count"]
+            fastest.append({
+                "question_text": q["question_text"],
+                "category": q["category"],
+                "total_attempts": total_attempts,
+            })
+    fastest.sort(key=lambda x: x["total_attempts"])
+    fastest = fastest[:10]
+
+    return render_template(
+        "science_progress.html",
+        child=dict(child),
+        questions=q_list,
+        total=total,
+        never_tested=never_tested,
+        needs_work=needs_work,
+        mastered=mastered,
+        categories=categories,
+        fastest=fastest,
+        cutoff=cutoff,
+        role=session.get("role", "parent")
+    )
+
+
+@app.route("/api/children/<int:child_id>/science-progress")
+@login_required
+def api_science_progress(child_id):
+    conn = get_db()
+    questions = conn.execute(
+        """SELECT sq.category,
+                  COALESCE(sp.correct_count, 0) as correct_count,
+                  COALESCE(sp.wrong_count, 0) as wrong_count,
+                  COALESCE(sp.streak, 0) as streak,
+                  COALESCE(sp.difficulty_level, 1) as difficulty_level,
+                  sp.last_tested, sp.last_correct_at
+           FROM science_question sq
+           LEFT JOIN science_question_progress sp ON sq.id = sp.question_id AND sp.child_id = sq.child_id
+           WHERE sq.child_id = ?""",
+        (child_id,)
+    ).fetchall()
+    conn.close()
+
+    from datetime import datetime, timedelta
+    cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+
+    cat_data = {}
+    total = 0
+    never_tested = 0
+    needs_work = 0
+    mastered_count = 0
+
+    for q in questions:
+        q = dict(q)
+        total += 1
+        cat = q["category"]
+        if cat not in cat_data:
+            cat_data[cat] = {"total": 0, "mastered": 0}
+        cat_data[cat]["total"] += 1
+
+        if not q["last_tested"]:
+            status = "never"
+        elif q["wrong_count"] > q["correct_count"]:
+            status = "wrong"
+        elif q["streak"] == 0 and q["last_tested"]:
+            status = "wrong"
+        elif q["difficulty_level"] >= 4:
+            status = "mastered"
+        elif not q["last_correct_at"] or q["last_correct_at"] < cutoff:
+            status = "due"
+        else:
+            status = "good"
+
+        if status == "never":
+            never_tested += 1
+        elif status == "wrong":
+            needs_work += 1
+        elif status == "mastered":
+            mastered_count += 1
+            cat_data[cat]["mastered"] += 1
+
+    categories = []
+    for name in sorted(cat_data.keys()):
+        d = cat_data[name]
+        pct = round(d["mastered"] * 100 / d["total"]) if d["total"] else 0
+        categories.append({"name": name, "total": d["total"], "mastered": d["mastered"], "pct": pct})
+
+    return jsonify({
+        "total": total,
+        "never_tested": never_tested,
+        "needs_work": needs_work,
+        "mastered": mastered_count,
+        "categories": categories,
+    })
 
 
 if __name__ == "__main__":

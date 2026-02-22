@@ -1,0 +1,375 @@
+{% extends "base.html" %}
+
+{% block title %}{{ child.name }} - Science Progress{% endblock %}
+
+{% block extra_css %}
+<style>
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        margin-bottom: 25px;
+    }
+    .stat-card {
+        text-align: center;
+        padding: 15px 10px;
+        border-radius: 12px;
+        background: #f7fafc;
+    }
+    .stat-card .number { font-size: 28px; font-weight: bold; }
+    .stat-card .label { font-size: 13px; color: #666; margin-top: 4px; }
+    .stat-total .number { color: #667eea; }
+    .stat-new .number { color: #a0aec0; }
+    .stat-wrong .number { color: #f56565; }
+    .stat-mastered .number { color: #48bb78; }
+
+    .category-rollups {
+        margin-bottom: 25px;
+    }
+    .category-rollups h2 { font-size: 18px; margin-bottom: 12px; }
+    .cat-bar-row {
+        display: flex;
+        align-items: center;
+        margin-bottom: 8px;
+        gap: 10px;
+    }
+    .cat-bar-label {
+        width: 140px;
+        font-size: 14px;
+        font-weight: 600;
+        text-align: right;
+        flex-shrink: 0;
+    }
+    .cat-bar-track {
+        flex: 1;
+        height: 20px;
+        background: #e2e8f0;
+        border-radius: 10px;
+        overflow: hidden;
+        position: relative;
+    }
+    .cat-bar-fill {
+        height: 100%;
+        border-radius: 10px;
+        transition: width 0.4s ease;
+    }
+    .cat-bar-pct {
+        width: 50px;
+        font-size: 13px;
+        font-weight: 600;
+        text-align: left;
+        flex-shrink: 0;
+    }
+
+    .fastest-section {
+        margin-bottom: 25px;
+    }
+    .fastest-section h2 { font-size: 18px; margin-bottom: 12px; }
+    .fastest-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 10px;
+    }
+    .fastest-card {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        background: #f7fafc;
+        border-radius: 10px;
+        border-left: 4px solid #667eea;
+    }
+    .fastest-rank {
+        font-size: 20px;
+        font-weight: bold;
+        color: #667eea;
+        width: 28px;
+        text-align: center;
+        flex-shrink: 0;
+    }
+    .fastest-info { flex: 1; min-width: 0; }
+    .fastest-q {
+        font-size: 14px;
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .fastest-meta { font-size: 12px; color: #888; }
+
+    .q-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+    }
+    .q-table th {
+        text-align: left;
+        padding: 10px 8px;
+        border-bottom: 2px solid #e2e8f0;
+        color: #666;
+        font-size: 12px;
+        text-transform: uppercase;
+        cursor: pointer;
+        user-select: none;
+    }
+    .q-table th:hover { color: #667eea; }
+    .q-table td {
+        padding: 10px 8px;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .q-table tbody tr:hover td { background: #f7fafc; }
+
+    .q-text {
+        max-width: 300px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+    }
+    .q-cat {
+        font-size: 12px;
+        padding: 2px 8px;
+        border-radius: 8px;
+        background: #edf2f7;
+        color: #4a5568;
+        white-space: nowrap;
+    }
+    .q-type {
+        font-size: 12px;
+        color: #888;
+        white-space: nowrap;
+    }
+
+    .status-badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .status-never { background: #e2e8f0; color: #718096; }
+    .status-wrong { background: #fed7d7; color: #c53030; }
+    .status-due { background: #fefcbf; color: #975a16; }
+    .status-good { background: #c6f6d5; color: #276749; }
+    .status-mastered { background: #667eea; color: white; }
+
+    .filter-bar {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 10px;
+        flex-wrap: wrap;
+    }
+    .filter-btn {
+        padding: 6px 14px;
+        border: 2px solid #e2e8f0;
+        border-radius: 20px;
+        background: white;
+        cursor: pointer;
+        font-size: 14px;
+        transition: all 0.2s;
+    }
+    .filter-btn:hover { border-color: #667eea; }
+    .filter-btn.active { background: #667eea; color: white; border-color: #667eea; }
+
+    .difficulty-dots {
+        display: inline-flex;
+        gap: 3px;
+    }
+    .difficulty-dots .dot {
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        background: #e2e8f0;
+    }
+    .difficulty-dots .dot.filled { background: #667eea; }
+
+    .date-cell { font-size: 13px; color: #666; }
+    .count-correct { color: #48bb78; font-weight: 600; }
+    .count-wrong { color: #f56565; font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="/" style="color: #667eea; text-decoration: none;">&larr; Back</a>
+<h1 style="margin-top: 10px;">{{ child.name }} - Science Progress</h1>
+
+<div class="stats-grid">
+    <div class="stat-card stat-total">
+        <div class="number">{{ total }}</div>
+        <div class="label">Total Questions</div>
+    </div>
+    <div class="stat-card stat-new">
+        <div class="number">{{ never_tested }}</div>
+        <div class="label">Never Tested</div>
+    </div>
+    <div class="stat-card stat-wrong">
+        <div class="number">{{ needs_work }}</div>
+        <div class="label">Needs Work</div>
+    </div>
+    <div class="stat-card stat-mastered">
+        <div class="number">{{ mastered }}</div>
+        <div class="label">Mastered</div>
+    </div>
+</div>
+
+{% if categories %}
+<div class="category-rollups">
+    <h2>Category Mastery</h2>
+    {% for cat in categories %}
+    <div class="cat-bar-row">
+        <div class="cat-bar-label">{{ cat.name }}</div>
+        <div class="cat-bar-track">
+            <div class="cat-bar-fill" style="width: {{ cat.pct }}%; background: {{ '#48bb78' if cat.pct >= 70 else ('#ed8936' if cat.pct >= 40 else '#f56565') }};"></div>
+        </div>
+        <div class="cat-bar-pct" style="color: {{ '#48bb78' if cat.pct >= 70 else ('#ed8936' if cat.pct >= 40 else '#f56565') }};">{{ cat.pct }}%</div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if fastest %}
+<div class="fastest-section">
+    <h2>Fastest Mastered (fewest attempts)</h2>
+    <div class="fastest-list">
+        {% for f in fastest %}
+        <div class="fastest-card">
+            <div class="fastest-rank">{{ loop.index }}</div>
+            <div class="fastest-info">
+                <div class="fastest-q" title="{{ f.question_text }}">{{ f.question_text }}</div>
+                <div class="fastest-meta">{{ f.category }} | {{ f.total_attempts }} attempt{{ 's' if f.total_attempts != 1 else '' }}</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<h2 style="font-size: 18px; margin-bottom: 8px;">All Questions</h2>
+
+<div class="filter-bar" id="status-filter">
+    <button class="filter-btn active" onclick="filterQ('all', this, 'status-filter')">All</button>
+    <button class="filter-btn" onclick="filterQ('never', this, 'status-filter')">Never Tested</button>
+    <button class="filter-btn" onclick="filterQ('wrong', this, 'status-filter')">Needs Work</button>
+    <button class="filter-btn" onclick="filterQ('due', this, 'status-filter')">Due for Review</button>
+    <button class="filter-btn" onclick="filterQ('good', this, 'status-filter')">Good</button>
+    <button class="filter-btn" onclick="filterQ('mastered', this, 'status-filter')">Mastered</button>
+</div>
+
+<div class="filter-bar" id="cat-filter">
+    <button class="filter-btn active" onclick="filterCat('all', this)">All Categories</button>
+    {% for cat in categories %}
+    <button class="filter-btn" onclick="filterCat('{{ cat.name }}', this)">{{ cat.name }}</button>
+    {% endfor %}
+</div>
+
+<div style="overflow-x: auto; padding-bottom: 40px;">
+<table class="q-table" id="q-table">
+    <thead>
+        <tr>
+            <th onclick="sortTable(0)">Question</th>
+            <th onclick="sortTable(1)">Category</th>
+            <th onclick="sortTable(2)">Type</th>
+            <th onclick="sortTable(3)">Status</th>
+            <th onclick="sortTable(4)">Correct</th>
+            <th onclick="sortTable(5)">Wrong</th>
+            <th onclick="sortTable(6)">Mastery</th>
+            <th onclick="sortTable(7)">Last Tested</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for q in questions %}
+        <tr data-status="{{ q.status }}" data-category="{{ q.category }}">
+            <td>
+                <div class="q-text" title="{{ q.question_text }}">{{ q.question_text }}</div>
+            </td>
+            <td><span class="q-cat">{{ q.category }}</span></td>
+            <td><span class="q-type">{{ q.question_type }}</span></td>
+            <td>
+                {% if q.status == 'never' %}
+                    <span class="status-badge status-never">New</span>
+                {% elif q.status == 'wrong' %}
+                    <span class="status-badge status-wrong">Needs Work</span>
+                {% elif q.status == 'mastered' %}
+                    <span class="status-badge status-mastered">Mastered</span>
+                {% elif q.status == 'due' %}
+                    <span class="status-badge status-due">Due</span>
+                {% else %}
+                    <span class="status-badge status-good">Good</span>
+                {% endif %}
+            </td>
+            <td><span class="count-correct">{{ q.correct_count }}</span></td>
+            <td><span class="count-wrong">{{ q.wrong_count }}</span></td>
+            <td>
+                <div class="difficulty-dots">
+                    {% for i in range(5) %}
+                    <span class="dot {{ 'filled' if i < q.difficulty_level else '' }}"></span>
+                    {% endfor %}
+                </div>
+            </td>
+            <td class="date-cell" data-date="{{ q.last_tested or '' }}">{{ q.last_tested[:10] if q.last_tested else '-' }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let activeStatus = 'all';
+let activeCat = 'all';
+
+function daysAgo(dateStr) {
+    if (!dateStr) return '-';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return '1 day ago';
+    return diffDays + ' days ago';
+}
+
+document.querySelectorAll('.date-cell[data-date]').forEach(cell => {
+    const d = cell.getAttribute('data-date');
+    if (d) cell.textContent = daysAgo(d);
+});
+
+function filterQ(status, btn, barId) {
+    activeStatus = status;
+    document.querySelectorAll('#' + barId + ' .filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    applyFilters();
+}
+
+function filterCat(cat, btn) {
+    activeCat = cat;
+    document.querySelectorAll('#cat-filter .filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    applyFilters();
+}
+
+function applyFilters() {
+    document.querySelectorAll('#q-table tbody tr').forEach(row => {
+        const statusMatch = activeStatus === 'all' || row.dataset.status === activeStatus;
+        const catMatch = activeCat === 'all' || row.dataset.category === activeCat;
+        row.style.display = (statusMatch && catMatch) ? '' : 'none';
+    });
+}
+
+let sortDir = {};
+function sortTable(col) {
+    const tbody = document.querySelector('#q-table tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    sortDir[col] = !sortDir[col];
+    const dir = sortDir[col] ? 1 : -1;
+    rows.sort((a, b) => {
+        let aVal = a.cells[col].textContent.trim();
+        let bVal = b.cells[col].textContent.trim();
+        const aNum = parseFloat(aVal);
+        const bNum = parseFloat(bVal);
+        if (!isNaN(aNum) && !isNaN(bNum)) return (aNum - bNum) * dir;
+        return aVal.localeCompare(bVal) * dir;
+    });
+    rows.forEach(row => tbody.appendChild(row));
+}
+</script>
+{% endblock %}

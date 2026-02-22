@@ -175,6 +175,61 @@ def update_progress(child_id: int, word_id: int, correct: bool) -> dict:
     }
 
 
+def update_science_progress(child_id: int, question_id: int, correct: bool) -> dict:
+    """Update science question progress after an answer."""
+    conn = get_db()
+
+    progress = conn.execute(
+        "SELECT * FROM science_question_progress WHERE child_id = ? AND question_id = ?",
+        (child_id, question_id)
+    ).fetchone()
+
+    if not progress:
+        conn.execute(
+            "INSERT INTO science_question_progress (child_id, question_id, difficulty_level) VALUES (?, ?, 1)",
+            (child_id, question_id)
+        )
+        progress = {"correct_count": 0, "wrong_count": 0, "streak": 0, "difficulty_level": 1}
+    else:
+        progress = dict(progress)
+
+    now = datetime.now()
+
+    if correct:
+        new_correct = progress["correct_count"] + 1
+        new_wrong = progress["wrong_count"]
+        new_streak = progress["streak"] + 1
+        new_difficulty = min(5, progress["difficulty_level"] + 1)
+
+        conn.execute(
+            """UPDATE science_question_progress
+               SET correct_count = ?, wrong_count = ?, streak = ?,
+                   difficulty_level = ?, last_tested = ?, last_correct_at = ?
+               WHERE child_id = ? AND question_id = ?""",
+            (new_correct, new_wrong, new_streak, new_difficulty,
+             now, now, child_id, question_id)
+        )
+    else:
+        new_correct = progress["correct_count"]
+        new_wrong = progress["wrong_count"] + 1
+        new_streak = 0
+        new_difficulty = max(1, progress["difficulty_level"] - 1)
+
+        conn.execute(
+            """UPDATE science_question_progress
+               SET correct_count = ?, wrong_count = ?, streak = ?,
+                   difficulty_level = ?, last_tested = ?
+               WHERE child_id = ? AND question_id = ?""",
+            (new_correct, new_wrong, new_streak, new_difficulty,
+             now, child_id, question_id)
+        )
+
+    conn.commit()
+    conn.close()
+
+    return {"streak": new_streak, "correct": correct}
+
+
 def record_test_session(child_id: int, test_type: str, score: int,
                         correct_count: int, total_count: int, time_taken: int):
     """Record a completed test session."""

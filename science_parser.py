@@ -20,12 +20,15 @@ def parse_science_bowl_pdf(pdf_path):
         if not text.strip():
             return None, "Could not extract any text from the PDF."
 
-        # Extract round name from text (e.g., "ROUND 1")
-        round_match = re.search(r'ROUND\s+(\d+)', text, re.IGNORECASE)
+        # Extract round name from text (e.g., "ROUND 1" or "ROUND 3A")
+        round_match = re.search(r'ROUND\s+(\d+\w*)', text, re.IGNORECASE)
         round_name = f"Round {round_match.group(1)}" if round_match else ""
 
-        # Remove footer lines like "Middle School Round 1 Page 1"
+        # Remove footer lines like "Middle School Round 1 Page 1" or "Round 3A ~ Page 1"
         text = re.sub(r'(?:Middle|High)\s+School\s+Round\s+\d+\s+Page\s+\d+', '', text)
+        text = re.sub(r'Round\s+\S+\s*~\s*Page\s+\d+', '', text)
+        # Remove tilde separator lines
+        text = re.sub(r'~{5,}', '', text)
 
         questions = []
 
@@ -58,9 +61,11 @@ def parse_science_bowl_pdf(pdf_path):
             block = '\n'.join(lines)
 
             # Parse the question line: N) CATEGORY (Short Answer|Multiple Choice) question text
+            # Some PDFs use "–" or "-" between category and format
             q_match = re.match(
                 r'(\d+)\)\s+'
-                r'(LIFE SCIENCE|PHYSICAL SCIENCE|EARTH SCIENCE|EARTH AND SPACE|GENERAL SCIENCE|MATH|ENERGY|BIOLOGY|CHEMISTRY|PHYSICS)\s+'
+                r'(LIFE SCIENCE|PHYSICAL SCIENCE|EARTH SCIENCE|EARTH AND SPACE|GENERAL SCIENCE|MATH|ENERGY|BIOLOGY|CHEMISTRY|PHYSICS)'
+                r'\s*[\u2013\u2014\-]?\s*'
                 r'(Short Answer|Multiple Choice)\s+'
                 r'(.+)',
                 block, re.DOTALL | re.IGNORECASE

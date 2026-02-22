@@ -414,6 +414,10 @@
         <div class="tab-panel" data-panel="science" id="panel-science">
             <div class="quick-links" id="science-links"></div>
             <div class="dash-card">
+                <h3>Mastery Overview</h3>
+                <div id="science-mastery-overview"><span class="empty-msg">Loading...</span></div>
+            </div>
+            <div class="dash-card">
                 <h3>Question Bank</h3>
                 <div id="science-question-stats"><span class="empty-msg">Loading...</span></div>
             </div>
@@ -519,6 +523,8 @@ function updateQuickLinks(childId) {
         <a href="#" class="btn-success" onclick="event.preventDefault(); openScienceImport()">Import Questions</a>
         <a href="#" class="btn-primary" onclick="event.preventDefault(); openScienceCreateStudy()">Create Study Session</a>
         <a href="#" class="btn-warning" onclick="event.preventDefault(); openScienceCreateTest()">Create Test</a>
+        <a href="/child/${childId}/science-progress" style="background:#2b6cb0;color:#fff;">Science Progress</a>
+        <a href="#" class="btn" style="background:#718096;color:#fff;" onclick="event.preventDefault(); bulkImportNSB()">Bulk Import from NSB</a>
     `;
     document.getElementById('plans-links').innerHTML = `
         <a href="/parent/child/${childId}/learning-plan/new" class="btn-success">Create Learning Plan</a>
@@ -959,6 +965,54 @@ function sciFormatBadge(fmt) {
 }
 
 async function loadScienceTab(childId) {
+    // Load mastery overview
+    const mRes = await fetch(`/api/children/${childId}/science-progress`);
+    const masteryEl = document.getElementById('science-mastery-overview');
+    if (mRes.ok) {
+        const m = await mRes.json();
+        if (m.total === 0) {
+            masteryEl.innerHTML = '<span class="empty-msg">No questions imported yet.</span>';
+        } else {
+            const overallPct = m.total > 0 ? Math.round(m.mastered * 100 / m.total) : 0;
+            masteryEl.innerHTML = `
+                <div style="display:flex; gap:15px; margin-bottom:12px; flex-wrap:wrap;">
+                    <div style="text-align:center; flex:1; min-width:60px;">
+                        <div style="font-size:22px; font-weight:bold; color:#667eea;">${m.total}</div>
+                        <div style="font-size:12px; color:#666;">Total</div>
+                    </div>
+                    <div style="text-align:center; flex:1; min-width:60px;">
+                        <div style="font-size:22px; font-weight:bold; color:#a0aec0;">${m.never_tested}</div>
+                        <div style="font-size:12px; color:#666;">Untested</div>
+                    </div>
+                    <div style="text-align:center; flex:1; min-width:60px;">
+                        <div style="font-size:22px; font-weight:bold; color:#f56565;">${m.needs_work}</div>
+                        <div style="font-size:12px; color:#666;">Needs Work</div>
+                    </div>
+                    <div style="text-align:center; flex:1; min-width:60px;">
+                        <div style="font-size:22px; font-weight:bold; color:#48bb78;">${m.mastered}</div>
+                        <div style="font-size:12px; color:#666;">Mastered</div>
+                    </div>
+                </div>
+                ${m.categories.map(c => {
+                    const color = c.pct >= 70 ? '#48bb78' : (c.pct >= 40 ? '#ed8936' : '#f56565');
+                    return `
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                        <div style="width:120px; font-size:13px; font-weight:600; text-align:right; flex-shrink:0;">${escHtml(c.name)}</div>
+                        <div style="flex:1; height:16px; background:#e2e8f0; border-radius:8px; overflow:hidden;">
+                            <div style="height:100%; width:${c.pct}%; background:${color}; border-radius:8px;"></div>
+                        </div>
+                        <div style="width:40px; font-size:12px; font-weight:600; color:${color};">${c.pct}%</div>
+                    </div>`;
+                }).join('')}
+                <div style="text-align:right; margin-top:8px;">
+                    <a href="/child/${childId}/science-progress" class="btn btn-primary" style="padding:6px 14px; font-size:13px;">View Details</a>
+                </div>
+            `;
+        }
+    } else {
+        masteryEl.innerHTML = '<span class="empty-msg">Could not load mastery data.</span>';
+    }
+
     // Load questions
     const qRes = await fetch(`/api/children/${childId}/science-questions`);
     if (qRes.ok) scienceQuestions = await qRes.json();
@@ -1068,6 +1122,93 @@ async function deleteScienceTest(id) {
 
 function closeScienceModal() {
     document.getElementById('science-modal').style.display = 'none';
+}
+
+async function bulkImportNSB() {
+    if (!confirm('Download and import ALL Science Bowl sample questions from the NSB website (~250 PDFs, ~12,000 questions)? Duplicates will be automatically skipped.')) return;
+    const modal = document.getElementById('science-modal');
+    document.getElementById('science-modal-content').innerHTML = `
+        <h2>Bulk Import from NSB</h2>
+        <div id="bulk-progress" style="text-align:center; padding:20px;">
+            <div style="font-size:48px; margin-bottom:10px;">&#x1F4E5;</div>
+            <div style="font-weight:600; font-size:16px;" id="bulk-status">Starting import...</div>
+            <div style="margin-top:10px;">
+                <div style="background:#e2e8f0; border-radius:10px; height:20px; overflow:hidden; margin:10px 0;">
+                    <div id="bulk-bar" style="height:100%; background:linear-gradient(90deg,#667eea,#48bb78); border-radius:10px; transition:width 0.3s; width:0%;"></div>
+                </div>
+                <div id="bulk-detail" style="font-size:13px; color:#666;">Fetching PDF list...</div>
+            </div>
+            <div id="bulk-results" style="margin-top:15px; display:none;"></div>
+        </div>
+    `;
+    modal.style.display = 'block';
+
+    try {
+        const res = await fetch('/api/science/bulk-import-nsb', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ child_id: currentChildId })
+        });
+        if (!res.ok) {
+            const d = await res.json();
+            document.getElementById('bulk-status').textContent = 'Error: ' + (d.error || 'Failed to start');
+            return;
+        }
+        const { job_id } = await res.json();
+
+        // Poll for progress
+        const poll = setInterval(async () => {
+            try {
+                const pr = await fetch(`/api/science/bulk-import-status/${job_id}`);
+                if (!pr.ok) return;
+                const p = await pr.json();
+                const statusEl = document.getElementById('bulk-status');
+                const detailEl = document.getElementById('bulk-detail');
+                const barEl = document.getElementById('bulk-bar');
+                const resultsEl = document.getElementById('bulk-results');
+
+                if (p.status === 'fetching_links') {
+                    statusEl.textContent = 'Fetching PDF list from NSB website...';
+                } else if (p.status === 'downloading') {
+                    const pct = p.total_pdfs > 0 ? Math.round(p.current_pdf / p.total_pdfs * 100) : 0;
+                    statusEl.textContent = `Processing PDF ${p.current_pdf} of ${p.total_pdfs}`;
+                    detailEl.textContent = p.current_file || '';
+                    barEl.style.width = pct + '%';
+                } else if (p.status === 'done') {
+                    clearInterval(poll);
+                    statusEl.textContent = 'Import Complete!';
+                    statusEl.style.color = '#48bb78';
+                    barEl.style.width = '100%';
+                    detailEl.textContent = '';
+                    let html = `<div style="text-align:left; background:#f7fafc; border-radius:8px; padding:12px; font-size:14px;">
+                        <div><strong>${p.total_new}</strong> new questions imported</div>
+                        <div><strong>${p.total_skipped}</strong> duplicates skipped</div>`;
+                    if (p.total_updated > 0) {
+                        html += `<div><strong>${p.total_updated}</strong> existing questions updated with source URL</div>`;
+                    }
+                    if (p.total_failed > 0) {
+                        html += `<div style="color:#e53e3e;"><strong>${p.total_failed}</strong> PDFs failed to parse</div>`;
+                        if (p.errors && p.errors.length > 0) {
+                            html += `<details style="margin-top:8px;"><summary style="cursor:pointer; color:#666;">Show errors</summary>
+                                <div style="font-size:12px; color:#888; margin-top:4px; max-height:150px; overflow-y:auto;">
+                                    ${p.errors.map(e => `<div style="margin-bottom:4px;">${escHtml(e.file)}: ${escHtml(e.error)} <a href="${escHtml(e.url)}" target="_blank" style="color:#667eea;">[PDF]</a></div>`).join('')}
+                                </div></details>`;
+                        }
+                    }
+                    html += `</div>`;
+                    resultsEl.innerHTML = html;
+                    resultsEl.style.display = 'block';
+                    loadScienceTab(currentChildId);
+                } else if (p.status === 'error') {
+                    clearInterval(poll);
+                    statusEl.textContent = 'Error: ' + (p.error || 'Unknown error');
+                    statusEl.style.color = '#e53e3e';
+                }
+            } catch(e) {}
+        }, 1500);
+    } catch(e) {
+        document.getElementById('bulk-status').textContent = 'Network error: ' + e.message;
+    }
 }
 
 function openScienceImport() {
@@ -1263,6 +1404,7 @@ function renderQuestionBank() {
             ${choicesHtml}
             <div style="font-size:13px; color:#276749; font-weight:600; margin-top:6px;">Answer: ${escHtml(q.correct_answer)}</div>
             ${q.explanation && q.explanation !== 'Answer: ' + q.correct_answer ? `<div style="font-size:12px; color:#666; margin-top:2px;">${escHtml(q.explanation)}</div>` : ''}
+            ${q.source_pdf ? `<div style="font-size:11px; margin-top:4px;"><a href="${escHtml(q.source_pdf)}" target="_blank" style="color:#667eea; text-decoration:none;">&#x1F4C4; View Source PDF</a></div>` : ''}
             <div style="display:flex; gap:6px; margin-top:6px;">
                 <button class="btn btn-warning" style="padding:2px 8px; font-size:11px;" onclick="event.stopPropagation(); editSciQuestion(${q.id})">Edit</button>
                 <button class="btn btn-danger" style="padding:2px 8px; font-size:11px;" onclick="event.stopPropagation(); deleteSciQuestion(${q.id})">Delete</button>
