@@ -22,11 +22,11 @@
         <div>
             <strong style="font-size: 18px;">{{ lp.title }}</strong>
             <div style="font-size: 14px; color: #666;">
-                {{ lp.item_count }} items | {{ 'Completed' if lp.status == 'completed' else 'In Progress' }}
+                {{ lp.item_count }} items | {{ 'Reviewed' if lp.status == 'reviewed' else 'Completed' if lp.status == 'completed' else 'In Progress' }}
             </div>
         </div>
-        <a href="/child/{{ child.id }}/learning-plan/{{ lp.id }}" class="btn {{ 'btn-primary' if lp.status == 'completed' else 'btn-success' }}" style="padding: 10px 25px;">
-            {{ 'Review' if lp.status == 'completed' else 'Continue' }}
+        <a href="/child/{{ child.id }}/learning-plan/{{ lp.id }}" class="btn {{ 'btn-primary' if lp.status in ('completed', 'reviewed') else 'btn-success' }}" style="padding: 10px 25px;">
+            {{ 'Review' if lp.status in ('completed', 'reviewed') else 'Continue' }}
         </a>
     </div>
     {% endfor %}

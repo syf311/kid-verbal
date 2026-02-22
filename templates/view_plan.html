@@ -85,11 +85,39 @@
     .celebration .big-icon { font-size: 64px; }
     .celebration h2 { color: #276749; margin-top: 10px; }
     .celebration p { color: #555; font-size: 16px; }
+    .badge-reviewed {
+        display: inline-block;
+        background: #bee3f8;
+        color: #2b6cb0;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 3px 10px;
+        border-radius: 6px;
+    }
+    .review-check {
+        width: 22px;
+        height: 22px;
+        cursor: pointer;
+        accent-color: #667eea;
+        flex-shrink: 0;
+        margin-left: 10px;
+    }
+    .review-all-bar {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 12px;
+        gap: 10px;
+    }
+    .review-all-bar .btn { padding: 8px 18px; font-size: 14px; }
+    .item-card.reviewed-card {
+        background: #ebf8ff;
+        border: 1px solid #bee3f8;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
-<a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back to Dashboard</a>
+<a href="{{ '/parent#child-' ~ child.id if role == 'parent' else '/child/' ~ child.id }}" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back to Dashboard</a>
 <h1 style="margin-top: 10px;">{{ plan.title }}</h1>
 
 <div id="plan-content">
@@ -101,6 +129,7 @@
 <script>
 const childId = {{ child.id }};
 const planId = {{ plan.id }};
+const isParent = {{ 'true' if role == 'parent' else 'false' }};
 
 function escHtml(str) {
     if (!str) return '';
@@ -122,11 +151,20 @@ function render(data) {
     const done = items.filter(i => i.details && i.details.status === 'completed').length;
     const pct = total > 0 ? Math.round(done / total * 100) : 0;
     const allDone = done === total && total > 0;
+    const planStatus = data.status || '';
+    const allReviewed = planStatus === 'reviewed';
+    const reviewedCount = items.filter(i => i.parent_reviewed).length;
 
     let html = '';
 
     // Celebration
-    if (allDone) {
+    if (allReviewed) {
+        html += `<div class="celebration" style="background: linear-gradient(135deg, #ebf8ff, #e9d8fd);">
+            <div class="big-icon">&#x2705;</div>
+            <h2>Fully Reviewed</h2>
+            <p>All items have been reviewed by parent.</p>
+        </div>`;
+    } else if (allDone) {
         html += `<div class="celebration">
             <div class="big-icon">&#x1F389;</div>
             <h2>All Done!</h2>
@@ -138,11 +176,22 @@ function render(data) {
     html += `<div class="progress-text">${done} of ${total} items complete (${pct}%)</div>`;
     html += `<div class="progress-bar-wrap"><div class="progress-bar-fill" style="width: ${pct}%"></div></div>`;
 
+    // Review All bar (parent only, when plan is completed or reviewed)
+    if (isParent && allDone) {
+        html += `<div class="review-all-bar">`;
+        html += `<span style="font-size:13px; color:#666; line-height:36px;">${reviewedCount} of ${total} reviewed</span>`;
+        if (!allReviewed) {
+            html += `<button class="btn btn-primary" onclick="reviewAll()">Review All</button>`;
+        }
+        html += `</div>`;
+    }
+
     // Items
     items.forEach(item => {
         const d = item.details || {};
         const status = d.status || 'pending';
         const completed = status === 'completed';
+        const reviewed = item.parent_reviewed;
         let icon = '';
         let typeLabel = '';
         let typeCls = '';
@@ -183,6 +232,10 @@ function render(data) {
             typeLabel = 'Test';
             typeCls = 'type-test';
             meta = `${d.word_count || 0} words`;
+            if (completed && d.correct_count != null && d.total_count != null) {
+                const pct = d.total_count > 0 ? Math.round(d.correct_count * 100 / d.total_count) : 0;
+                meta += ` &middot; ${d.correct_count}/${d.total_count} correct (${pct}%)`;
+            }
             href = completed
                 ? `/child/${childId}/tests/${d.test_session_id || ''}`
                 : `/child/${childId}/test/${item.item_id}`;
@@ -219,26 +272,52 @@ function render(data) {
                 : `/child/${childId}/science-test/${item.item_id}`;
         }
 
-        const badge = completed
-            ? '<span class="badge-done">Done</span>'
-            : '<span class="badge-pending">Not Started</span>';
+        const statusBadge = reviewed
+            ? '<span class="badge-reviewed">Reviewed</span>'
+            : completed
+                ? '<span class="badge-done">Done</span>'
+                : '<span class="badge-pending">Not Started</span>';
         const btnLabel = completed ? 'Review' : 'Start';
         const btnClass = completed ? 'btn-primary' : 'btn-success';
+        const cardCls = reviewed ? 'item-card reviewed-card' : 'item-card';
 
-        html += `<div class="item-card">
+        html += `<div class="${cardCls}">
             <span class="icon">${icon}</span>
             <div class="info">
                 <span class="type-label ${typeCls}">${typeLabel}</span>
                 <strong>${escHtml(title)}</strong>
-                <div class="meta">${meta} ${badge}</div>
+                <div class="meta">${meta} ${statusBadge}</div>
             </div>
-            <div class="action">
-                <a href="${href}" class="btn ${btnClass}">${btnLabel}</a>
-            </div>
+            <div class="action" style="display:flex; align-items:center; gap:6px;">
+                <a href="${href}" class="btn ${btnClass}">${btnLabel}</a>`;
+
+        // Review checkbox for parent on completed items
+        if (isParent && completed) {
+            html += `<input type="checkbox" class="review-check" title="Mark as reviewed"
+                ${reviewed ? 'checked' : ''}
+                onchange="toggleReview(${item.id}, this)">`;
+        }
+
+        html += `</div>
         </div>`;
     });
 
     document.getElementById('plan-content').innerHTML = html;
+}
+
+async function toggleReview(itemId, checkbox) {
+    const res = await fetch(`/api/learning-plans/${planId}/items/${itemId}/review`, { method: 'POST' });
+    if (!res.ok) {
+        checkbox.checked = !checkbox.checked;
+        return;
+    }
+    loadPlan();
+}
+
+async function reviewAll() {
+    if (!confirm('Mark all items as reviewed?')) return;
+    const res = await fetch(`/api/learning-plans/${planId}/items/review-all`, { method: 'POST' });
+    if (res.ok) loadPlan();
 }
 
 loadPlan();

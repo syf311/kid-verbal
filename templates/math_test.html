@@ -125,6 +125,20 @@
         overflow-y: auto;
         padding-right: 4px;
     }
+    .explanation-input {
+        width: 100%;
+        padding: 8px 10px;
+        font-size: 14px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        box-sizing: border-box;
+        margin-top: 4px;
+        margin-bottom: 8px;
+        resize: vertical;
+        min-height: 60px;
+        display: none;
+    }
+    .explanation-input::placeholder { color: #a0aec0; }
     .submit-area {
         margin-top: 15px;
         text-align: center;
@@ -210,6 +224,7 @@ function buildGrid() {
             html += `<button class="choice-btn" data-q="${i}" data-ch="${ch}" onclick="selectAnswer(${i},'${ch}',this)">${ch}</button>`;
         }
         html += `</div>`;
+        html += `<textarea class="explanation-input" id="explain-${i}" placeholder="How did you get this answer?" rows="2"></textarea>`;
     }
     grid.innerHTML = html;
 }
@@ -218,6 +233,8 @@ function selectAnswer(q, ch, btn) {
     btn.parentElement.querySelectorAll('.choice-btn').forEach(b => b.classList.remove('selected'));
     btn.classList.add('selected');
     answers[String(q)] = ch;
+    const explainEl = document.getElementById('explain-' + q);
+    if (explainEl) explainEl.style.display = 'block';
     updateProgress();
 }
 
@@ -237,6 +254,14 @@ async function submitTest() {
         alert('Please answer all questions before submitting.');
         return;
     }
+    const missingExplain = questionsToShow.some(qStr => {
+        const el = document.getElementById('explain-' + qStr);
+        return !el || el.value.trim().length === 0;
+    });
+    if (missingExplain) {
+        alert('Please explain how you got each answer before submitting.');
+        return;
+    }
     if (!confirm('Submit your answers? You cannot change them after submitting.')) return;
     await doSubmit(timeTaken);
 }
@@ -247,11 +272,17 @@ async function doSubmit(timeTaken) {
     btn.disabled = true;
     btn.textContent = 'Submitting...';
 
+    const explanations = {};
+    questionsToShow.forEach(qStr => {
+        const el = document.getElementById('explain-' + qStr);
+        if (el) explanations[qStr] = el.value.trim();
+    });
+
     try {
         const res = await fetch(`/api/math-tests/${testId}/submit`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ answers, time_taken_seconds: timeTaken, is_retry: isRetry })
+            body: JSON.stringify({ answers, explanations, time_taken_seconds: timeTaken, is_retry: isRetry })
         });
         const data = await res.json();
         if (res.ok) {

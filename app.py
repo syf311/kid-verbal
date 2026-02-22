@@ -890,7 +890,7 @@ def child_dashboard(child_id):
         """SELECT lp.*,
                   (SELECT COUNT(*) FROM learning_plan_item WHERE plan_id = lp.id) as item_count
            FROM learning_plan lp
-           WHERE lp.child_id = ? AND lp.status IN ('released', 'completed')
+           WHERE lp.child_id = ? AND lp.status IN ('released', 'completed', 'reviewed')
            ORDER BY lp.created_at DESC""",
         (child_id,)
     ).fetchall()
@@ -2077,8 +2077,8 @@ def submit_reading_assignment(assignment_id):
         correct_answer = (question["answer_text"] or "").strip().upper() if question else ""
         is_correct = child_answer == correct_answer and child_answer != ""
         conn.execute(
-            "INSERT INTO reading_assignment_answer (assignment_id, question_id, child_answer, is_correct) VALUES (?, ?, ?, ?)",
-            (assignment_id, a["question_id"], a.get("child_answer", ""), is_correct)
+            "INSERT INTO reading_assignment_answer (assignment_id, question_id, child_answer, is_correct, evidence_text) VALUES (?, ?, ?, ?, ?)",
+            (assignment_id, a["question_id"], a.get("child_answer", ""), is_correct, a.get("evidence_text", ""))
         )
 
     unknown_words = data.get("unknown_words", [])
@@ -2234,7 +2234,7 @@ def reading_assignment_review_page(child_id, assignment_id):
 
     questions = conn.execute(
         """SELECT mq.question_text, mq.answer_text,
-                  raa.child_answer, raa.is_correct
+                  raa.child_answer, raa.is_correct, raa.evidence_text
            FROM material_question mq
            LEFT JOIN reading_assignment_answer raa
                ON raa.question_id = mq.id AND raa.assignment_id = ?
@@ -2492,6 +2492,7 @@ def submit_math_test(test_id):
 
     data = request.json
     child_answers = data.get("answers", {})
+    child_explanations = data.get("explanations", {})
     time_taken_seconds = data.get("time_taken_seconds", 0)
     is_retry = data.get("is_retry", False)
     answer_key = json.loads(test["answer_key"])
@@ -2506,6 +2507,10 @@ def submit_math_test(test_id):
             merged = json.loads(existing_sub["answers"])
             merged.update(child_answers)
             child_answers = merged
+            # Merge explanations
+            existing_explanations = json.loads(existing_sub["explanations"] or "{}")
+            existing_explanations.update(child_explanations)
+            child_explanations = existing_explanations
             # Preserve the original time taken
             time_taken_seconds = existing_sub["time_taken_seconds"]
 
@@ -2518,9 +2523,9 @@ def submit_math_test(test_id):
     score = round(correct_count / total_count * 100) if total_count > 0 else 0
 
     cursor = conn.execute(
-        """INSERT INTO math_test_submission (math_test_id, child_id, answers, score, correct_count, total_count, time_taken_seconds)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (test_id, test["child_id"], json.dumps(child_answers), score, correct_count, total_count, time_taken_seconds)
+        """INSERT INTO math_test_submission (math_test_id, child_id, answers, explanations, score, correct_count, total_count, time_taken_seconds)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (test_id, test["child_id"], json.dumps(child_answers), json.dumps(child_explanations), score, correct_count, total_count, time_taken_seconds)
     )
     submission_id = cursor.lastrowid
 
@@ -2649,6 +2654,7 @@ def review_math_test(child_id, test_id):
     if role != "parent":
         answer_key = json.loads(test["answer_key"])
         child_answers = json.loads(sub["answers"])
+        child_explanations = json.loads(sub["explanations"] or "{}")
         original_answers = json.loads(original_answers_json) if original_answers_json else None
         conn.close()
         results = []
@@ -2657,7 +2663,7 @@ def review_math_test(child_id, test_id):
             child_ans = child_answers.get(key, "-")
             correct_ans = answer_key.get(key, "?")
             original_ans = original_answers.get(key, "-") if original_answers else None
-            r = {"q": i, "child_answer": child_ans, "is_correct": child_ans.upper() == correct_ans.upper()}
+            r = {"q": i, "child_answer": child_ans, "is_correct": child_ans.upper() == correct_ans.upper(), "explanation": child_explanations.get(key, "")}
             # Show original answer if it differs from current (i.e., was retried)
             if original_answers and original_ans.upper() != child_ans.upper():
                 r["original_answer"] = original_ans
@@ -3040,7 +3046,8 @@ def view_plan_page(child_id, plan_id):
         return "Not found", 404
     if plan["status"] == "draft":
         return "This plan is not yet available", 403
-    return render_template("view_plan.html", child=dict(child), plan=dict(plan))
+    role = session.get("role", "child")
+    return render_template("view_plan.html", child=dict(child), plan=dict(plan), role=role)
 
 
 # ── Learning Plan APIs ──
@@ -3108,7 +3115,10 @@ def get_learning_plan(plan_id):
             row = conn.execute(
                 """SELECT pt.id, pt.title, pt.status,
                           (SELECT COUNT(*) FROM parent_test_word WHERE parent_test_id = pt.id) as word_count,
-                          (SELECT id FROM test_session WHERE parent_test_id = pt.id LIMIT 1) as test_session_id
+                          (SELECT id FROM test_session WHERE parent_test_id = pt.id ORDER BY created_at DESC LIMIT 1) as test_session_id,
+                          (SELECT correct_count FROM test_session WHERE parent_test_id = pt.id ORDER BY created_at DESC LIMIT 1) as correct_count,
+                          (SELECT total_count FROM test_session WHERE parent_test_id = pt.id ORDER BY created_at DESC LIMIT 1) as total_count,
+                          (SELECT score FROM test_session WHERE parent_test_id = pt.id ORDER BY created_at DESC LIMIT 1) as score
                    FROM parent_test pt WHERE pt.id = ?""",
                 (item["item_id"],)
             ).fetchone()
@@ -3396,6 +3406,60 @@ def delete_plan_item(plan_id, item_id):
     conn.commit()
     conn.close()
     return "", 204
+
+
+@app.route("/api/learning-plans/<int:plan_id>/items/<int:item_id>/review", methods=["POST"])
+@parent_required
+def toggle_plan_item_review(plan_id, item_id):
+    conn = get_db()
+    item = conn.execute("SELECT * FROM learning_plan_item WHERE id = ? AND plan_id = ?", (item_id, plan_id)).fetchone()
+    if not item:
+        conn.close()
+        return jsonify({"error": "Item not found"}), 404
+
+    new_val = 0 if item["parent_reviewed"] else 1
+    conn.execute("UPDATE learning_plan_item SET parent_reviewed = ? WHERE id = ?", (new_val, item_id))
+
+    # Check if all items are now reviewed
+    items = conn.execute(
+        "SELECT parent_reviewed FROM learning_plan_item WHERE plan_id = ?", (plan_id,)
+    ).fetchall()
+    all_reviewed = all(i["parent_reviewed"] for i in items) and len(items) > 0
+
+    if all_reviewed:
+        conn.execute(
+            "UPDATE learning_plan SET status = 'reviewed' WHERE id = ? AND status = 'completed'",
+            (plan_id,)
+        )
+    else:
+        # If un-reviewing an item, revert from reviewed back to completed
+        conn.execute(
+            "UPDATE learning_plan SET status = 'completed' WHERE id = ? AND status = 'reviewed'",
+            (plan_id,)
+        )
+
+    conn.commit()
+    conn.close()
+    return jsonify({"parent_reviewed": bool(new_val), "all_reviewed": all_reviewed})
+
+
+@app.route("/api/learning-plans/<int:plan_id>/items/review-all", methods=["POST"])
+@parent_required
+def review_all_plan_items(plan_id):
+    conn = get_db()
+    plan = conn.execute("SELECT * FROM learning_plan WHERE id = ?", (plan_id,)).fetchone()
+    if not plan:
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+
+    conn.execute("UPDATE learning_plan_item SET parent_reviewed = 1 WHERE plan_id = ?", (plan_id,))
+    conn.execute(
+        "UPDATE learning_plan SET status = 'reviewed' WHERE id = ? AND status = 'completed'",
+        (plan_id,)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
 
 
 @app.route("/api/children/<int:child_id>/unassigned-items", methods=["GET"])

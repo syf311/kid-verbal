@@ -360,6 +360,10 @@
                 <h3>Completed Plans</h3>
                 <div id="plans-completed-list"><span class="empty-msg">Loading...</span></div>
             </div>
+            <div class="dash-card">
+                <h3>Reviewed Plans</h3>
+                <div id="plans-reviewed-list"><span class="empty-msg">Loading...</span></div>
+            </div>
         </div>
 
         <!-- Language Arts tab -->
@@ -776,6 +780,7 @@ function renderPlansTab(childId, data) {
     const drafts = plans.filter(p => p.status === 'draft');
     const released = plans.filter(p => p.status === 'released');
     const completed = plans.filter(p => p.status === 'completed');
+    const reviewed = plans.filter(p => p.status === 'reviewed');
 
     const draftList = document.getElementById('plans-draft-list');
     if (drafts.length === 0) {
@@ -826,7 +831,24 @@ function renderPlansTab(childId, data) {
                     <div class="meta">${(p.completed_at || p.created_at).slice(0,10)} &middot; ${p.item_count} items &middot; All done</div>
                 </div>
                 <div class="actions">
-                    <a href="/parent/child/${childId}/learning-plan/${p.id}/manage" class="btn btn-success">Review</a>
+                    <a href="/child/${childId}/learning-plan/${p.id}" class="btn btn-success">Review</a>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    const revList = document.getElementById('plans-reviewed-list');
+    if (reviewed.length === 0) {
+        revList.innerHTML = '<span class="empty-msg">No reviewed plans yet.</span>';
+    } else {
+        revList.innerHTML = reviewed.map(p => `
+            <div class="list-item">
+                <div class="info">
+                    <strong>${escHtml(p.title)}</strong>
+                    <div class="meta">${(p.completed_at || p.created_at).slice(0,10)} &middot; ${p.item_count} items &middot; Reviewed</div>
+                </div>
+                <div class="actions">
+                    <a href="/child/${childId}/learning-plan/${p.id}" class="btn btn-primary">View</a>
                 </div>
             </div>
         `).join('');
@@ -1745,7 +1767,13 @@ async function createSciTest() {
 // ── Init ──
 
 if (childrenData.length > 0) {
-    selectChild(childrenData[0].id);
+    let initId = childrenData[0].id;
+    const hashMatch = location.hash.match(/^#child-(\d+)$/);
+    if (hashMatch) {
+        const hid = parseInt(hashMatch[1]);
+        if (childrenData.some(c => c.id === hid)) initId = hid;
+    }
+    selectChild(initId);
 } else {
     document.getElementById('no-child-msg').style.display = 'block';
     document.querySelector('.tab-bar').style.display = 'none';

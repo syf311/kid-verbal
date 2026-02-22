@@ -481,6 +481,20 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # Migration: Add parent_reviewed to learning_plan_item
+    try:
+        conn.execute("ALTER TABLE learning_plan_item ADD COLUMN parent_reviewed BOOLEAN DEFAULT 0")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    # Migration: Add explanations to math_test_submission
+    try:
+        conn.execute("ALTER TABLE math_test_submission ADD COLUMN explanations TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
     conn.close()
 
 

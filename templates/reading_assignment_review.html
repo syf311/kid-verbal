@@ -239,6 +239,20 @@
     .btn-fetch:hover { background: #d69e2e; }
     .btn-fetch:disabled { opacity: 0.6; cursor: default; }
 
+    .evidence-block {
+        background: #f7fafc;
+        border: 1px solid #e2e8f0;
+        padding: 8px 12px;
+        border-radius: 8px;
+        margin-bottom: 6px;
+        font-size: 13px;
+        font-style: italic;
+        color: #4a5568;
+    }
+    .evidence-block .answer-label {
+        font-style: normal;
+    }
+
     @media (max-width: 800px) {
         .review-layout, .review-layout.sidebar-open {
             grid-template-columns: 1fr;
@@ -305,6 +319,13 @@
                 <div class="answer-block child-answer no-answer">
                     <div class="answer-label">Child's Answer</div>
                     No answer provided
+                </div>
+                {% endif %}
+
+                {% if q.evidence_text %}
+                <div class="evidence-block">
+                    <div class="answer-label">Why</div>
+                    {{ q.evidence_text }}
                 </div>
                 {% endif %}
 

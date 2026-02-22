@@ -101,6 +101,19 @@
         display: flex;
         gap: 8px;
     }
+    .evidence-input {
+        width: 100%;
+        padding: 8px 10px;
+        font-size: 14px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        box-sizing: border-box;
+        margin-top: 8px;
+        resize: vertical;
+        min-height: 60px;
+        display: none;
+    }
+    .evidence-input::placeholder { color: #a0aec0; }
     .progress-bar-wrap {
         background: #e2e8f0;
         border-radius: 20px;
@@ -216,6 +229,7 @@
                         <button type="button" class="choice-btn" data-qid="{{ q.id }}" data-ch="{{ letter }}" onclick="selectAnswer({{ q.id }}, '{{ letter }}', this)">{{ letter }}</button>
                         {% endfor %}
                     </div>
+                    <textarea class="evidence-input" id="evidence-{{ q.id }}" placeholder="Why did you choose this answer?" rows="2"></textarea>
                 </div>
                 {% endfor %}
             </div>
@@ -291,6 +305,9 @@ function selectAnswer(qid, letter, btn) {
     btn.parentElement.querySelectorAll('.choice-btn').forEach(b => b.classList.remove('selected'));
     btn.classList.add('selected');
     selectedAnswers[qid] = letter;
+    // Show evidence input
+    const evidenceEl = document.getElementById('evidence-' + qid);
+    if (evidenceEl) evidenceEl.style.display = 'block';
     updateProgress();
 }
 
@@ -306,16 +323,28 @@ async function submitAnswers() {
         alert('Please answer all questions before submitting.');
         return;
     }
+    const missingEvidence = Object.keys(selectedAnswers).some(qid => {
+        const el = document.getElementById('evidence-' + qid);
+        return !el || el.value.trim().length === 0;
+    });
+    if (missingEvidence) {
+        alert('Please explain "Why" for each answer before submitting.');
+        return;
+    }
     if (!confirm('Submit your answers? You cannot change them after submitting.')) return;
 
     const btn = document.getElementById('submitBtn');
     btn.disabled = true;
     btn.textContent = 'Submitting...';
 
-    const answers = Object.entries(selectedAnswers).map(([qid, letter]) => ({
-        question_id: parseInt(qid),
-        child_answer: letter
-    }));
+    const answers = Object.entries(selectedAnswers).map(([qid, letter]) => {
+        const evidenceEl = document.getElementById('evidence-' + qid);
+        return {
+            question_id: parseInt(qid),
+            child_answer: letter,
+            evidence_text: evidenceEl ? evidenceEl.value.trim() : ''
+        };
+    });
 
     try {
         const res = await fetch(`/api/reading-assignments/${assignmentId}/submit`, {

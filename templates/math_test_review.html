@@ -112,6 +112,13 @@
     .wrong { color: #e53e3e; font-weight: 700; }
     .icon-correct::after { content: ' \2713'; }
     .icon-wrong::after { content: ' \2717'; }
+    .explain-cell {
+        font-size: 13px;
+        color: #4a5568;
+        font-style: italic;
+        text-align: left;
+        padding: 4px 14px 10px;
+    }
     @media (max-width: 800px) {
         .pdf-area { grid-template-columns: 1fr; }
         .pdf-col iframe { min-height: 350px; }
@@ -212,6 +219,12 @@
                 <td>{{ r.child_answer }}</td>
                 <td class="{{ 'correct icon-correct' if r.is_correct else 'wrong icon-wrong' }}">{{ 'Correct' if r.is_correct else 'Wrong' }}</td>
             </tr>
+            {% if r.explanation %}
+            <tr>
+                <td></td>
+                <td colspan="{{ 3 if has_retries else 2 }}" class="explain-cell">{{ r.explanation }}</td>
+            </tr>
+            {% endif %}
             {% endfor %}
         </tbody>
     </table>
@@ -233,6 +246,7 @@
 <script>
 const answerKey = {{ test.answer_key | safe }};
 const childAnswers = {{ submission.answers | safe }};
+const childExplanations = {{ submission.explanations | safe if submission.explanations else '{}' }};
 const originalAnswers = {{ original_answers_json | safe if original_answers_json else 'null' }};
 const hasRetries = originalAnswers !== null;
 
@@ -260,6 +274,11 @@ for (let i = 1; i <= totalQ; i++) {
         <td>${correct}</td>
         <td class="${isCorrect ? 'correct icon-correct' : 'wrong icon-wrong'}">${isCorrect ? 'Correct' : 'Wrong'}</td>
     </tr>`;
+    const explain = childExplanations[key] || '';
+    if (explain) {
+        const colSpan = hasRetries ? 4 : 3;
+        tbody.innerHTML += `<tr><td></td><td colspan="${colSpan}" class="explain-cell">${explain.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td></tr>`;
+    }
 }
 
 let answerKeyVisible = true;
