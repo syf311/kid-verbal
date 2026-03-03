@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import re
 import time
@@ -37,6 +38,27 @@ RSS_FEEDS = [
 
 # Cache for RSS feed results: {feed_url: {"articles": [...], "fetched_at": timestamp}}
 _feed_cache = {}
+
+
+# ── Science mastery helper ──
+
+def compute_mastery_status(q_dict, cutoff):
+    """Compute mastery status for a science question dict.
+    Expects keys: m_last_tested, m_wrong_count, m_correct_count, m_streak, m_difficulty_level, m_last_correct_at.
+    cutoff: datetime string for 7-day review window.
+    Returns one of: 'never', 'wrong', 'mastered', 'due', 'good'.
+    """
+    if not q_dict.get("m_last_tested"):
+        return "never"
+    if q_dict["m_wrong_count"] > q_dict["m_correct_count"]:
+        return "wrong"
+    if q_dict["m_streak"] == 0 and q_dict["m_last_tested"]:
+        return "wrong"
+    if q_dict["m_difficulty_level"] >= 4:
+        return "mastered"
+    if not q_dict.get("m_last_correct_at") or q_dict["m_last_correct_at"] < cutoff:
+        return "due"
+    return "good"
 
 
 # ── Auth helpers ──
@@ -3808,26 +3830,79 @@ def bulk_import_status(job_id):
 @app.route("/api/children/<int:child_id>/science-questions", methods=["GET"])
 @login_required
 def list_science_questions(child_id):
+    from datetime import datetime, timedelta
     category = request.args.get("category")
+    status_filter = request.args.get("status")  # comma-separated: never,wrong,due,good,mastered
+    page = request.args.get("page", type=int)
+    per_page = request.args.get("per_page", 50, type=int)
+    per_page = min(per_page, 200)
+
     conn = get_db()
+
+    # Fetch all questions with mastery data
+    sql = """SELECT sq.*, COALESCE(sp.correct_count, 0) as m_correct_count,
+                    COALESCE(sp.wrong_count, 0) as m_wrong_count,
+                    COALESCE(sp.streak, 0) as m_streak,
+                    COALESCE(sp.difficulty_level, 1) as m_difficulty_level,
+                    sp.last_tested as m_last_tested, sp.last_correct_at as m_last_correct_at
+             FROM science_question sq
+             LEFT JOIN science_question_progress sp ON sq.id = sp.question_id AND sp.child_id = sq.child_id
+             WHERE sq.child_id = ?"""
+    params = [child_id]
     if category:
-        questions = conn.execute(
-            "SELECT * FROM science_question WHERE child_id = ? AND category = ? ORDER BY round_name, question_type, id",
-            (child_id, category)
-        ).fetchall()
-    else:
-        questions = conn.execute(
-            "SELECT * FROM science_question WHERE child_id = ? ORDER BY round_name, question_type, id",
-            (child_id,)
-        ).fetchall()
+        sql += " AND sq.category = ?"
+        params.append(category)
+    sql += " ORDER BY sq.round_name, sq.question_type, sq.id"
+    questions = conn.execute(sql, params).fetchall()
+
+    # All distinct categories for this child (unaffected by filters)
+    all_categories = [r[0] for r in conn.execute(
+        "SELECT DISTINCT category FROM science_question WHERE child_id = ? ORDER BY category",
+        (child_id,)
+    ).fetchall()]
     conn.close()
+
+    cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+
     result = []
+    status_counts = {"never": 0, "wrong": 0, "due": 0, "good": 0, "mastered": 0}
     for q in questions:
         d = dict(q)
         if d["choices"]:
             d["choices"] = json.loads(d["choices"])
+        # Compute mastery status
+        d["mastery_status"] = compute_mastery_status(d, cutoff)
+        status_counts[d["mastery_status"]] += 1
+        # Clean up internal mastery fields
+        for k in ("m_correct_count", "m_wrong_count", "m_streak", "m_difficulty_level", "m_last_tested", "m_last_correct_at"):
+            del d[k]
         result.append(d)
-    return jsonify(result)
+
+    # Apply status filter
+    if status_filter:
+        statuses = set(status_filter.split(","))
+        result = [q for q in result if q["mastery_status"] in statuses]
+
+    # Non-paginated mode (backward compat)
+    if page is None:
+        return jsonify(result)
+
+    # Paginated mode
+    total = len(result)
+    total_pages = math.ceil(total / per_page) if total > 0 else 1
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * per_page
+    page_items = result[start:start + per_page]
+
+    return jsonify({
+        "questions": page_items,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": total_pages,
+        "categories": all_categories,
+        "status_counts": status_counts
+    })
 
 
 @app.route("/api/science-questions/<int:question_id>", methods=["PUT"])
@@ -4326,7 +4401,12 @@ def science_progress_page(child_id):
                   COALESCE(sp.wrong_count, 0) as wrong_count,
                   COALESCE(sp.streak, 0) as streak,
                   COALESCE(sp.difficulty_level, 1) as difficulty_level,
-                  sp.last_tested, sp.last_correct_at
+                  sp.last_tested, sp.last_correct_at,
+                  COALESCE(sp.correct_count, 0) as m_correct_count,
+                  COALESCE(sp.wrong_count, 0) as m_wrong_count,
+                  COALESCE(sp.streak, 0) as m_streak,
+                  COALESCE(sp.difficulty_level, 1) as m_difficulty_level,
+                  sp.last_tested as m_last_tested, sp.last_correct_at as m_last_correct_at
            FROM science_question sq
            LEFT JOIN science_question_progress sp ON sq.id = sp.question_id AND sp.child_id = sq.child_id
            WHERE sq.child_id = ?
@@ -4341,19 +4421,7 @@ def science_progress_page(child_id):
     q_list = []
     for q in questions:
         q = dict(q)
-        # Compute status
-        if not q["last_tested"]:
-            q["status"] = "never"
-        elif q["wrong_count"] > q["correct_count"]:
-            q["status"] = "wrong"
-        elif q["streak"] == 0 and q["last_tested"]:
-            q["status"] = "wrong"
-        elif q["difficulty_level"] >= 4:
-            q["status"] = "mastered"
-        elif not q["last_correct_at"] or q["last_correct_at"] < cutoff:
-            q["status"] = "due"
-        else:
-            q["status"] = "good"
+        q["status"] = compute_mastery_status(q, cutoff)
         q_list.append(q)
 
     # Stats

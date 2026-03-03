@@ -291,12 +291,17 @@
             <label style="font-weight: 600; font-size: 14px;">Filter by Category</label>
             <div class="filter-bar" id="sci-study-cat-bar"></div>
         </div>
+        <div style="margin-bottom: 8px;">
+            <label style="font-weight: 600; font-size: 14px;">Filter by Mastery</label>
+            <div class="filter-bar" id="sci-study-mastery-bar"></div>
+        </div>
         <div style="display:flex; gap:8px; margin-bottom:8px;">
             <button class="btn btn-primary" style="padding:4px 10px; font-size:12px;" onclick="sciStudySelectAll()">Select All</button>
             <button class="btn btn-warning" style="padding:4px 10px; font-size:12px;" onclick="sciStudyDeselectAll()">Deselect All</button>
             <span style="font-size:13px; color:#666;"><span id="sci-study-count">0</span> selected</span>
         </div>
-        <div id="sci-study-q-list" style="max-height:300px; overflow-y:auto; border:1px solid #e2e8f0; border-radius:8px; padding:8px;"></div>
+        <div id="sci-study-q-list" style="max-height:400px; overflow-y:auto; border:1px solid #e2e8f0; border-radius:8px; padding:8px;"></div>
+        <div id="sci-study-pagination" style="text-align:center; margin-top:8px;"></div>
         <button class="btn btn-success" style="margin-top: 10px;" onclick="addSciStudy()" id="add-sci-study-btn" disabled>Add Science Study</button>
         <span id="sci-study-status" style="margin-left: 10px; font-size: 13px;"></span>
     </div>
@@ -328,12 +333,17 @@
             <label style="font-weight: 600; font-size: 14px;">Filter by Category</label>
             <div class="filter-bar" id="sci-test-cat-bar"></div>
         </div>
+        <div style="margin-bottom: 8px;">
+            <label style="font-weight: 600; font-size: 14px;">Filter by Mastery</label>
+            <div class="filter-bar" id="sci-test-mastery-bar"></div>
+        </div>
         <div style="display:flex; gap:8px; margin-bottom:8px;">
             <button class="btn btn-primary" style="padding:4px 10px; font-size:12px;" onclick="sciTestSelectAll()">Select All</button>
             <button class="btn btn-warning" style="padding:4px 10px; font-size:12px;" onclick="sciTestDeselectAll()">Deselect All</button>
             <span style="font-size:13px; color:#666;"><span id="sci-test-count">0</span> selected</span>
         </div>
-        <div id="sci-test-q-list" style="max-height:300px; overflow-y:auto; border:1px solid #e2e8f0; border-radius:8px; padding:8px;"></div>
+        <div id="sci-test-q-list" style="max-height:400px; overflow-y:auto; border:1px solid #e2e8f0; border-radius:8px; padding:8px;"></div>
+        <div id="sci-test-pagination" style="text-align:center; margin-top:8px;"></div>
         <button class="btn btn-success" style="margin-top: 10px;" onclick="addSciTest()" id="add-sci-test-btn" disabled>Add Science Test</button>
         <span id="sci-test-status" style="margin-left: 10px; font-size: 13px;"></span>
     </div>
@@ -543,9 +553,8 @@ function toggleSection(section) {
     if (section === 'study' && allWords.length === 0) loadWords();
     if (section === 'reading') loadMaterials();
     if (section === 'writing') loadWritingTopics();
-    if (section === 'science-study' && sciQuestions.length === 0) loadSciQuestions('study');
-    if (section === 'science-test' && sciQuestions.length === 0) loadSciQuestions('test');
-    if (section === 'science-test' && sciQuestions.length > 0) renderSciQList('test');
+    if (section === 'science-study' && !sciStudyLoaded) loadSciQuestions('study');
+    if (section === 'science-test' && !sciTestLoaded) loadSciQuestions('test');
     if (section === 'existing' && !unassignedData) loadUnassignedItems();
 }
 
@@ -1109,11 +1118,20 @@ loadPlan();
 
 // ── Science study/test ──
 
-let sciQuestions = [];
 let sciStudySelected = new Set();
 let sciTestSelected = new Set();
 let sciStudyFilter = 'all';
 let sciTestFilter = 'all';
+let sciStudyMasteryFilter = 'all';
+let sciTestMasteryFilter = 'all';
+let sciStudyPage = 1;
+let sciTestPage = 1;
+let sciStudyTotal = 0;
+let sciTestTotal = 0;
+let sciStudyLoaded = false;
+let sciTestLoaded = false;
+let sciStudyLoadedIds = [];  // track loaded question ids for select all
+let sciTestLoadedIds = [];
 
 const SCI_CAT_COLORS = {
     'Life Science': '#48bb78', 'Physical Science': '#667eea',
@@ -1123,52 +1141,116 @@ const SCI_CAT_COLORS = {
     'Technology': '#805ad5', 'Computer Science': '#805ad5',
 };
 
-async function loadSciQuestions(mode) {
-    const res = await fetch(`/api/children/${childId}/science-questions`);
-    if (!res.ok) return;
-    sciQuestions = await res.json();
-    if (sciQuestions.length === 0) {
-        const el = document.getElementById(mode === 'study' ? 'sci-study-q-list' : 'sci-test-q-list');
-        el.innerHTML = '<span class="empty-msg">No science questions imported yet. Import from the parent dashboard Science tab first.</span>';
-        return;
-    }
-    buildSciCatBar('study');
-    buildSciCatBar('test');
-    renderSciQList(mode);
-}
+const SCI_STATUS_LABELS = {
+    'never': 'New', 'wrong': 'Needs Work', 'due': 'Due for Review',
+    'good': 'Good', 'mastered': 'Mastered'
+};
+const SCI_STATUS_COLORS = {
+    'never': '#a0aec0', 'wrong': '#e53e3e', 'due': '#ed8936',
+    'good': '#48bb78', 'mastered': '#805ad5'
+};
 
-function buildSciCatBar(mode) {
-    const cats = [...new Set(sciQuestions.map(q => q.category))].sort();
-    const bar = document.getElementById(mode === 'study' ? 'sci-study-cat-bar' : 'sci-test-cat-bar');
-    bar.innerHTML = `<button class="filter-btn active" onclick="setSciFilter('${mode}', 'all', this)">All</button>` +
-        cats.map(c => `<button class="filter-btn" onclick="setSciFilter('${mode}', '${escHtml(c)}', this)">${escHtml(c)}</button>`).join('');
-}
-
-function setSciFilter(mode, cat, btn) {
-    if (mode === 'study') sciStudyFilter = cat;
-    else sciTestFilter = cat;
-    const barId = mode === 'study' ? 'sci-study-cat-bar' : 'sci-test-cat-bar';
-    document.querySelectorAll(`#${barId} .filter-btn`).forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    renderSciQList(mode);
-}
-
-function renderSciQList(mode) {
-    const filter = mode === 'study' ? sciStudyFilter : sciTestFilter;
-    const selected = mode === 'study' ? sciStudySelected : sciTestSelected;
-    const filtered = filter === 'all' ? sciQuestions : sciQuestions.filter(q => q.category === filter);
+async function loadSciQuestions(mode, append) {
+    const catFilter = mode === 'study' ? sciStudyFilter : sciTestFilter;
+    const masteryFilter = mode === 'study' ? sciStudyMasteryFilter : sciTestMasteryFilter;
+    const page = mode === 'study' ? sciStudyPage : sciTestPage;
     const listId = mode === 'study' ? 'sci-study-q-list' : 'sci-test-q-list';
-    const list = document.getElementById(listId);
 
-    if (filtered.length === 0) {
-        list.innerHTML = '<span class="empty-msg">No questions match this filter.</span>';
+    if (!append) {
+        document.getElementById(listId).innerHTML = '<span style="color:#888; font-size:13px;">Loading...</span>';
+    }
+
+    let url = `/api/children/${childId}/science-questions?page=${page}&per_page=50`;
+    if (catFilter !== 'all') url += `&category=${encodeURIComponent(catFilter)}`;
+    if (masteryFilter !== 'all') url += `&status=${encodeURIComponent(masteryFilter)}`;
+
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (mode === 'study') {
+        sciStudyTotal = data.total;
+        sciStudyLoaded = true;
+    } else {
+        sciTestTotal = data.total;
+        sciTestLoaded = true;
+    }
+
+    // Build category bar from metadata (only on first load or filter change)
+    if (!append) {
+        buildSciCatBar(mode, data.categories || []);
+        buildSciMasteryBar(mode, data.status_counts || {});
+        if (mode === 'study') sciStudyLoadedIds = [];
+        else sciTestLoadedIds = [];
+    }
+
+    // Track loaded ids
+    const loadedIds = mode === 'study' ? sciStudyLoadedIds : sciTestLoadedIds;
+    data.questions.forEach(q => loadedIds.push(q.id));
+
+    if (data.total === 0 && !append) {
+        document.getElementById(listId).innerHTML = '<span class="empty-msg">No questions match this filter.</span>';
+        document.getElementById(mode === 'study' ? 'sci-study-pagination' : 'sci-test-pagination').innerHTML = '';
         updateSciCount(mode);
         return;
     }
 
-    list.innerHTML = filtered.map(q => {
+    renderSciQList(mode, data.questions, append);
+    renderSciPagination(mode, data);
+}
+
+function buildSciCatBar(mode, categories) {
+    const bar = document.getElementById(mode === 'study' ? 'sci-study-cat-bar' : 'sci-test-cat-bar');
+    const current = mode === 'study' ? sciStudyFilter : sciTestFilter;
+    bar.innerHTML = `<button class="filter-btn ${current === 'all' ? 'active' : ''}" onclick="setSciFilter('${mode}', 'all', this)">All</button>` +
+        categories.map(c => `<button class="filter-btn ${current === c ? 'active' : ''}" onclick="setSciFilter('${mode}', '${escHtml(c)}', this)">${escHtml(c)}</button>`).join('');
+}
+
+function buildSciMasteryBar(mode, statusCounts) {
+    const bar = document.getElementById(mode === 'study' ? 'sci-study-mastery-bar' : 'sci-test-mastery-bar');
+    const current = mode === 'study' ? sciStudyMasteryFilter : sciTestMasteryFilter;
+    const total = Object.values(statusCounts).reduce((a, b) => a + b, 0);
+    let html = `<button class="filter-btn ${current === 'all' ? 'active' : ''}" onclick="setSciMasteryFilter('${mode}', 'all', this)">All (${total})</button>`;
+    for (const [key, label] of Object.entries(SCI_STATUS_LABELS)) {
+        const count = statusCounts[key] || 0;
+        if (count > 0) {
+            html += `<button class="filter-btn ${current === key ? 'active' : ''}" onclick="setSciMasteryFilter('${mode}', '${key}', this)">${label} (${count})</button>`;
+        }
+    }
+    bar.innerHTML = html;
+}
+
+function setSciFilter(mode, cat, btn) {
+    if (mode === 'study') { sciStudyFilter = cat; sciStudyPage = 1; }
+    else { sciTestFilter = cat; sciTestPage = 1; }
+    const barId = mode === 'study' ? 'sci-study-cat-bar' : 'sci-test-cat-bar';
+    document.querySelectorAll(`#${barId} .filter-btn`).forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    // Reset mastery filter when category changes (counts will update)
+    if (mode === 'study') sciStudyMasteryFilter = 'all';
+    else sciTestMasteryFilter = 'all';
+    loadSciQuestions(mode);
+}
+
+function setSciMasteryFilter(mode, status, btn) {
+    if (mode === 'study') { sciStudyMasteryFilter = status; sciStudyPage = 1; }
+    else { sciTestMasteryFilter = status; sciTestPage = 1; }
+    const barId = mode === 'study' ? 'sci-study-mastery-bar' : 'sci-test-mastery-bar';
+    document.querySelectorAll(`#${barId} .filter-btn`).forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    loadSciQuestions(mode);
+}
+
+function renderSciQList(mode, questions, append) {
+    const selected = mode === 'study' ? sciStudySelected : sciTestSelected;
+    const listId = mode === 'study' ? 'sci-study-q-list' : 'sci-test-q-list';
+    const list = document.getElementById(listId);
+
+    const html = questions.map(q => {
         const sel = selected.has(q.id);
         const catColor = SCI_CAT_COLORS[q.category] || '#718096';
+        const statusColor = SCI_STATUS_COLORS[q.mastery_status] || '#a0aec0';
+        const statusLabel = SCI_STATUS_LABELS[q.mastery_status] || q.mastery_status;
         let choicesHtml = '';
         if (q.choices && typeof q.choices === 'object') {
             choicesHtml = '<div style="margin-top:4px; padding-left:8px;">' +
@@ -1183,6 +1265,7 @@ function renderSciQList(mode) {
                 <div style="flex:1; min-width:0;">
                     <div style="font-size:11px; margin-bottom:4px;">
                         <span style="background:${catColor}22; color:${catColor}; padding:1px 6px; border-radius:4px; font-weight:600;">${escHtml(q.category)}</span>
+                        <span style="background:${statusColor}22; color:${statusColor}; padding:1px 6px; border-radius:4px; font-weight:600; margin-left:4px;">${statusLabel}</span>
                         <span style="color:#888; margin-left:4px;">${q.question_type === 'toss_up' ? 'Toss-Up' : 'Bonus'} &middot; ${q.answer_format === 'multiple_choice' ? 'MC' : 'Short Answer'}</span>
                     </div>
                     <div style="font-size:13px; color:#333; line-height:1.4;">${escHtml(q.question_text)}</div>
@@ -1192,34 +1275,69 @@ function renderSciQList(mode) {
             </div>
         </div>`;
     }).join('');
+
+    if (append) {
+        list.insertAdjacentHTML('beforeend', html);
+    } else {
+        list.innerHTML = html;
+    }
     updateSciCount(mode);
+}
+
+function renderSciPagination(mode, data) {
+    const pagEl = document.getElementById(mode === 'study' ? 'sci-study-pagination' : 'sci-test-pagination');
+    const loadedCount = mode === 'study' ? sciStudyLoadedIds.length : sciTestLoadedIds.length;
+    if (loadedCount >= data.total) {
+        pagEl.innerHTML = `<span style="font-size:13px; color:#888;">Showing all ${data.total} questions</span>`;
+    } else {
+        pagEl.innerHTML = `<span style="font-size:13px; color:#888;">Showing ${loadedCount} of ${data.total} questions</span>
+            <button class="btn btn-primary" style="padding:4px 14px; font-size:13px; margin-left:8px;" onclick="sciLoadMore('${mode}')">Load More</button>`;
+    }
+}
+
+function sciLoadMore(mode) {
+    if (mode === 'study') sciStudyPage++;
+    else sciTestPage++;
+    loadSciQuestions(mode, true);
 }
 
 function sciToggle(mode, id) {
     const selected = mode === 'study' ? sciStudySelected : sciTestSelected;
     if (selected.has(id)) selected.delete(id); else selected.add(id);
-    renderSciQList(mode);
+    // Re-render just the toggled item's visual state
+    const listId = mode === 'study' ? 'sci-study-q-list' : 'sci-test-q-list';
+    const list = document.getElementById(listId);
+    const items = list.children;
+    for (const item of items) {
+        const checkbox = item.querySelector('input[type="checkbox"]');
+        if (!checkbox) continue;
+        // Find the item by checking its onclick
+        if (item.getAttribute('onclick') === `sciToggle('${mode}', ${id})`) {
+            const sel = selected.has(id);
+            item.style.background = sel ? '#ebf4ff' : '#f7fafc';
+            item.style.borderColor = sel ? '#667eea' : 'transparent';
+            checkbox.checked = sel;
+            break;
+        }
+    }
+    updateSciCount(mode);
 }
 
 function sciStudySelectAll() {
-    const filtered = sciStudyFilter === 'all' ? sciQuestions : sciQuestions.filter(q => q.category === sciStudyFilter);
-    filtered.forEach(q => sciStudySelected.add(q.id));
-    renderSciQList('study');
+    sciStudyLoadedIds.forEach(id => sciStudySelected.add(id));
+    loadSciQuestions('study');
 }
 function sciStudyDeselectAll() {
-    const filtered = sciStudyFilter === 'all' ? sciQuestions : sciQuestions.filter(q => q.category === sciStudyFilter);
-    filtered.forEach(q => sciStudySelected.delete(q.id));
-    renderSciQList('study');
+    sciStudyLoadedIds.forEach(id => sciStudySelected.delete(id));
+    loadSciQuestions('study');
 }
 function sciTestSelectAll() {
-    const filtered = sciTestFilter === 'all' ? sciQuestions : sciQuestions.filter(q => q.category === sciTestFilter);
-    filtered.forEach(q => sciTestSelected.add(q.id));
-    renderSciQList('test');
+    sciTestLoadedIds.forEach(id => sciTestSelected.add(id));
+    loadSciQuestions('test');
 }
 function sciTestDeselectAll() {
-    const filtered = sciTestFilter === 'all' ? sciQuestions : sciQuestions.filter(q => q.category === sciTestFilter);
-    filtered.forEach(q => sciTestSelected.delete(q.id));
-    renderSciQList('test');
+    sciTestLoadedIds.forEach(id => sciTestSelected.delete(id));
+    loadSciQuestions('test');
 }
 
 function updateSciCount(mode) {
@@ -1251,7 +1369,8 @@ async function addSciStudy() {
             statusEl.textContent = '';
             document.getElementById('sci-study-title').value = '';
             sciStudySelected.clear();
-            renderSciQList('study');
+            sciStudyPage = 1;
+            loadSciQuestions('study');
             loadPlan();
         } else {
             const data = await res.json();
@@ -1289,7 +1408,8 @@ async function addSciTest() {
             statusEl.textContent = '';
             document.getElementById('sci-test-title').value = '';
             sciTestSelected.clear();
-            renderSciQList('test');
+            sciTestPage = 1;
+            loadSciQuestions('test');
             loadPlan();
         } else {
             const data = await res.json();

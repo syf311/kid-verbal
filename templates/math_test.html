@@ -193,7 +193,7 @@ const timerMode = '{{ test.timer_mode }}';
 const timeLimitSeconds = {{ test.time_limit_seconds }};
 const answers = {};
 let sidebarOpen = true;
-const startTime = Date.now();
+let startTime = Date.now();
 let timerInterval = null;
 // Retry mode: only show specific questions
 const urlParams = new URLSearchParams(window.location.search);
@@ -201,6 +201,7 @@ const retryParam = urlParams.get('retry');
 const retryQuestions = retryParam ? retryParam.split(',') : null;
 const isRetry = retryQuestions !== null;
 const questionsToShow = retryQuestions || Array.from({length: totalQuestions}, (_, i) => String(i + 1));
+const draftKey = 'math_draft_' + testId + (isRetry ? '_retry' : '');
 document.getElementById('testLayout').classList.add('sidebar-open');
 document.getElementById('toggleBtn').innerHTML = 'Answers &lsaquo;';
 
@@ -224,7 +225,7 @@ function buildGrid() {
             html += `<button class="choice-btn" data-q="${i}" data-ch="${ch}" onclick="selectAnswer(${i},'${ch}',this)">${ch}</button>`;
         }
         html += `</div>`;
-        html += `<textarea class="explanation-input" id="explain-${i}" placeholder="How did you get this answer?" rows="2"></textarea>`;
+        html += `<textarea class="explanation-input" id="explain-${i}" placeholder="How did you get this answer?" rows="2" oninput="saveDraft()"></textarea>`;
     }
     grid.innerHTML = html;
 }
@@ -236,6 +237,7 @@ function selectAnswer(q, ch, btn) {
     const explainEl = document.getElementById('explain-' + q);
     if (explainEl) explainEl.style.display = 'block';
     updateProgress();
+    saveDraft();
 }
 
 function updateProgress() {
@@ -245,6 +247,52 @@ function updateProgress() {
     document.getElementById('progressText').textContent = count + ' / ' + target + ' answered' + suffix;
     document.getElementById('progressBar').style.width = (count / target * 100) + '%';
     document.getElementById('submitBtn').disabled = count < target;
+}
+
+function saveDraft() {
+    const explanations = {};
+    questionsToShow.forEach(qStr => {
+        const el = document.getElementById('explain-' + qStr);
+        if (el && el.value.trim()) explanations[qStr] = el.value.trim();
+    });
+    localStorage.setItem(draftKey, JSON.stringify({
+        answers: Object.assign({}, answers),
+        explanations: explanations,
+        timerStartedAt: startTime
+    }));
+}
+
+function loadDraft() {
+    const raw = localStorage.getItem(draftKey);
+    if (raw) {
+        try {
+            const draft = JSON.parse(raw);
+            if (draft.answers) {
+                Object.assign(answers, draft.answers);
+                for (const [q, ch] of Object.entries(draft.answers)) {
+                    const btn = document.querySelector('.choice-btn[data-q="' + q + '"][data-ch="' + ch + '"]');
+                    if (btn) btn.classList.add('selected');
+                }
+            }
+            if (draft.explanations) {
+                for (const [q, text] of Object.entries(draft.explanations)) {
+                    const el = document.getElementById('explain-' + q);
+                    if (el) {
+                        el.value = text;
+                        el.style.display = 'block';
+                    }
+                }
+            }
+            for (const q of Object.keys(answers)) {
+                const el = document.getElementById('explain-' + q);
+                if (el) el.style.display = 'block';
+            }
+            if (draft.timerStartedAt) startTime = draft.timerStartedAt;
+            updateProgress();
+        } catch (e) {}
+    } else {
+        saveDraft();
+    }
 }
 
 async function submitTest() {
@@ -286,6 +334,7 @@ async function doSubmit(timeTaken) {
         });
         const data = await res.json();
         if (res.ok) {
+            localStorage.removeItem(draftKey);
             alert(`Score: ${data.score}% (${data.correct_count}/${data.total_count} correct)`);
             window.location.href = `/child/${childId}/math-test/${testId}/review`;
         } else {
@@ -311,7 +360,14 @@ function startTimer() {
     if (!display) return;
 
     if (timerMode === 'countdown') {
-        let remaining = timeLimitSeconds;
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        let remaining = timeLimitSeconds - elapsed;
+        if (remaining <= 0) {
+            display.textContent = '00:00';
+            alert("Time's up! Your answers have been submitted.");
+            doSubmit(timeLimitSeconds);
+            return;
+        }
         display.textContent = formatTime(remaining);
         timerInterval = setInterval(() => {
             remaining--;
@@ -342,6 +398,7 @@ function startTimer() {
 }
 
 buildGrid();
+loadDraft();
 startTimer();
 </script>
 {% endblock %}

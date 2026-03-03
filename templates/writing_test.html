@@ -153,7 +153,7 @@
 </div>
 
 <div class="writing-area">
-    <textarea id="writing-input" placeholder="Start writing here..." oninput="updateWordCount()">{% if previous_submission %}{{ previous_submission.writing_text }}{% endif %}</textarea>
+    <textarea id="writing-input" placeholder="Start writing here..." oninput="updateWordCount(); saveDraft()">{% if previous_submission %}{{ previous_submission.writing_text }}{% endif %}</textarea>
     <div class="word-count-bar">
         <div>
             <span class="word-count good" id="wordCount">0 words</span>
@@ -181,8 +181,9 @@ const timerMode = '{{ test.timer_mode }}';
 const timeLimitSeconds = {{ test.time_limit_seconds }};
 const minWords = {{ test.min_word_count }};
 const maxWords = {{ test.max_word_count }};
-const startTime = Date.now();
+let startTime = Date.now();
 let timerInterval = null;
+const draftKey = 'writing_draft_' + testId;
 
 function updateWordCount() {
     const text = document.getElementById('writing-input').value.trim();
@@ -211,6 +212,31 @@ function updateWordCount() {
     btn.disabled = !canSubmit;
 }
 
+function saveDraft() {
+    const text = document.getElementById('writing-input').value;
+    localStorage.setItem(draftKey, JSON.stringify({
+        text: text,
+        timerStartedAt: startTime
+    }));
+}
+
+function loadDraft() {
+    const raw = localStorage.getItem(draftKey);
+    if (raw) {
+        try {
+            const draft = JSON.parse(raw);
+            const textarea = document.getElementById('writing-input');
+            if (draft.text && !textarea.value.trim()) {
+                textarea.value = draft.text;
+            }
+            if (draft.timerStartedAt) startTime = draft.timerStartedAt;
+            updateWordCount();
+        } catch (e) {}
+    } else {
+        saveDraft();
+    }
+}
+
 async function submitWriting() {
     const text = document.getElementById('writing-input').value.trim();
     if (!text) return;
@@ -235,6 +261,7 @@ async function doSubmit() {
         });
         const data = await res.json();
         if (res.ok) {
+            localStorage.removeItem(draftKey);
             window.location.href = `/child/${childId}/writing-test/${testId}/review`;
         } else {
             alert(data.error || 'Failed to submit');
@@ -259,7 +286,14 @@ function startTimer() {
     if (!display) return;
 
     if (timerMode === 'countdown') {
-        let remaining = timeLimitSeconds;
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        let remaining = timeLimitSeconds - elapsed;
+        if (remaining <= 0) {
+            display.textContent = '00:00';
+            alert("Time's up! Your writing has been submitted.");
+            doSubmit();
+            return;
+        }
         display.textContent = formatTime(remaining);
         timerInterval = setInterval(() => {
             remaining--;
@@ -286,7 +320,7 @@ function startTimer() {
     }
 }
 
+loadDraft();
 startTimer();
-updateWordCount();
 </script>
 {% endblock %}
