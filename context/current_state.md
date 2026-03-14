@@ -18,6 +18,7 @@
 - Comprehension questions per material
 - **AI question generation:** "Generate by AI" button in batch import uses OpenAI to create 10 MCQs from material content/URL, grade-level aware, answers evenly distributed across A/B/C/D
 - Article import auto-assigns to currently filtered child
+- **Web reading view:** RSS-imported materials with source URL show the original website in a sandboxed proxy iframe (images, formatting preserved). All links disabled, no navigation possible. Questions panel shown by default alongside web content.
 - Reading assignments to children
 - Child answers with required evidence text ("Why?")
 - Unknown word marking (integrates with vocab)
@@ -81,7 +82,8 @@
 
 ## Recent Changes (latest commits)
 
-1. **AI question generation for reading materials** (task_001) — OpenAI integration, settings page, child grade levels, article import child assignment fix
+1. **Web reading view for RSS materials** (task_002) — server-side proxy serves sanitized website content in sandboxed iframe, all links disabled, questions panel open by default
+2. **AI question generation for reading materials** (task_001) — OpenAI integration, settings page, child grade levels, article import child assignment fix
 2. Auto-save drafts for math/writing tests
 3. Mastery filters with pagination for science questions
 4. PDF content support for reading assignments

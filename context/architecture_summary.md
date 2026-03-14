@@ -4,7 +4,7 @@
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Python Flask (~4650 lines in app.py) |
+| Backend | Python Flask (~4720 lines in app.py) |
 | Real-time | Flask-SocketIO (WebSocket for reading sessions) |
 | Database | SQLite (verbal.db) |
 | Frontend | Server-rendered Jinja2 templates + vanilla JS |
@@ -114,3 +114,4 @@ kid-verbal/
 - **Auto-grading:** Math (answer key comparison), Science (exact match + ACCEPT patterns), Vocab (multiple choice)
 - **Manual grading:** Writing (parent scores + annotations), Reading (parent marks correct/incorrect)
 - **AI integration:** OpenAI API key stored in `site_config` DB table (never in code). Accessed via `get_config()` helper. Used for reading question generation; designed for reuse across future AI features.
+- **Reading web proxy:** `GET /api/reading-proxy?url=...` fetches external pages, strips links/scripts/nav, converts relative URLs to absolute, serves sanitized HTML for safe kid reading. URL must belong to a known reading material (security check).

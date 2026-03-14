@@ -2223,7 +2223,7 @@ def reading_assignment_page(child_id, assignment_id):
         return "Child not found", 404
 
     assignment = conn.execute(
-        """SELECT ra.*, rm.title, rm.content, rm.image_path, rm.content_pdf
+        """SELECT ra.*, rm.title, rm.content, rm.image_path, rm.content_pdf, rm.source_url
            FROM reading_assignment ra
            JOIN reading_material rm ON ra.material_id = rm.id
            WHERE ra.id = ? AND ra.child_id = ?""",
@@ -4545,6 +4545,92 @@ def api_science_progress(child_id):
         "mastered": mastered_count,
         "categories": categories,
     })
+
+
+# ── Reading Web Proxy ──
+
+@app.route("/api/reading-proxy")
+@login_required
+def reading_proxy():
+    """Fetch a web page, sanitize it (strip links, scripts, nav), and serve it for safe reading."""
+    import requests as req
+    from bs4 import BeautifulSoup
+    from urllib.parse import urljoin
+
+    url = request.args.get("url", "")
+    if not url:
+        return "No URL provided", 400
+
+    # Verify this URL belongs to an actual reading material
+    conn = get_db()
+    material = conn.execute("SELECT id FROM reading_material WHERE source_url = ?", (url,)).fetchone()
+    conn.close()
+    if not material:
+        return "URL not authorized", 403
+
+    try:
+        resp = req.get(url, timeout=15, headers={
+            "User-Agent": "Mozilla/5.0 (compatible; KidVerbal/1.0)"
+        })
+        resp.raise_for_status()
+    except Exception as e:
+        return f"Failed to fetch page: {str(e)}", 502
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Remove non-content elements
+    for tag in soup.find_all(["script", "noscript", "nav", "footer", "header",
+                              "aside", "iframe", "form"]):
+        tag.decompose()
+    for selector in [".ad", ".ads", ".advertisement", ".sidebar", ".nav",
+                     ".menu", ".footer", ".header", ".cookie", ".popup",
+                     ".social", ".share", ".comments", ".related"]:
+        for el in soup.select(selector):
+            el.decompose()
+
+    # Convert all relative image/media URLs to absolute
+    for tag in soup.find_all(["img", "source", "video", "audio"]):
+        for attr in ["src", "srcset"]:
+            val = tag.get(attr)
+            if val:
+                if attr == "srcset":
+                    parts = []
+                    for entry in val.split(","):
+                        entry = entry.strip()
+                        if entry:
+                            pieces = entry.split()
+                            pieces[0] = urljoin(url, pieces[0])
+                            parts.append(" ".join(pieces))
+                    tag[attr] = ", ".join(parts)
+                else:
+                    tag[attr] = urljoin(url, val)
+
+    # Convert relative CSS URLs to absolute
+    for tag in soup.find_all("link", rel="stylesheet"):
+        href = tag.get("href")
+        if href:
+            tag["href"] = urljoin(url, href)
+
+    # Disable all links: remove href, make non-clickable
+    for a_tag in soup.find_all("a"):
+        a_tag["href"] = "javascript:void(0)"
+        a_tag["onclick"] = "return false"
+        a_tag["style"] = (a_tag.get("style", "") + "; cursor: default; text-decoration: none; color: inherit;").strip("; ")
+
+    # Inject a style block to disable link behavior and hide any remaining nav
+    block_style = soup.new_tag("style")
+    block_style.string = (
+        "a { pointer-events: none !important; cursor: default !important; "
+        "text-decoration: none !important; color: inherit !important; } "
+        "nav, .nav, .menu, .sidebar, .footer, .header, .ad, .ads, .social, "
+        ".share, .comments, .related { display: none !important; }"
+    )
+    if soup.head:
+        soup.head.append(block_style)
+    elif soup.html:
+        soup.html.insert(0, block_style)
+
+    return str(soup), 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 # ── Site Configuration ──

@@ -61,3 +61,9 @@ Key architectural and design decisions made during development.
 **Decision:** Use `async_mode="threading"` for Flask-SocketIO.
 **Rationale:** Simpler than eventlet/gevent, works for local use with few concurrent users.
 **Trade-off:** Not suitable for high concurrency. Eventlet listed in requirements but not used.
+
+## D11: Server-Side Proxy for Kid Web Reading
+
+**Decision:** Use a server-side proxy (`/api/reading-proxy`) to fetch, sanitize, and serve external web pages for kid reading, rather than a direct iframe with sandbox attributes.
+**Rationale:** Full control over content — can strip all links, scripts, nav, ads, and social elements. Direct iframe sandbox blocks top-level navigation but links still work within the frame. Proxy approach ensures kids cannot click any link at all.
+**Trade-off:** Extra server request per page load. Proxy must handle relative URLs for images/CSS. Some complex pages may not render perfectly after sanitization.
