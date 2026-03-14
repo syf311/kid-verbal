@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}Settings{% endblock %}
+
+{% block extra_css %}
+<style>
+    .settings-section {
+        background: white;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 2px solid #e2e8f0;
+    }
+    .settings-section h3 {
+        margin-top: 0;
+        margin-bottom: 15px;
+        color: #2d3748;
+    }
+    .form-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+    .form-row label {
+        font-weight: 600;
+        min-width: 120px;
+        font-size: 14px;
+    }
+    .form-row input, .form-row select {
+        flex: 1;
+        max-width: 400px;
+    }
+    .key-status {
+        font-size: 13px;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-weight: 600;
+    }
+    .key-status.configured { background: #c6f6d5; color: #22543d; }
+    .key-status.missing { background: #fed7d7; color: #c53030; }
+    .grade-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 0;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .grade-row:last-child { border-bottom: none; }
+    .child-name { font-weight: 600; min-width: 100px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="/parent" style="color: #667eea; text-decoration: none;">&larr; Back to Home</a>
+<h1 style="margin-top: 10px;">Settings</h1>
+
+<div class="settings-section">
+    <h3>OpenAI API Key</h3>
+    <p style="color: #666; font-size: 14px; margin-bottom: 15px;">
+        Used for AI-powered features like question generation. Your key is stored securely in the database and never exposed in code.
+    </p>
+    <div style="margin-bottom: 10px;">
+        <span class="key-status {{ 'configured' if has_key else 'missing' }}">
+            {{ 'Configured: ' + masked_key if has_key else 'Not configured' }}
+        </span>
+    </div>
+    <div class="form-row">
+        <label>API Key:</label>
+        <input type="password" id="api-key-input" placeholder="sk-..." style="font-family: monospace;">
+        <button class="btn btn-success" style="padding: 8px 20px;" onclick="saveApiKey()">Save</button>
+    </div>
+</div>
+
+<div class="settings-section">
+    <h3>Child Grade Levels</h3>
+    <p style="color: #666; font-size: 14px; margin-bottom: 15px;">
+        Set each child's grade level. This is used by AI features to adjust question complexity.
+    </p>
+    {% for child in children %}
+    <div class="grade-row">
+        <span class="child-name">{{ child.name }}</span>
+        <select id="grade-{{ child.id }}" style="padding: 8px 12px; border: 2px solid #ddd; border-radius: 8px; min-width: 180px;" onchange="saveGrade({{ child.id }})">
+            <option value="">Select grade...</option>
+            <option value="1st grade" {% if child.grade_level == '1st grade' %}selected{% endif %}>1st Grade</option>
+            <option value="2nd grade" {% if child.grade_level == '2nd grade' %}selected{% endif %}>2nd Grade</option>
+            <option value="3rd grade" {% if child.grade_level == '3rd grade' %}selected{% endif %}>3rd Grade</option>
+            <option value="4th grade" {% if child.grade_level == '4th grade' %}selected{% endif %}>4th Grade</option>
+            <option value="5th grade" {% if child.grade_level == '5th grade' %}selected{% endif %}>5th Grade</option>
+            <option value="6th grade" {% if child.grade_level == '6th grade' %}selected{% endif %}>6th Grade</option>
+            <option value="7th grade" {% if child.grade_level == '7th grade' %}selected{% endif %}>7th Grade</option>
+            <option value="8th grade" {% if child.grade_level == '8th grade' %}selected{% endif %}>8th Grade</option>
+        </select>
+        <span id="grade-status-{{ child.id }}" style="font-size: 13px; color: #38a169; display: none;">Saved!</span>
+    </div>
+    {% else %}
+    <p style="color: #999;">No children added yet.</p>
+    {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function saveApiKey() {
+    const input = document.getElementById('api-key-input');
+    const key = input.value.trim();
+    if (!key) {
+        alert('Please enter an API key');
+        return;
+    }
+    const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'openai_api_key', value: key })
+    });
+    if (res.ok) {
+        input.value = '';
+        location.reload();
+    } else {
+        alert('Failed to save API key');
+    }
+}
+
+async function saveGrade(childId) {
+    const select = document.getElementById('grade-' + childId);
+    const grade = select.value;
+    const res = await fetch(`/api/children/${childId}/grade`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ grade_level: grade })
+    });
+    if (res.ok) {
+        const status = document.getElementById('grade-status-' + childId);
+        status.style.display = 'inline';
+        setTimeout(() => { status.style.display = 'none'; }, 2000);
+    }
+}
+</script>
+{% endblock %}

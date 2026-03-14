@@ -8,3 +8,4 @@ eventlet==0.34.2
 feedparser==6.0.11
 beautifulsoup4==4.12.3
 pdfplumber==0.11.8
+openai==1.82.0

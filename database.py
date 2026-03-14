@@ -342,6 +342,12 @@ def init_db():
             FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS site_config (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS science_question_progress (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             child_id INTEGER NOT NULL,
@@ -498,6 +504,13 @@ def init_db():
     # Migration: Add content_pdf to reading_material
     try:
         conn.execute("ALTER TABLE reading_material ADD COLUMN content_pdf TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    # Migration: Add grade_level to child
+    try:
+        conn.execute("ALTER TABLE child ADD COLUMN grade_level TEXT")
         conn.commit()
     except sqlite3.OperationalError:
         pass

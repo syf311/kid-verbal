@@ -164,7 +164,10 @@
                         <textarea id="batch-a-{{ material.id }}" rows="8" placeholder="B&#10;A" style="font-size: 13px;"></textarea>
                     </div>
                 </div>
-                <button class="btn btn-success" style="margin-top: 8px; padding: 8px 20px; font-size: 13px;" onclick="batchImportQuestions({{ material.id }})">Import All</button>
+                <div style="display: flex; gap: 8px; margin-top: 8px;">
+                    <button class="btn" id="ai-gen-btn-{{ material.id }}" style="padding: 8px 20px; font-size: 13px; background: #e9d8fd; color: #553c9a;" onclick="generateAiQuestions({{ material.id }})">Generate by AI</button>
+                    <button class="btn btn-success" style="padding: 8px 20px; font-size: 13px;" onclick="batchImportQuestions({{ material.id }})">Import All</button>
+                </div>
             </div>
             <div id="qlist-{{ material.id }}"></div>
         </div>
@@ -471,10 +474,14 @@ async function importArticle(btn, url, title) {
     btn.textContent = 'Importing...';
 
     try {
+        const childFilter = document.getElementById('child-filter').value;
+        const payload = { url, title };
+        if (childFilter) payload.child_id = parseInt(childFilter);
+
         const res = await fetch('/api/materials/import-article', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url, title })
+            body: JSON.stringify(payload)
         });
 
         if (!res.ok) {
@@ -641,6 +648,37 @@ async function batchImportQuestions(materialId) {
         document.getElementById('batch-a-' + materialId).value = '';
         document.getElementById('batch-import-' + materialId).style.display = 'none';
         await loadQuestions(materialId);
+    }
+}
+
+async function generateAiQuestions(materialId) {
+    const btn = document.getElementById('ai-gen-btn-' + materialId);
+    btn.disabled = true;
+    btn.textContent = 'Generating...';
+
+    try {
+        const res = await fetch(`/api/materials/${materialId}/questions/generate-ai`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+            alert(data.error || 'AI generation failed');
+            return;
+        }
+
+        // Populate the batch import textareas
+        document.getElementById('batch-q-' + materialId).value = data.questions;
+        document.getElementById('batch-a-' + materialId).value = data.answers;
+
+        // Make sure batch import section is visible
+        document.getElementById('batch-import-' + materialId).style.display = 'block';
+    } catch (e) {
+        alert('Network error during AI generation');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Generate by AI';
     }
 }
 

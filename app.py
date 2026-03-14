@@ -689,8 +689,8 @@ def create_child():
     data = request.json
     conn = get_db()
     cursor = conn.execute(
-        "INSERT INTO child (name, avatar) VALUES (?, ?)",
-        (data["name"], data.get("avatar", "👤"))
+        "INSERT INTO child (name, avatar, grade_level) VALUES (?, ?, ?)",
+        (data["name"], data.get("avatar", "👤"), data.get("grade_level"))
     )
     child_id = cursor.lastrowid
     conn.commit()
@@ -1837,10 +1837,12 @@ def import_article():
     if not content:
         return jsonify({"error": "Could not extract article text"}), 400
 
+    child_id = data.get("child_id") or None
+
     conn = get_db()
     cursor = conn.execute(
-        "INSERT INTO reading_material (title, content, source_url) VALUES (?, ?, ?)",
-        (title, content, url)
+        "INSERT INTO reading_material (title, content, source_url, child_id) VALUES (?, ?, ?, ?)",
+        (title, content, url, child_id)
     )
     material_id = cursor.lastrowid
     conn.commit()
@@ -4543,6 +4545,151 @@ def api_science_progress(child_id):
         "mastered": mastered_count,
         "categories": categories,
     })
+
+
+# ── Site Configuration ──
+
+@app.route("/settings")
+@parent_required
+def settings_page():
+    conn = get_db()
+    config_rows = conn.execute("SELECT key, value FROM site_config").fetchall()
+    config = {r["key"]: r["value"] for r in config_rows}
+    children = conn.execute("SELECT id, name, grade_level FROM child ORDER BY name").fetchall()
+    conn.close()
+    # Mask the API key for display
+    api_key = config.get("openai_api_key", "")
+    masked_key = ""
+    if api_key:
+        masked_key = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "****"
+    return render_template(
+        "settings.html",
+        masked_key=masked_key,
+        has_key=bool(api_key),
+        children=[dict(c) for c in children],
+    )
+
+
+@app.route("/api/config", methods=["POST"])
+@parent_required
+def save_config():
+    data = request.json
+    key = data.get("key")
+    value = data.get("value")
+    if not key or not value:
+        return jsonify({"error": "Key and value required"}), 400
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO site_config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP",
+        (key, value),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+def get_config(key):
+    conn = get_db()
+    row = conn.execute("SELECT value FROM site_config WHERE key = ?", (key,)).fetchone()
+    conn.close()
+    return row["value"] if row else None
+
+
+# ── Child grade level ──
+
+@app.route("/api/children/<int:child_id>/grade", methods=["PUT"])
+@parent_required
+def update_child_grade(child_id):
+    data = request.json
+    grade_level = data.get("grade_level", "")
+    conn = get_db()
+    conn.execute("UPDATE child SET grade_level = ? WHERE id = ?", (grade_level, child_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+# ── AI Question Generation ──
+
+@app.route("/api/materials/<int:material_id>/questions/generate-ai", methods=["POST"])
+@parent_required
+def generate_ai_questions(material_id):
+    api_key = get_config("openai_api_key")
+    if not api_key:
+        return jsonify({"error": "OpenAI API key not configured. Go to Settings to add it."}), 400
+
+    conn = get_db()
+    material = conn.execute("SELECT * FROM reading_material WHERE id = ?", (material_id,)).fetchone()
+    if not material:
+        conn.close()
+        return jsonify({"error": "Material not found"}), 404
+
+    # Determine grade level from associated child
+    grade_level = "5th grade"
+    if material["child_id"]:
+        child = conn.execute("SELECT grade_level FROM child WHERE id = ?", (material["child_id"],)).fetchone()
+        if child and child["grade_level"]:
+            grade_level = child["grade_level"]
+    conn.close()
+
+    # Build the article context
+    article_context = ""
+    if material["source_url"]:
+        article_context = f"the article at this URL: {material['source_url']}"
+    if material["content"] and material["content"].strip():
+        text = material["content"][:8000]
+        if article_context:
+            article_context += f"\n\nHere is the article text for reference:\n{text}"
+        else:
+            article_context = f"the following article:\n{text}"
+
+    if not article_context:
+        return jsonify({"error": "Material has no content or source URL to generate questions from."}), 400
+
+    prompt = (
+        f"Please build 10 multiple choice questions and answers for {article_context} "
+        f"for {grade_level} level.\n\n"
+        "IMPORTANT FORMAT RULES:\n"
+        "1. Output a QUESTIONS section first, then an ANSWERS section separated by a line that says exactly 'ANSWERS'\n"
+        "2. Questions should be numbered (1. 2. 3. etc.) with choices A. B. C. D. on separate lines\n"
+        "3. Answers should be one letter per line (e.g. B) with NO numbering, NO periods, just the letter\n"
+        "4. Correct answers MUST be evenly distributed across A, B, C, D (roughly 2-3 of each letter among the 10 questions)\n\n"
+        "Example format:\n"
+        "1. What is the main idea?\n"
+        "A. Option one\n"
+        "B. Option two\n"
+        "C. Option three\n"
+        "D. Option four\n\n"
+        "2. What does the word X mean?\n"
+        "A. ...\n"
+        "B. ...\n"
+        "C. ...\n"
+        "D. ...\n\n"
+        "ANSWERS\n"
+        "B\n"
+        "A\n"
+    )
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=3000,
+        )
+        result = response.choices[0].message.content.strip()
+
+        # Split into questions and answers sections
+        parts = re.split(r'\n\s*ANSWERS\s*\n', result, maxsplit=1)
+        questions_text = parts[0].strip()
+        answers_text = parts[1].strip() if len(parts) > 1 else ""
+
+        return jsonify({"questions": questions_text, "answers": answers_text})
+    except Exception as e:
+        return jsonify({"error": f"AI generation failed: {str(e)}"}), 500
 
 
 if __name__ == "__main__":
