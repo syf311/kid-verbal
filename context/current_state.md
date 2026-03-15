@@ -23,6 +23,7 @@
 - Child answers with required evidence text ("Why?")
 - Unknown word marking (integrates with vocab)
 - Parent review of answers (mark correct/incorrect)
+- **Attempt tracking:** Materials page shows per-child attempt count, last tried date, and most recent correct ratio (e.g., "Tried 2x — 7/10 (70%)"). Filter buttons: All / New / Needs Review (<80%) / Worth Refreshing (>1 month ago). Only shown when a child filter is active.
 
 ### Math
 - Math test creation with question PDF + answer PDF
@@ -83,7 +84,8 @@
 
 ## Recent Changes (latest commits)
 
-1. **Writing auto-save with checkpoints** (task_003) — client-side auto-save (debounced + periodic), 5-minute checkpoint snapshots (last 2), revert UI, beforeunload warning, cleared on submit
+1. **Reading material attempt tracking** (task_004) — per-child attempt count, last tried date, correct ratio on materials page with filter buttons (New / Needs Review / Worth Refreshing)
+2. **Writing auto-save with checkpoints** (task_003) — client-side auto-save (debounced + periodic), 5-minute checkpoint snapshots (last 2), revert UI, beforeunload warning, cleared on submit
 2. **Web reading view for RSS materials** (task_002) — server-side proxy serves sanitized website content in sandboxed iframe, all links disabled, questions panel open by default
 3. **AI question generation for reading materials** (task_001) — OpenAI integration, settings page, child grade levels, article import child assignment fix
 4. Auto-save drafts for math/writing tests

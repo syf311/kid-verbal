@@ -1480,6 +1480,39 @@ def materials_list():
                ORDER BY rm.created_at DESC""",
             (child_filter,)
         ).fetchall()
+        # Compute attempt stats per material for this child
+        material_stats = {}
+        for m in materials:
+            mid = m["id"]
+            assignments = conn.execute(
+                """SELECT ra.id, ra.completed_at
+                   FROM reading_assignment ra
+                   WHERE ra.material_id = ? AND ra.child_id = ? AND ra.status = 'completed'
+                   ORDER BY ra.completed_at DESC""",
+                (mid, child_filter)
+            ).fetchall()
+            times_tried = len(assignments)
+            last_tried_at = None
+            last_correct = None
+            last_total = None
+            if times_tried > 0:
+                last_tried_at = assignments[0]["completed_at"]
+                latest_id = assignments[0]["id"]
+                stats = conn.execute(
+                    """SELECT COUNT(*) as total,
+                              SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) as correct
+                       FROM reading_assignment_answer
+                       WHERE assignment_id = ?""",
+                    (latest_id,)
+                ).fetchone()
+                last_total = stats["total"]
+                last_correct = stats["correct"] or 0
+            material_stats[mid] = {
+                "times_tried": times_tried,
+                "last_tried_at": last_tried_at,
+                "last_correct": last_correct,
+                "last_total": last_total,
+            }
     else:
         materials = conn.execute(
             """SELECT rm.*,
@@ -1489,6 +1522,7 @@ def materials_list():
                LEFT JOIN child c ON rm.child_id = c.id
                ORDER BY rm.created_at DESC"""
         ).fetchall()
+        material_stats = {}
 
     children = conn.execute("SELECT id, name FROM child ORDER BY name").fetchall()
     conn.close()
@@ -1496,7 +1530,8 @@ def materials_list():
         "materials.html",
         materials=[dict(m) for m in materials],
         children=[dict(c) for c in children],
-        child_filter=child_filter
+        child_filter=child_filter,
+        material_stats=material_stats
     )
 
 

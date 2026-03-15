@@ -26,6 +26,29 @@
         font-size: 12px;
         font-weight: 500;
     }
+    .attempt-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .attempt-badge.new { background: #bee3f8; color: #2b6cb0; }
+    .attempt-badge.tried { background: #c6f6d5; color: #276749; }
+    .attempt-badge.needs-review { background: #fed7d7; color: #c53030; }
+    .attempt-badge.refresh { background: #fefcbf; color: #975a16; }
+    .attempt-info { font-size: 12px; color: #888; margin-top: 4px; }
+    .filter-btn {
+        padding: 6px 14px;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px;
+        background: white;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+    .filter-btn:hover { border-color: #667eea; }
+    .filter-btn.active { background: #667eea; color: white; border-color: #667eea; }
 </style>
 {% endblock %}
 
@@ -91,9 +114,26 @@
         {% endfor %}
     </select>
 </div>
+{% if child_filter %}
+<div style="margin-bottom: 15px; display: flex; gap: 8px; flex-wrap: wrap;">
+    <button class="filter-btn active" onclick="filterMaterials('all')" id="filter-all">All</button>
+    <button class="filter-btn" onclick="filterMaterials('new')" id="filter-new">New</button>
+    <button class="filter-btn" onclick="filterMaterials('needs-review')" id="filter-needs-review">Needs Review (&lt;80%)</button>
+    <button class="filter-btn" onclick="filterMaterials('refresh')" id="filter-refresh">Worth Refreshing (&gt;1 month)</button>
+</div>
+{% endif %}
 <div id="materials-list">
     {% for material in materials %}
-    <div class="card" style="margin-bottom: 15px;" id="material-{{ material.id }}">
+    {% set stats = material_stats.get(material.id, {}) %}
+    {% set times_tried = stats.get('times_tried', 0) %}
+    {% set last_tried_at = stats.get('last_tried_at') %}
+    {% set last_correct = stats.get('last_correct') %}
+    {% set last_total = stats.get('last_total') %}
+    {% set ratio = (last_correct / last_total * 100)|round|int if last_total and last_total > 0 else 0 %}
+    <div class="card material-card" style="margin-bottom: 15px;" id="material-{{ material.id }}"
+         data-times-tried="{{ times_tried }}"
+         data-ratio="{{ ratio }}"
+         data-last-tried="{{ last_tried_at or '' }}">
         <div style="display: flex; justify-content: space-between; align-items: start;">
             <div style="flex: 1; min-width: 0;">
                 <h3 style="margin: 0;">{{ material.title }}</h3>
@@ -101,10 +141,20 @@
                     {% if material.child_name %}
                     <span style="background: #e9d8fd; color: #553c9a; padding: 2px 8px; border-radius: 4px;">{{ material.child_name }}</span>
                     {% endif %}
+                    {% if child_filter %}
+                        {% if times_tried == 0 %}
+                        <span class="attempt-badge new">New</span>
+                        {% else %}
+                        <span class="attempt-badge {% if ratio < 80 %}needs-review{% else %}tried{% endif %}">Tried {{ times_tried }}x — {{ last_correct }}/{{ last_total }} ({{ ratio }}%)</span>
+                        {% endif %}
+                    {% endif %}
                     {% if material.source_url %}
                     <a href="{{ material.source_url }}" target="_blank" rel="noopener" style="color: #667eea;">Source</a>
                     {% endif %}
                 </div>
+                {% if child_filter and last_tried_at %}
+                <div class="attempt-info">Last tried: {{ last_tried_at[:10] }}</div>
+                {% endif %}
                 <p style="color: #666; margin-top: 5px;">
                     {% if material.content_pdf %}
                     <span style="background: #fed7d7; color: #c53030; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">PDF</span>
@@ -686,6 +736,34 @@ async function clearAllQuestions(materialId) {
     if (!confirm('Delete all questions for this material?')) return;
     await fetch(`/api/materials/${materialId}/questions`, { method: 'DELETE' });
     await loadQuestions(materialId);
+}
+
+// ── Filter Materials by Attempt Status ──
+
+function filterMaterials(filter) {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('filter-' + filter).classList.add('active');
+
+    const now = Date.now();
+    const ONE_MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+
+    document.querySelectorAll('.material-card').forEach(card => {
+        const tried = parseInt(card.dataset.timesTried) || 0;
+        const ratio = parseInt(card.dataset.ratio) || 0;
+        const lastTried = card.dataset.lastTried;
+        const lastTriedMs = lastTried ? new Date(lastTried).getTime() : 0;
+
+        let show = true;
+        if (filter === 'new') {
+            show = tried === 0;
+        } else if (filter === 'needs-review') {
+            show = tried > 0 && ratio < 80;
+        } else if (filter === 'refresh') {
+            show = tried > 0 && lastTriedMs > 0 && (now - lastTriedMs) > ONE_MONTH_MS;
+        }
+
+        card.style.display = show ? '' : 'none';
+    });
 }
 
 // ── Assign Material ──
