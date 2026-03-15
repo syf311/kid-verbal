@@ -61,6 +61,47 @@
     @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
     .submit-area { margin-top: 16px; text-align: center; }
     .submit-area .btn { padding: 14px 40px; font-size: 18px; }
+    .save-indicator {
+        font-size: 13px;
+        color: #999;
+        transition: color 0.3s;
+    }
+    .save-indicator.saving { color: #ed8936; }
+    .save-indicator.saved { color: #48bb78; }
+    .save-indicator.error { color: #e53e3e; }
+    .checkpoint-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 10px;
+        flex-wrap: wrap;
+    }
+    .checkpoint-bar .label {
+        font-size: 13px;
+        color: #888;
+    }
+    .checkpoint-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 10px;
+        font-size: 12px;
+        background: #f7fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        cursor: pointer;
+        color: #4a5568;
+        transition: all 0.15s;
+    }
+    .checkpoint-btn:hover {
+        background: #ebf4ff;
+        border-color: #667eea;
+        color: #667eea;
+    }
+    .checkpoint-btn .words {
+        color: #a0aec0;
+        font-size: 11px;
+    }
     .limits-info { font-size: 13px; color: #888; }
     .revision-banner {
         background: linear-gradient(135deg, #fffaf0, #fff5f5);
@@ -153,7 +194,7 @@
 </div>
 
 <div class="writing-area">
-    <textarea id="writing-input" placeholder="Start writing here..." oninput="updateWordCount(); saveDraft()">{% if previous_submission %}{{ previous_submission.writing_text }}{% endif %}</textarea>
+    <textarea id="writing-input" placeholder="Start writing here..." oninput="onInput()">{% if previous_submission %}{{ previous_submission.writing_text }}{% endif %}</textarea>
     <div class="word-count-bar">
         <div>
             <span class="word-count good" id="wordCount">0 words</span>
@@ -164,7 +205,14 @@
             </span>
             {% endif %}
         </div>
-        <div id="limitMsg" style="font-size: 13px;"></div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <span class="save-indicator" id="saveIndicator"></span>
+            <span id="limitMsg" style="font-size: 13px;"></span>
+        </div>
+    </div>
+    <div class="checkpoint-bar" id="checkpointBar">
+        <span class="label">Checkpoints:</span>
+        <span id="checkpointList"><span style="font-size: 12px; color: #a0aec0;">First checkpoint at 5 min</span></span>
     </div>
 </div>
 
@@ -183,7 +231,19 @@ const minWords = {{ test.min_word_count }};
 const maxWords = {{ test.max_word_count }};
 let startTime = Date.now();
 let timerInterval = null;
+let submitted = false;
 const draftKey = 'writing_draft_' + testId;
+
+// --- Auto-save state ---
+let saveTimeout = null;
+let lastSavedText = '';
+const SAVE_DEBOUNCE_MS = 3000;
+const SAVE_INTERVAL_MS = 30000;
+
+// --- Checkpoint state ---
+const checkpointKey = 'writing_checkpoints_' + testId;
+const CHECKPOINT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_CHECKPOINTS = 2;
 
 function updateWordCount() {
     const text = document.getElementById('writing-input').value.trim();
@@ -212,30 +272,140 @@ function updateWordCount() {
     btn.disabled = !canSubmit;
 }
 
-function saveDraft() {
+function showSaveStatus(status, message) {
+    const el = document.getElementById('saveIndicator');
+    el.className = 'save-indicator ' + status;
+    el.textContent = message;
+}
+
+function saveDraftLocal() {
     const text = document.getElementById('writing-input').value;
+    if (text === lastSavedText) return;
     localStorage.setItem(draftKey, JSON.stringify({
         text: text,
         timerStartedAt: startTime
     }));
+    lastSavedText = text;
+    showSaveStatus('saved', 'Draft saved');
+}
+
+function scheduleSave() {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(saveDraftLocal, SAVE_DEBOUNCE_MS);
+}
+
+// Periodic save every 30s as a safety net
+setInterval(() => {
+    const text = document.getElementById('writing-input').value;
+    if (text !== lastSavedText) saveDraftLocal();
+}, SAVE_INTERVAL_MS);
+
+function onInput() {
+    updateWordCount();
+    scheduleSave();
+}
+
+// --- Checkpoint functions ---
+function getCheckpoints() {
+    try {
+        return JSON.parse(localStorage.getItem(checkpointKey)) || [];
+    } catch (e) { return []; }
+}
+
+function saveCheckpoint() {
+    const text = document.getElementById('writing-input').value;
+    if (!text.trim()) return;
+    const checkpoints = getCheckpoints();
+    const elapsed = Math.round((Date.now() - startTime) / 1000);
+    const mins = Math.round(elapsed / 60);
+    const wordCount = text.trim().split(/\s+/).length;
+    // Don't save if text is same as last checkpoint
+    if (checkpoints.length > 0 && checkpoints[checkpoints.length - 1].text === text) return;
+    checkpoints.push({ text, mins, wordCount, savedAt: Date.now() });
+    // Keep only last 2
+    while (checkpoints.length > MAX_CHECKPOINTS) checkpoints.shift();
+    localStorage.setItem(checkpointKey, JSON.stringify(checkpoints));
+    renderCheckpoints();
+    showSaveStatus('saved', `Checkpoint saved (${mins}min)`);
+}
+
+function renderCheckpoints() {
+    const checkpoints = getCheckpoints();
+    const list = document.getElementById('checkpointList');
+    if (checkpoints.length === 0) {
+        list.innerHTML = '<span style="font-size: 12px; color: #a0aec0;">First checkpoint at 5 min</span>';
+        return;
+    }
+    list.innerHTML = '';
+    checkpoints.forEach((cp, i) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'checkpoint-btn';
+        btn.innerHTML = `${cp.mins}th min <span class="words">(${cp.wordCount} words)</span>`;
+        btn.onclick = () => revertToCheckpoint(i);
+        list.appendChild(btn);
+    });
+}
+
+function revertToCheckpoint(index) {
+    const checkpoints = getCheckpoints();
+    if (index < 0 || index >= checkpoints.length) return;
+    const cp = checkpoints[index];
+    if (!confirm(`Revert to checkpoint at ${cp.mins}th min? (${cp.wordCount} words)\n\nThis will replace your current text.`)) return;
+    const textarea = document.getElementById('writing-input');
+    textarea.value = cp.text;
+    updateWordCount();
+    scheduleSave();
+    showSaveStatus('saved', `Reverted to ${cp.mins}th min`);
+}
+
+function clearCheckpoints() {
+    localStorage.removeItem(checkpointKey);
+}
+
+function startCheckpointTimer() {
+    // Calculate time until next 5-minute boundary based on startTime
+    const elapsed = Date.now() - startTime;
+    const msUntilNext = CHECKPOINT_INTERVAL_MS - (elapsed % CHECKPOINT_INTERVAL_MS);
+    // Fire at the next 5-min mark, then every 5 min after
+    setTimeout(() => {
+        saveCheckpoint();
+        setInterval(saveCheckpoint, CHECKPOINT_INTERVAL_MS);
+    }, msUntilNext);
 }
 
 function loadDraft() {
-    const raw = localStorage.getItem(draftKey);
-    if (raw) {
-        try {
-            const draft = JSON.parse(raw);
-            const textarea = document.getElementById('writing-input');
-            if (draft.text && !textarea.value.trim()) {
-                textarea.value = draft.text;
-            }
-            if (draft.timerStartedAt) startTime = draft.timerStartedAt;
-            updateWordCount();
-        } catch (e) {}
+    const textarea = document.getElementById('writing-input');
+
+    // Priority: 1) revision text (already in textarea), 2) localStorage draft
+    if (textarea.value.trim()) {
+        lastSavedText = textarea.value;
     } else {
-        saveDraft();
+        const raw = localStorage.getItem(draftKey);
+        if (raw) {
+            try {
+                const draft = JSON.parse(raw);
+                if (draft.text) textarea.value = draft.text;
+                if (draft.timerStartedAt) startTime = draft.timerStartedAt;
+            } catch (e) {}
+        }
+    }
+
+    lastSavedText = textarea.value;
+    updateWordCount();
+    if (textarea.value.trim()) {
+        showSaveStatus('saved', 'Draft loaded');
     }
 }
+
+// Warn before leaving with unsaved changes
+window.addEventListener('beforeunload', function(e) {
+    const text = document.getElementById('writing-input').value;
+    if (!submitted && text.trim() && text !== lastSavedText) {
+        e.preventDefault();
+        e.returnValue = '';
+    }
+});
 
 async function submitWriting() {
     const text = document.getElementById('writing-input').value.trim();
@@ -261,7 +431,9 @@ async function doSubmit() {
         });
         const data = await res.json();
         if (res.ok) {
+            submitted = true;
             localStorage.removeItem(draftKey);
+            clearCheckpoints();
             window.location.href = `/child/${childId}/writing-test/${testId}/review`;
         } else {
             alert(data.error || 'Failed to submit');
@@ -321,6 +493,8 @@ function startTimer() {
 }
 
 loadDraft();
+renderCheckpoints();
+startCheckpointTimer();
 startTimer();
 </script>
 {% endblock %}

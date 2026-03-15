@@ -67,3 +67,9 @@ Key architectural and design decisions made during development.
 **Decision:** Use a server-side proxy (`/api/reading-proxy`) to fetch, sanitize, and serve external web pages for kid reading, rather than a direct iframe with sandbox attributes.
 **Rationale:** Full control over content — can strip all links, scripts, nav, ads, and social elements. Direct iframe sandbox blocks top-level navigation but links still work within the frame. Proxy approach ensures kids cannot click any link at all.
 **Trade-off:** Extra server request per page load. Proxy must handle relative URLs for images/CSS. Some complex pages may not render perfectly after sanitization.
+
+## D12: Client-Side Auto-Save and Checkpoints for Writing
+
+**Decision:** Use localStorage for writing auto-save and 5-minute checkpoint snapshots (last 2 kept), rather than server-side storage.
+**Rationale:** Client-side approach is simpler, has no server cost, works offline, and avoids adding DB columns/API endpoints. Sufficient for the use case since writing happens in a single browser session.
+**Trade-off:** Drafts don't sync across devices/browsers. localStorage can be cleared by the user. Acceptable since kids typically use the same device.

@@ -39,7 +39,8 @@
 - Inline text annotations by parent
 - Score and feedback
 - Send-back-for-revision flow
-- Auto-save drafts
+- Auto-save drafts (client-side localStorage, debounced 3s + periodic 30s)
+- **Checkpoint snapshots:** every 5 minutes, a snapshot is saved locally (last 2 kept). Checkpoint bar shows revert buttons with minute mark and word count. Cleared on submit.
 
 ### Science (Science Bowl)
 - PDF import of Science Bowl format questions
@@ -82,9 +83,10 @@
 
 ## Recent Changes (latest commits)
 
-1. **Web reading view for RSS materials** (task_002) — server-side proxy serves sanitized website content in sandboxed iframe, all links disabled, questions panel open by default
-2. **AI question generation for reading materials** (task_001) — OpenAI integration, settings page, child grade levels, article import child assignment fix
-2. Auto-save drafts for math/writing tests
+1. **Writing auto-save with checkpoints** (task_003) — client-side auto-save (debounced + periodic), 5-minute checkpoint snapshots (last 2), revert UI, beforeunload warning, cleared on submit
+2. **Web reading view for RSS materials** (task_002) — server-side proxy serves sanitized website content in sandboxed iframe, all links disabled, questions panel open by default
+3. **AI question generation for reading materials** (task_001) — OpenAI integration, settings page, child grade levels, article import child assignment fix
+4. Auto-save drafts for math/writing tests
 3. Mastery filters with pagination for science questions
 4. PDF content support for reading assignments
 5. Parent review tracking + required explanations for reading/math tests

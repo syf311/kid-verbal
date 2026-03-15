@@ -4,6 +4,8 @@ Ideas and potential improvements, roughly prioritized.
 
 ## High Priority
 
+- [x] need to handle writing is not saved and gets lost in the middle by accident (task_003 — client-side auto-save + checkpoints)
+- [ ] need to have a way to record/view how many times a reading material is read by a kid
 - [ ] Split `app.py` into Flask blueprints by subject (vocab, reading, math, writing, science, plans)
 - [ ] Extract shared CSS into a static stylesheet to reduce template duplication
 - [ ] Add basic automated tests (at least for API endpoints and grading logic)
