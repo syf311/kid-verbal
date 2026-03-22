@@ -3469,8 +3469,12 @@ def add_plan_reading_assignment(plan_id):
         (plan_id, ra_id, max_order + 1)
     )
 
-    # Auto-create study session for power words in child's vocab
+    # Shared context for auto-created items
     child_id = plan["child_id"]
+    material_title = conn.execute("SELECT title FROM reading_material WHERE id = ?", (material_id,)).fetchone()["title"]
+    account = get_current_account()
+
+    # Auto-create study session for power words in child's vocab
     power_words = conn.execute(
         "SELECT pw.word FROM material_power_word pw WHERE pw.material_id = ?",
         (material_id,)
@@ -3485,10 +3489,9 @@ def add_plan_reading_assignment(plan_id):
             if w:
                 pw_word_ids.append(w["id"])
         if pw_word_ids:
-            material_title = conn.execute("SELECT title FROM reading_material WHERE id = ?", (material_id,)).fetchone()["title"]
             ss_cursor = conn.execute(
                 "INSERT INTO study_session (child_id, created_by, title, learning_plan_id) VALUES (?, ?, ?, ?)",
-                (child_id, session["account_id"], f"Power Words: {material_title}", plan_id)
+                (child_id, account["id"], f"Power Words: {material_title}", plan_id)
             )
             ss_id = ss_cursor.lastrowid
             for wid in pw_word_ids:
@@ -3499,9 +3502,34 @@ def add_plan_reading_assignment(plan_id):
                 (plan_id, ss_id, max_order + 1)
             )
 
+    # Auto-create writing assignment for reading summary
+    child_row = conn.execute("SELECT grade_level FROM child WHERE id = ?", (child_id,)).fetchone()
+    grade = (child_row["grade_level"] or "").lower() if child_row and child_row["grade_level"] else ""
+
+    # Determine word limits by grade level
+    if any(g in grade for g in ["2nd", "3rd", "2", "3"]):
+        min_words, max_words = 50, 100
+    elif any(g in grade for g in ["6th", "7th", "8th", "6", "7", "8"]):
+        min_words, max_words = 200, 350
+    else:
+        min_words, max_words = 100, 200
+
+    topic_text = f'After reading "{material_title}", write a summary in your own words. What is the article about? What is your point of view on this topic?'
+    wt_cursor = conn.execute(
+        """INSERT INTO writing_test (child_id, created_by, topic_text, timer_mode, time_limit_seconds, min_word_count, max_word_count, learning_plan_id)
+           VALUES (?, ?, ?, 'none', 0, ?, ?, ?)""",
+        (child_id, account["id"], topic_text, min_words, max_words, plan_id)
+    )
+    wt_id = wt_cursor.lastrowid
+    max_order = conn.execute("SELECT COALESCE(MAX(sort_order), 0) FROM learning_plan_item WHERE plan_id = ?", (plan_id,)).fetchone()[0]
+    conn.execute(
+        "INSERT INTO learning_plan_item (plan_id, item_type, item_id, sort_order) VALUES (?, 'writing_test', ?, ?)",
+        (plan_id, wt_id, max_order + 1)
+    )
+
     conn.commit()
     conn.close()
-    return jsonify({"id": ra_id}), 201
+    return jsonify({"id": ra_id, "writing_test_created": True, "writing_test_id": wt_id}), 201
 
 
 @app.route("/api/learning-plans/<int:plan_id>/items/math-test", methods=["POST"])

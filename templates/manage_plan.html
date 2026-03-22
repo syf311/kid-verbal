@@ -133,10 +133,29 @@
     .mastery-due { background: #fefcbf; color: #975a16; }
     .mastery-good { background: #c6f6d5; color: #276749; }
     .mastery-mastered { background: #667eea; color: #fff; }
+    .toast-notification {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        background: #333;
+        color: white;
+        padding: 14px 20px;
+        border-radius: 10px;
+        font-size: 14px;
+        max-width: 350px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        cursor: pointer;
+        opacity: 0;
+        transform: translateY(10px);
+        transition: opacity 0.3s, transform 0.3s;
+        z-index: 1000;
+    }
+    .toast-notification.show { opacity: 1; transform: translateY(0); }
 </style>
 {% endblock %}
 
 {% block content %}
+<div id="toast" class="toast-notification" onclick="this.classList.remove('show')"></div>
 <a href="/parent" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back to Dashboard</a>
 
 {% if mode == 'create' %}
@@ -426,6 +445,14 @@
 
 {% block scripts %}
 <script>
+function showToast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(el._timer);
+    el._timer = setTimeout(() => el.classList.remove('show'), 4000);
+}
+
 const childId = {{ child.id }};
 {% if plan %}
 const planId = {{ plan.id }};
@@ -782,10 +809,14 @@ async function addReadingAssignment() {
         body: JSON.stringify({ material_id: selectedMaterialId })
     });
     if (res.ok) {
+        const data = await res.json();
         selectedMaterialId = null;
         document.getElementById('material-checklist').querySelectorAll('.material-select-item').forEach(el => el.classList.remove('selected'));
         document.getElementById('add-ra-btn').disabled = true;
         loadPlan();
+        if (data.writing_test_created) {
+            showToast('A writing assignment was also created for this reading.');
+        }
     } else {
         const data = await res.json();
         alert('Error: ' + (data.error || 'Failed'));
