@@ -1475,6 +1475,7 @@ def materials_list():
         materials = conn.execute(
             """SELECT rm.*,
                       (SELECT COUNT(*) FROM material_question WHERE material_id = rm.id) as question_count,
+                      (SELECT COUNT(*) FROM material_power_word WHERE material_id = rm.id) as power_word_count,
                       c.name as child_name
                FROM reading_material rm
                LEFT JOIN child c ON rm.child_id = c.id
@@ -1519,6 +1520,7 @@ def materials_list():
         materials = conn.execute(
             """SELECT rm.*,
                       (SELECT COUNT(*) FROM material_question WHERE material_id = rm.id) as question_count,
+                      (SELECT COUNT(*) FROM material_power_word WHERE material_id = rm.id) as power_word_count,
                       c.name as child_name
                FROM reading_material rm
                LEFT JOIN child c ON rm.child_id = c.id
@@ -1841,11 +1843,35 @@ def import_article():
 
     soup = BeautifulSoup(resp.text, "html.parser")
 
+    # Extract Power Words BEFORE removing non-content elements (they live in footer areas)
+    power_words = []
+    pw_section = soup.find("section", id="power-words") or soup.find("div", class_="power-words-container")
+    if not pw_section:
+        # Fallback: look for h3 containing "Power Words" and go to grandparent
+        for h3 in soup.find_all("h3"):
+            if "power words" in (h3.get_text() or "").lower():
+                pw_section = h3.parent.parent if h3.parent else h3.parent
+                break
+    if pw_section:
+        for p in pw_section.find_all("p"):
+            strong = p.find("strong")
+            if not strong:
+                continue
+            word = strong.get_text().strip().rstrip(":")
+            if not word:
+                continue
+            # Get full paragraph text, remove the word part, strip leading colon
+            full_text = p.get_text()
+            definition = full_text.replace(strong.get_text(), "", 1).strip()
+            if definition.startswith(":"):
+                definition = definition[1:].strip()
+            if word and definition:
+                power_words.append({"word": word.lower(), "definition": definition})
+
     # Remove non-content elements
     for tag in soup.find_all(["script", "style", "nav", "footer", "header",
                               "aside", "iframe", "form", "noscript"]):
         tag.decompose()
-    # Remove common ad/navigation classes
     for selector in [".ad", ".ads", ".advertisement", ".sidebar", ".nav",
                      ".menu", ".footer", ".header", ".cookie", ".popup"]:
         for el in soup.select(selector):
@@ -1862,7 +1888,6 @@ def import_article():
     )
 
     if content_el:
-        # Get text with paragraph breaks
         paragraphs = content_el.find_all("p")
         if paragraphs:
             content = "\n\n".join(p.get_text().strip() for p in paragraphs if p.get_text().strip())
@@ -1882,10 +1907,76 @@ def import_article():
         (title, content, url, child_id)
     )
     material_id = cursor.lastrowid
+
+    # Store power words
+    for pw in power_words:
+        conn.execute(
+            "INSERT INTO material_power_word (material_id, word, definition) VALUES (?, ?, ?)",
+            (material_id, pw["word"], pw["definition"])
+        )
+
     conn.commit()
     conn.close()
 
-    return jsonify({"id": material_id, "title": title, "content_length": len(content)}), 201
+    return jsonify({"id": material_id, "title": title, "content_length": len(content), "power_word_count": len(power_words)}), 201
+
+
+@app.route("/api/materials/<int:material_id>/power-words", methods=["GET"])
+@login_required
+def get_power_words(material_id):
+    conn = get_db()
+    words = conn.execute(
+        "SELECT * FROM material_power_word WHERE material_id = ? ORDER BY id",
+        (material_id,)
+    ).fetchall()
+    child_id = request.args.get("child_id", type=int)
+    result = []
+    for w in words:
+        d = dict(w)
+        d["already_added"] = False
+        if child_id:
+            existing = conn.execute(
+                "SELECT id FROM word WHERE child_id = ? AND LOWER(word) = LOWER(?)",
+                (child_id, w["word"])
+            ).fetchone()
+            d["already_added"] = existing is not None
+        result.append(d)
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/materials/<int:material_id>/power-words/add-to-vocab", methods=["POST"])
+@parent_required
+def add_power_words_to_vocab(material_id):
+    data = request.json
+    child_id = data.get("child_id")
+    word_ids = data.get("word_ids", [])
+    if not child_id or not word_ids:
+        return jsonify({"error": "child_id and word_ids required"}), 400
+
+    conn = get_db()
+    added = 0
+    for wid in word_ids:
+        pw = conn.execute(
+            "SELECT word, definition FROM material_power_word WHERE id = ? AND material_id = ?",
+            (wid, material_id)
+        ).fetchone()
+        if not pw:
+            continue
+        existing = conn.execute(
+            "SELECT id FROM word WHERE child_id = ? AND LOWER(word) = LOWER(?)",
+            (child_id, pw["word"])
+        ).fetchone()
+        if existing:
+            continue
+        conn.execute(
+            "INSERT INTO word (child_id, word, definition) VALUES (?, ?, ?)",
+            (child_id, pw["word"], pw["definition"])
+        )
+        added += 1
+    conn.commit()
+    conn.close()
+    return jsonify({"added": added})
 
 
 @app.route("/api/active-reading-sessions", methods=["GET"])
@@ -3375,6 +3466,37 @@ def add_plan_reading_assignment(plan_id):
         "INSERT INTO learning_plan_item (plan_id, item_type, item_id, sort_order) VALUES (?, 'reading_assignment', ?, ?)",
         (plan_id, ra_id, max_order + 1)
     )
+
+    # Auto-create study session for power words in child's vocab
+    child_id = plan["child_id"]
+    power_words = conn.execute(
+        "SELECT pw.word FROM material_power_word pw WHERE pw.material_id = ?",
+        (material_id,)
+    ).fetchall()
+    if power_words:
+        pw_word_ids = []
+        for pw in power_words:
+            w = conn.execute(
+                "SELECT id FROM word WHERE child_id = ? AND LOWER(word) = LOWER(?)",
+                (child_id, pw["word"])
+            ).fetchone()
+            if w:
+                pw_word_ids.append(w["id"])
+        if pw_word_ids:
+            material_title = conn.execute("SELECT title FROM reading_material WHERE id = ?", (material_id,)).fetchone()["title"]
+            ss_cursor = conn.execute(
+                "INSERT INTO study_session (child_id, created_by, title, learning_plan_id) VALUES (?, ?, ?, ?)",
+                (child_id, session["account_id"], f"Power Words: {material_title}", plan_id)
+            )
+            ss_id = ss_cursor.lastrowid
+            for wid in pw_word_ids:
+                conn.execute("INSERT INTO study_session_word (session_id, word_id) VALUES (?, ?)", (ss_id, wid))
+            max_order = conn.execute("SELECT COALESCE(MAX(sort_order), 0) FROM learning_plan_item WHERE plan_id = ?", (plan_id,)).fetchone()[0]
+            conn.execute(
+                "INSERT INTO learning_plan_item (plan_id, item_type, item_id, sort_order) VALUES (?, 'study_session', ?, ?)",
+                (plan_id, ss_id, max_order + 1)
+            )
+
     conn.commit()
     conn.close()
     return jsonify({"id": ra_id}), 201

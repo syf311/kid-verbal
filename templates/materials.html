@@ -49,6 +49,22 @@
     }
     .filter-btn:hover { border-color: #667eea; }
     .filter-btn.active { background: #667eea; color: white; border-color: #667eea; }
+    .pw-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        margin-bottom: 4px;
+        font-size: 14px;
+        transition: background 0.15s;
+    }
+    .pw-item:hover { background: #f7fafc; }
+    .pw-item.already-added { opacity: 0.5; }
+    .pw-item input[type="checkbox"] { margin-top: 3px; flex-shrink: 0; width: 16px; height: 16px; }
+    .pw-item .pw-content { flex: 1; min-width: 0; }
+    .pw-word { font-weight: 700; color: #333; }
+    .pw-def { color: #555; font-size: 13px; margin-top: 2px; line-height: 1.4; }
 </style>
 {% endblock %}
 
@@ -134,39 +150,42 @@
          data-times-tried="{{ times_tried }}"
          data-ratio="{{ ratio }}"
          data-last-tried="{{ last_tried_at or '' }}">
-        <div style="display: flex; justify-content: space-between; align-items: start;">
-            <div style="flex: 1; min-width: 0;">
-                <h3 style="margin: 0;">{{ material.title }}</h3>
-                <div style="margin-top: 4px; font-size: 13px;">
-                    {% if material.child_name %}
-                    <span style="background: #e9d8fd; color: #553c9a; padding: 2px 8px; border-radius: 4px;">{{ material.child_name }}</span>
-                    {% endif %}
-                    {% if child_filter %}
-                        {% if times_tried == 0 %}
-                        <span class="attempt-badge new">New</span>
-                        {% else %}
-                        <span class="attempt-badge {% if ratio < 80 %}needs-review{% else %}tried{% endif %}">Tried {{ times_tried }}x — {{ last_correct }}/{{ last_total }} ({{ ratio }}%)</span>
-                        {% endif %}
-                    {% endif %}
-                    {% if material.source_url %}
-                    <a href="{{ material.source_url }}" target="_blank" rel="noopener" style="color: #667eea;">Source</a>
-                    {% endif %}
-                </div>
-                {% if child_filter and last_tried_at %}
-                <div class="attempt-info">Last tried: {{ last_tried_at[:10] }}</div>
+        <div>
+            <h3 style="margin: 0;">{{ material.title }}</h3>
+            <div style="margin-top: 4px; font-size: 13px;">
+                {% if material.child_name %}
+                <span style="background: #e9d8fd; color: #553c9a; padding: 2px 8px; border-radius: 4px;">{{ material.child_name }}</span>
                 {% endif %}
-                <p style="color: #666; margin-top: 5px;">
-                    {% if material.content_pdf %}
-                    <span style="background: #fed7d7; color: #c53030; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">PDF</span>
+                {% if child_filter %}
+                    {% if times_tried == 0 %}
+                    <span class="attempt-badge new">New</span>
                     {% else %}
-                    {{ material.content[:100] }}{% if material.content|length > 100 %}...{% endif %}
+                    <span class="attempt-badge {% if ratio < 80 %}needs-review{% else %}tried{% endif %}">Tried {{ times_tried }}x — {{ last_correct }}/{{ last_total }} ({{ ratio }}%)</span>
                     {% endif %}
-                </p>
+                {% endif %}
+                {% if material.source_url %}
+                <a href="{{ material.source_url }}" target="_blank" rel="noopener" style="color: #667eea;">Source</a>
+                {% endif %}
             </div>
-            <div style="display: flex; gap: 5px; flex-wrap: wrap; flex-shrink: 0;">
+            {% if child_filter and last_tried_at %}
+            <div class="attempt-info">Last tried: {{ last_tried_at[:10] }}</div>
+            {% endif %}
+            <p style="color: #666; margin-top: 5px; margin-bottom: 10px;">
+                {% if material.content_pdf %}
+                <span style="background: #fed7d7; color: #c53030; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">PDF</span>
+                {% else %}
+                {{ material.content[:100] }}{% if material.content|length > 100 %}...{% endif %}
+                {% endif %}
+            </p>
+            <div style="display: flex; gap: 5px; flex-wrap: wrap;">
                 <button class="btn" style="padding: 8px 15px; background: #edf2f7; color: #4a5568;" onclick="toggleQuestions({{ material.id }})">
                     Questions (<span id="qcount-{{ material.id }}">{{ material.question_count }}</span>)
                 </button>
+                {% if material.power_word_count > 0 %}
+                <button class="btn" style="padding: 8px 15px; background: #fefcbf; color: #975a16;" onclick="togglePowerWords({{ material.id }})">
+                    Power Words ({{ material.power_word_count }})
+                </button>
+                {% endif %}
                 <button class="btn" style="padding: 8px 15px; background: #ebf8ff; color: #2b6cb0;"
                     data-id="{{ material.id }}"
                     data-title="{{ material.title | e }}"
@@ -221,6 +240,32 @@
             </div>
             <div id="qlist-{{ material.id }}"></div>
         </div>
+
+        <!-- Power Words panel -->
+        {% if material.power_word_count > 0 %}
+        <div id="power-words-{{ material.id }}" style="display: none; margin-top: 15px; border-top: 1px solid #e2e8f0; padding-top: 15px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h4 style="margin: 0; font-size: 15px;">Power Words</h4>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                    <button class="btn" style="padding: 4px 10px; font-size: 12px; background: #edf2f7;" onclick="pwSelectAll({{ material.id }})">Select All</button>
+                    <button class="btn" style="padding: 4px 10px; font-size: 12px; background: #edf2f7;" onclick="pwDeselectAll({{ material.id }})">Deselect All</button>
+                </div>
+            </div>
+            {% if children|length > 0 %}
+            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px;">
+                <label style="font-size: 13px; font-weight: 600;">Add to:</label>
+                <select id="pw-child-{{ material.id }}" style="padding: 6px 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px;" onchange="loadPowerWords({{ material.id }})">
+                    {% for child in children %}
+                    <option value="{{ child.id }}" {% if child_filter == child.id|string %}selected{% endif %}>{{ child.name }}</option>
+                    {% endfor %}
+                </select>
+                <button class="btn btn-success" style="padding: 6px 14px; font-size: 13px;" onclick="addPowerWordsToVocab({{ material.id }})">Add to Vocabulary</button>
+                <span id="pw-status-{{ material.id }}" style="font-size: 13px;"></span>
+            </div>
+            {% endif %}
+            <div id="pw-list-{{ material.id }}">Loading...</div>
+        </div>
+        {% endif %}
     </div>
     {% else %}
     <p style="color: #666;">No materials yet. Add one above!</p>
@@ -794,6 +839,89 @@ async function submitAssignment() {
     } else {
         const data = await res.json();
         alert('Error: ' + (data.error || 'Failed to create assignment'));
+    }
+}
+
+// ── Power Words ──
+
+function togglePowerWords(materialId) {
+    const panel = document.getElementById('power-words-' + materialId);
+    if (!panel) return;
+    const isVisible = panel.style.display !== 'none';
+    panel.style.display = isVisible ? 'none' : 'block';
+    if (!isVisible) loadPowerWords(materialId);
+}
+
+async function loadPowerWords(materialId) {
+    const listEl = document.getElementById('pw-list-' + materialId);
+    const childSelect = document.getElementById('pw-child-' + materialId);
+    const childId = childSelect ? childSelect.value : '';
+    listEl.innerHTML = 'Loading...';
+
+    const url = `/api/materials/${materialId}/power-words` + (childId ? `?child_id=${childId}` : '');
+    const res = await fetch(url);
+    if (!res.ok) { listEl.innerHTML = 'Failed to load.'; return; }
+    const words = await res.json();
+
+    if (words.length === 0) {
+        listEl.innerHTML = '<span style="color:#999;">No power words.</span>';
+        return;
+    }
+
+    listEl.innerHTML = words.map(w => {
+        const added = w.already_added;
+        return `<div class="pw-item ${added ? 'already-added' : ''}" data-id="${w.id}">
+            <input type="checkbox" ${added ? 'disabled' : ''} data-pw-id="${w.id}" data-material="${materialId}">
+            <div class="pw-content">
+                <span class="pw-word">${escHtml(w.word)}</span>${added ? ' <span style="font-size:11px; color:#48bb78; font-weight:600;">Added</span>' : ''}
+                <div class="pw-def">${escHtml(w.definition)}</div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function escHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function pwSelectAll(materialId) {
+    document.querySelectorAll(`#pw-list-${materialId} input[type="checkbox"]:not(:disabled)`).forEach(cb => cb.checked = true);
+}
+
+function pwDeselectAll(materialId) {
+    document.querySelectorAll(`#pw-list-${materialId} input[type="checkbox"]`).forEach(cb => cb.checked = false);
+}
+
+async function addPowerWordsToVocab(materialId) {
+    const childSelect = document.getElementById('pw-child-' + materialId);
+    const childId = childSelect ? childSelect.value : null;
+    if (!childId) { alert('Please select a child'); return; }
+
+    const checked = document.querySelectorAll(`#pw-list-${materialId} input[type="checkbox"]:checked:not(:disabled)`);
+    const wordIds = [...checked].map(cb => parseInt(cb.dataset.pwId));
+    if (wordIds.length === 0) { alert('Please select at least one word'); return; }
+
+    const statusEl = document.getElementById('pw-status-' + materialId);
+    statusEl.textContent = 'Adding...';
+    statusEl.style.color = '';
+
+    const res = await fetch(`/api/materials/${materialId}/power-words/add-to-vocab`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ child_id: parseInt(childId), word_ids: wordIds })
+    });
+
+    if (res.ok) {
+        const data = await res.json();
+        statusEl.textContent = `Added ${data.added} word${data.added !== 1 ? 's' : ''}!`;
+        statusEl.style.color = '#48bb78';
+        loadPowerWords(materialId);
+    } else {
+        statusEl.textContent = 'Failed to add words.';
+        statusEl.style.color = '#f56565';
     }
 }
 </script>

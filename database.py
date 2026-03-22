@@ -348,6 +348,14 @@ def init_db():
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS material_power_word (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            material_id INTEGER NOT NULL,
+            word TEXT NOT NULL,
+            definition TEXT NOT NULL,
+            FOREIGN KEY (material_id) REFERENCES reading_material(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS science_question_progress (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             child_id INTEGER NOT NULL,
