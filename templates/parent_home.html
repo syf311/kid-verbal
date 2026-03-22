@@ -522,7 +522,8 @@ function updateQuickLinks(childId) {
         <a href="/parent/child/${childId}/writing-topics" style="background:#38a169;">Writing Topics</a>
     `;
     document.getElementById('math-links').innerHTML = `
-        <a href="/parent/child/${childId}/math-test/new" class="btn-success">Create Math Test</a>
+        <a href="/parent/child/${childId}/math-test/new" class="btn-success">Create PDF Test</a>
+        <a href="/parent/child/${childId}/math-bank-test/new" class="btn-warning">Create Bank Test</a>
         <a href="/parent/child/${childId}/math-questions" class="btn-primary">Question Bank</a>
     `;
     document.getElementById('science-links').innerHTML = `
@@ -637,15 +638,23 @@ function renderLanguageArts(childId, data) {
 // ── Render math tab ──
 
 function renderMathTab(childId, data) {
-    const tests = data.math_tests || [];
-    const pending = tests.filter(t => t.status !== 'completed');
-    const completed = tests.filter(t => t.status === 'completed');
+    const pdfTests = data.math_tests || [];
+    const bankTests = data.math_bank_tests || [];
+
+    const allPending = [
+        ...pdfTests.filter(t => t.status !== 'completed').map(t => ({...t, type: 'pdf'})),
+        ...bankTests.filter(t => t.status !== 'completed').map(t => ({...t, type: 'bank', total_questions: t.question_count}))
+    ];
+    const allCompleted = [
+        ...pdfTests.filter(t => t.status === 'completed').map(t => ({...t, type: 'pdf'})),
+        ...bankTests.filter(t => t.status === 'completed').map(t => ({...t, type: 'bank', total_questions: t.question_count}))
+    ];
 
     const pendList = document.getElementById('math-pending-list');
-    if (pending.length === 0) {
+    if (allPending.length === 0) {
         pendList.innerHTML = '<span class="empty-msg">No pending math tests.</span>';
     } else {
-        pendList.innerHTML = pending.map(t => {
+        pendList.innerHTML = allPending.map(t => {
             let timerInfo = '';
             if (t.timer_mode === 'countdown' && t.time_limit_seconds > 0) {
                 timerInfo = ` &middot; ${Math.round(t.time_limit_seconds / 60)} min limit`;
@@ -655,50 +664,55 @@ function renderMathTab(childId, data) {
             const planBadge = t.plan_title
                 ? `<span style="background:#ebf4ff;color:#667eea;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">${escHtml(t.plan_title)}</span>`
                 : '';
+            const typeBadge = t.type === 'bank' ? '<span style="background:#fefcbf;color:#975a16;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">Bank</span>' : '';
+            const manageUrl = t.type === 'pdf' ? `/parent/child/${childId}/math-test/${t.id}/manage` : `/child/${childId}/math-bank-test/${t.id}`;
+            const manageLabel = t.type === 'pdf' ? 'Manage' : 'Take';
             return `
             <div class="list-item">
                 <div class="info">
-                    <strong>${escHtml(t.title)}</strong>${planBadge}
+                    <strong>${escHtml(t.title)}</strong>${typeBadge}${planBadge}
                     <div class="meta">${t.created_at.slice(0,10)} &middot; ${t.total_questions} questions${timerInfo}</div>
                 </div>
                 <div class="actions">
-                    <a href="/parent/child/${childId}/math-test/${t.id}/manage" class="btn btn-primary">Manage</a>
-                    <button class="btn btn-danger" onclick="deleteMathTest(${t.id})">Del</button>
+                    <a href="${manageUrl}" class="btn btn-primary">${manageLabel}</a>
+                    <button class="btn btn-danger" onclick="${t.type === 'pdf' ? `deleteMathTest(${t.id})` : `deleteMathBankTest(${t.id})`}">Del</button>
                 </div>
             </div>`;
         }).join('');
     }
 
     const compList = document.getElementById('math-completed-list');
-    if (completed.length === 0) {
+    if (allCompleted.length === 0) {
         compList.innerHTML = '<span class="empty-msg">No completed math tests yet.</span>';
     } else {
-        compList.innerHTML = completed.map(t => {
-            let timeInfo = '';
-            if (t.time_taken_seconds && t.time_taken_seconds > 0) {
-                const m = Math.floor(t.time_taken_seconds / 60);
-                const s = t.time_taken_seconds % 60;
-                timeInfo = ` &middot; Took ${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-            }
+        compList.innerHTML = allCompleted.map(t => {
             const scoreInfo = t.correct_count != null && t.total_count != null
                 ? ` &middot; ${t.correct_count}/${t.total_count} correct (${t.score}%)`
                 : (t.score != null ? ` &middot; Score: ${t.score}%` : '');
             const planBadge = t.plan_title
                 ? `<span style="background:#ebf4ff;color:#667eea;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">${escHtml(t.plan_title)}</span>`
                 : '';
+            const typeBadge = t.type === 'bank' ? '<span style="background:#fefcbf;color:#975a16;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">Bank</span>' : '';
+            const reviewUrl = t.type === 'pdf' ? `/child/${childId}/math-test/${t.id}/review` : `/child/${childId}/math-bank-test/${t.id}/review`;
             return `
             <div class="list-item">
                 <div class="info">
-                    <strong>${escHtml(t.title)}</strong>${planBadge}
-                    <div class="meta">${t.created_at.slice(0,10)} &middot; ${t.total_questions} questions${scoreInfo}${timeInfo}</div>
+                    <strong>${escHtml(t.title)}</strong>${typeBadge}${planBadge}
+                    <div class="meta">${t.created_at.slice(0,10)} &middot; ${t.total_questions} questions${scoreInfo}</div>
                 </div>
                 <div class="actions">
-                    <a href="/child/${childId}/math-test/${t.id}/review" class="btn btn-success">Review</a>
-                    <button class="btn btn-danger" onclick="deleteMathTest(${t.id})">Del</button>
+                    <a href="${reviewUrl}" class="btn btn-success">Review</a>
+                    <button class="btn btn-danger" onclick="${t.type === 'pdf' ? `deleteMathTest(${t.id})` : `deleteMathBankTest(${t.id})`}">Del</button>
                 </div>
             </div>`;
         }).join('');
     }
+}
+
+async function deleteMathBankTest(id) {
+    if (!confirm('Delete this math bank test?')) return;
+    await fetch(`/api/math-bank-tests/${id}`, { method: 'DELETE' });
+    loadDashboard();
 }
 
 // ── Render writing tests (in Language Arts tab) ──

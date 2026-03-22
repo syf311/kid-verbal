@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}{{ test.title }} - Review{% endblock %}
+
+{% block extra_css %}
+<style>
+    .score-banner {
+        text-align: center; padding: 20px; border-radius: 16px; margin-bottom: 20px;
+    }
+    .score-banner.high { background: linear-gradient(135deg, #c6f6d5, #9ae6b4); }
+    .score-banner.mid { background: linear-gradient(135deg, #fefcbf, #fbd38d); }
+    .score-banner.low { background: linear-gradient(135deg, #fed7d7, #feb2b2); }
+    .score-number { font-size: 48px; font-weight: 800; }
+    .score-detail { font-size: 16px; color: #555; margin-top: 4px; }
+    .review-card {
+        background: #f7fafc; border-radius: 12px; padding: 16px 20px; margin-bottom: 12px;
+        border-left: 5px solid #e2e8f0;
+    }
+    .review-card.correct { border-left-color: #48bb78; }
+    .review-card.wrong { border-left-color: #e53e3e; }
+    .q-text { font-size: 16px; color: #333; line-height: 1.5; margin-bottom: 10px; }
+    .choice-row {
+        padding: 6px 12px; border-radius: 8px; margin: 3px 0; font-size: 14px;
+        border: 1px solid #e2e8f0; background: white;
+    }
+    .choice-row.child-pick { border: 2px solid #667eea; font-weight: 600; }
+    .choice-row.child-pick.wrong { border-color: #e53e3e; background: #fff5f5; }
+    .choice-row.correct-choice { border-color: #48bb78; background: #f0fff4; }
+    .choice-label { font-size: 11px; font-weight: 600; margin-left: 6px; }
+    .solution-box {
+        margin-top: 10px; padding: 10px 14px; background: #fffff0; border: 1px solid #fefcbf;
+        border-radius: 8px; font-size: 13px; color: #555; white-space: pre-wrap;
+    }
+    .concept-tag {
+        display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px;
+        font-weight: 600; background: #e9d8fd; color: #553c9a;
+    }
+    .diff-badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .diff-1 { background: #c6f6d5; color: #276749; }
+    .diff-2 { background: #bee3f8; color: #2b6cb0; }
+    .diff-3 { background: #fefcbf; color: #975a16; }
+    .diff-4 { background: #fed7d7; color: #c53030; }
+    .diff-5 { background: #e53e3e; color: #fff; }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="{% if learning_plan_id %}/child/{{ child.id }}/learning-plan/{{ learning_plan_id }}{% else %}/child/{{ child.id }}{% endif %}" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back</a>
+<h1 style="margin-top: 10px;">{{ test.title }} — Review</h1>
+
+{% if submission %}
+{% set score = submission.score %}
+<div class="score-banner {{ 'high' if score >= 80 else 'mid' if score >= 50 else 'low' }}">
+    <div class="score-number">{{ score }}%</div>
+    <div class="score-detail">{{ submission.correct_count }} / {{ submission.total_count }} correct</div>
+    {% if submission.time_taken_seconds > 0 %}
+    <div class="score-detail">Time: {{ (submission.time_taken_seconds // 60) }}m {{ (submission.time_taken_seconds % 60) }}s</div>
+    {% endif %}
+</div>
+
+{% for q in questions %}
+{% set qid = q.id|string %}
+{% set a = answers.get(qid, {}) %}
+{% set is_correct = a.get('is_correct', false) %}
+<div class="review-card {{ 'correct' if is_correct else 'wrong' }}">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <div style="font-weight: 700; font-size: 14px; color: {{ '#48bb78' if is_correct else '#e53e3e' }};">
+            {{ '✔' if is_correct else '✘' }} Question {{ loop.index }}
+        </div>
+        <div>
+            {% for c in (q.concepts or []) %}
+            <span class="concept-tag">{{ c }}</span>
+            {% endfor %}
+            <span class="diff-badge diff-{{ q.difficulty }}">Diff {{ q.difficulty }}</span>
+        </div>
+    </div>
+
+    {% if q.image_path %}
+    <img src="/uploads/{{ q.image_path }}" style="max-width: 300px; margin-bottom: 8px; border-radius: 6px;">
+    {% endif %}
+
+    <div class="q-text">{{ q.question_text }}</div>
+
+    {% if q.choices %}
+    {% for k, v in q.choices.items() %}
+    {% set is_child_pick = (a.get('child_answer', '') == k) %}
+    {% set is_correct_choice = (a.get('correct_answer', '') == k) %}
+    <div class="choice-row {{ 'child-pick' if is_child_pick else '' }} {{ 'wrong' if is_child_pick and not is_correct else '' }} {{ 'correct-choice' if is_correct_choice else '' }}">
+        <strong>{{ k }}.</strong> {{ v }}
+        {% if is_child_pick and is_correct_choice %}
+        <span class="choice-label" style="color: #48bb78;">✔ Your answer</span>
+        {% elif is_child_pick %}
+        <span class="choice-label" style="color: #e53e3e;">✘ Your answer</span>
+        {% elif is_correct_choice %}
+        <span class="choice-label" style="color: #48bb78;">✔ Correct</span>
+        {% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if q.solution_steps %}
+    <div class="solution-box"><strong>Solution:</strong> {{ q.solution_steps }}</div>
+    {% endif %}
+</div>
+{% endfor %}
+
+{% else %}
+<p style="color: #666;">No submission found for this test.</p>
+{% endif %}
+{% endblock %}

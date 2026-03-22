@@ -337,6 +337,22 @@ def child_dashboard_summary(child_id):
         (child_id,)
     ).fetchall()
 
+    math_bank_tests = conn.execute(
+        """SELECT mbt.id, mbt.title, mbt.status, mbt.created_at,
+                  mbt.timer_mode, mbt.time_limit_seconds, mbt.learning_plan_id,
+                  lp.title as plan_title,
+                  (SELECT COUNT(*) FROM math_bank_test_question WHERE test_id = mbt.id) as question_count,
+                  (SELECT score FROM math_bank_test_submission WHERE test_id = mbt.id ORDER BY submitted_at DESC LIMIT 1) as score,
+                  (SELECT correct_count FROM math_bank_test_submission WHERE test_id = mbt.id ORDER BY submitted_at DESC LIMIT 1) as correct_count,
+                  (SELECT total_count FROM math_bank_test_submission WHERE test_id = mbt.id ORDER BY submitted_at DESC LIMIT 1) as total_count
+           FROM math_bank_test mbt
+           LEFT JOIN learning_plan lp ON mbt.learning_plan_id = lp.id
+           WHERE mbt.child_id = ?
+           ORDER BY mbt.created_at DESC
+           LIMIT 20""",
+        (child_id,)
+    ).fetchall()
+
     learning_plans = conn.execute(
         """SELECT lp.*,
                   (SELECT COUNT(*) FROM learning_plan_item WHERE plan_id = lp.id) as item_count,
@@ -361,6 +377,7 @@ def child_dashboard_summary(child_id):
         "pending_assignments": [dict(a) for a in pending_assignments],
         "completed_assignments": [dict(a) for a in completed_assignments],
         "math_tests": [dict(t) for t in math_tests],
+        "math_bank_tests": [dict(t) for t in math_bank_tests],
         "writing_tests": [dict(t) for t in writing_tests],
         "learning_plans": [dict(p) for p in learning_plans],
     })
@@ -4362,6 +4379,7 @@ def generate_math_questions_ai(child_id):
         "Requirements:\n"
         f"- Each problem should be appropriately challenging for {grade_level}\n"
         "- Each problem has 5 choices labeled A through E\n"
+        "- Use plain text only. Do NOT use LaTeX, MathJax, or any math formatting markup. Write expressions inline like 48 ÷ 6 × 3.\n"
         "- Tag each problem with math concepts it covers (e.g., Fractions, Geometry, Number Theory, Algebra, Combinatorics, Ratios, Percentages, Arithmetic, Measurement, Probability)\n"
         f"{diff_instruction}"
         "- Correct answers MUST be randomized across A-E. No letter should appear more than 3 times.\n\n"
@@ -4426,7 +4444,7 @@ def import_math_questions_ai(child_id):
         if not m:
             continue
         q_num = int(m.group(1))
-        q_text = m.group(2).strip()
+        q_text = re.sub(r'\s+', ' ', m.group(2)).strip()
 
         # Extract choices
         choices = {}
@@ -4498,6 +4516,252 @@ def import_math_questions_ai(child_id):
     conn.commit()
     conn.close()
     return jsonify({"added": added, "skipped": skipped})
+
+
+# ── Math Bank Tests ──
+
+@app.route("/parent/child/<int:child_id>/math-bank-test/new")
+@parent_required
+def create_math_bank_test_page(child_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    conn.close()
+    if not child:
+        return "Child not found", 404
+    return render_template("math_bank_test_create.html", child=dict(child))
+
+
+@app.route("/child/<int:child_id>/math-bank-test/<int:test_id>")
+@login_required
+def take_math_bank_test(child_id, test_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    test = conn.execute("SELECT * FROM math_bank_test WHERE id = ?", (test_id,)).fetchone()
+    conn.close()
+    if not child or not test:
+        return "Not found", 404
+    learning_plan_id = request.args.get("plan_id") or test["learning_plan_id"]
+    return render_template("math_bank_test.html", child=dict(child), test=dict(test), learning_plan_id=learning_plan_id)
+
+
+@app.route("/child/<int:child_id>/math-bank-test/<int:test_id>/review")
+@login_required
+def review_math_bank_test(child_id, test_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    test = conn.execute("SELECT * FROM math_bank_test WHERE id = ?", (test_id,)).fetchone()
+    if not child or not test:
+        conn.close()
+        return "Not found", 404
+    sub = conn.execute(
+        "SELECT * FROM math_bank_test_submission WHERE test_id = ? ORDER BY submitted_at DESC LIMIT 1",
+        (test_id,)
+    ).fetchone()
+    questions = conn.execute(
+        """SELECT q.* FROM math_question q
+           JOIN math_bank_test_question btq ON q.id = btq.question_id
+           WHERE btq.test_id = ? ORDER BY q.id""",
+        (test_id,)
+    ).fetchall()
+    conn.close()
+    learning_plan_id = request.args.get("plan_id") or test["learning_plan_id"]
+    qs = []
+    for q in questions:
+        d = dict(q)
+        if d["choices"]:
+            d["choices"] = json.loads(d["choices"])
+        if d["concepts"]:
+            try:
+                d["concepts"] = json.loads(d["concepts"])
+            except (json.JSONDecodeError, TypeError):
+                d["concepts"] = []
+        qs.append(d)
+    answers = json.loads(sub["answers"]) if sub else {}
+    return render_template("math_bank_test_review.html", child=dict(child), test=dict(test),
+                           submission=dict(sub) if sub else None, questions=qs, answers=answers,
+                           learning_plan_id=learning_plan_id)
+
+
+@app.route("/api/math-bank-tests", methods=["POST"])
+@parent_required
+def create_math_bank_test():
+    data = request.json
+    child_id = data.get("child_id")
+    title = data.get("title", "").strip()
+    question_ids = data.get("question_ids", [])
+    timer_mode = data.get("timer_mode", "none")
+    time_limit_seconds = data.get("time_limit_seconds", 0)
+    if not child_id or not question_ids:
+        return jsonify({"error": "child_id and question_ids required"}), 400
+
+    account = get_current_account()
+    conn = get_db()
+    cursor = conn.execute(
+        """INSERT INTO math_bank_test (child_id, created_by, title, timer_mode, time_limit_seconds)
+           VALUES (?, ?, ?, ?, ?)""",
+        (child_id, account["id"], title or "Math Test", timer_mode, time_limit_seconds)
+    )
+    test_id = cursor.lastrowid
+    for qid in question_ids:
+        conn.execute("INSERT INTO math_bank_test_question (test_id, question_id) VALUES (?, ?)", (test_id, qid))
+    conn.commit()
+    conn.close()
+    return jsonify({"id": test_id, "total_questions": len(question_ids)}), 201
+
+
+@app.route("/api/children/<int:child_id>/math-bank-tests", methods=["GET"])
+@login_required
+def list_math_bank_tests(child_id):
+    conn = get_db()
+    tests = conn.execute("SELECT * FROM math_bank_test WHERE child_id = ? ORDER BY created_at DESC", (child_id,)).fetchall()
+    result = []
+    for t in tests:
+        count = conn.execute("SELECT COUNT(*) FROM math_bank_test_question WHERE test_id = ?", (t["id"],)).fetchone()[0]
+        sub = conn.execute(
+            "SELECT * FROM math_bank_test_submission WHERE test_id = ? ORDER BY submitted_at DESC LIMIT 1",
+            (t["id"],)
+        ).fetchone()
+        d = dict(t)
+        d["question_count"] = count
+        d["latest_submission"] = dict(sub) if sub else None
+        result.append(d)
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/math-bank-tests/<int:test_id>", methods=["GET"])
+@login_required
+def get_math_bank_test(test_id):
+    conn = get_db()
+    test = conn.execute("SELECT * FROM math_bank_test WHERE id = ?", (test_id,)).fetchone()
+    if not test:
+        conn.close()
+        return jsonify({"error": "Test not found"}), 404
+    questions = conn.execute(
+        """SELECT q.* FROM math_question q
+           JOIN math_bank_test_question btq ON q.id = btq.question_id
+           WHERE btq.test_id = ? ORDER BY q.id""",
+        (test_id,)
+    ).fetchall()
+    result = dict(test)
+    qs = []
+    for q in questions:
+        d = dict(q)
+        if d["choices"]:
+            d["choices"] = json.loads(d["choices"])
+        qs.append(d)
+    result["questions"] = qs
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/math-bank-tests/<int:test_id>/submit", methods=["POST"])
+@login_required
+def submit_math_bank_test(test_id):
+    data = request.json
+    answers = data.get("answers", {})
+    time_taken = data.get("time_taken_seconds", 0)
+
+    conn = get_db()
+    test = conn.execute("SELECT * FROM math_bank_test WHERE id = ?", (test_id,)).fetchone()
+    if not test:
+        conn.close()
+        return jsonify({"error": "Test not found"}), 404
+
+    questions = conn.execute(
+        """SELECT q.* FROM math_question q
+           JOIN math_bank_test_question btq ON q.id = btq.question_id
+           WHERE btq.test_id = ?""",
+        (test_id,)
+    ).fetchall()
+
+    correct_count = 0
+    total_count = len(questions)
+    graded_answers = {}
+
+    for q in questions:
+        qid_str = str(q["id"])
+        child_answer = answers.get(qid_str, "").strip().upper()
+        correct = q["correct_answer"].strip().upper()
+        is_correct = child_answer == correct
+
+        if is_correct:
+            correct_count += 1
+
+        graded_answers[qid_str] = {
+            "child_answer": child_answer,
+            "correct_answer": correct,
+            "is_correct": is_correct
+        }
+
+    score = round(correct_count / total_count * 100) if total_count > 0 else 0
+
+    account = get_current_account()
+    progress_child_id = account.get("child_id") or test["child_id"]
+
+    # Update per-question mastery tracking
+    for q in questions:
+        ga = graded_answers.get(str(q["id"]))
+        if ga:
+            update_math_question_progress(conn, progress_child_id, q["id"], ga["is_correct"])
+
+    conn.execute(
+        """INSERT INTO math_bank_test_submission (test_id, child_id, answers, score, correct_count, total_count, time_taken_seconds)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (test_id, progress_child_id, json.dumps(graded_answers), score, correct_count, total_count, time_taken)
+    )
+    conn.execute("UPDATE math_bank_test SET status = 'completed' WHERE id = ?", (test_id,))
+    conn.commit()
+
+    if test["learning_plan_id"]:
+        check_plan_completion(test["learning_plan_id"], conn)
+    conn.close()
+
+    return jsonify({"score": score, "correct_count": correct_count, "total_count": total_count, "answers": graded_answers})
+
+
+@app.route("/api/math-bank-tests/<int:test_id>", methods=["DELETE"])
+@parent_required
+def delete_math_bank_test(test_id):
+    conn = get_db()
+    conn.execute("DELETE FROM math_bank_test WHERE id = ?", (test_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+def update_math_question_progress(conn, child_id, question_id, correct):
+    from datetime import datetime
+    progress = conn.execute(
+        "SELECT * FROM math_question_progress WHERE child_id = ? AND question_id = ?",
+        (child_id, question_id)
+    ).fetchone()
+    if not progress:
+        conn.execute(
+            "INSERT INTO math_question_progress (child_id, question_id, difficulty_level) VALUES (?, ?, 1)",
+            (child_id, question_id)
+        )
+        progress = {"correct_count": 0, "wrong_count": 0, "streak": 0, "difficulty_level": 1}
+    else:
+        progress = dict(progress)
+
+    now = datetime.now()
+    if correct:
+        conn.execute(
+            """UPDATE math_question_progress
+               SET correct_count = ?, wrong_count = ?, streak = ?, difficulty_level = ?, last_tested = ?, last_correct_at = ?
+               WHERE child_id = ? AND question_id = ?""",
+            (progress["correct_count"] + 1, progress["wrong_count"], progress["streak"] + 1,
+             min(5, progress["difficulty_level"] + 1), now, now, child_id, question_id)
+        )
+    else:
+        conn.execute(
+            """UPDATE math_question_progress
+               SET correct_count = ?, wrong_count = ?, streak = 0, difficulty_level = ?, last_tested = ?
+               WHERE child_id = ? AND question_id = ?""",
+            (progress["correct_count"], progress["wrong_count"] + 1,
+             max(1, progress["difficulty_level"] - 1), now, child_id, question_id)
+        )
 
 
 # ── Science Study Sessions ──

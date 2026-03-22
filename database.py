@@ -373,6 +373,42 @@ def init_db():
             FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS math_bank_test (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id INTEGER NOT NULL,
+            created_by INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            timer_mode TEXT DEFAULT 'none',
+            time_limit_seconds INTEGER DEFAULT 0,
+            learning_plan_id INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE,
+            FOREIGN KEY (created_by) REFERENCES account(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS math_bank_test_question (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            test_id INTEGER NOT NULL,
+            question_id INTEGER NOT NULL,
+            FOREIGN KEY (test_id) REFERENCES math_bank_test(id) ON DELETE CASCADE,
+            FOREIGN KEY (question_id) REFERENCES math_question(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS math_bank_test_submission (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            test_id INTEGER NOT NULL,
+            child_id INTEGER NOT NULL,
+            answers TEXT NOT NULL,
+            score INTEGER NOT NULL,
+            correct_count INTEGER NOT NULL,
+            total_count INTEGER NOT NULL,
+            time_taken_seconds INTEGER DEFAULT 0,
+            submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (test_id) REFERENCES math_bank_test(id) ON DELETE CASCADE,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS math_question_progress (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             child_id INTEGER NOT NULL,

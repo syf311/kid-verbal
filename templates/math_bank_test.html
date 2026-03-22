@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block title %}{{ test.title }} - Math Test{% endblock %}
+
+{% block extra_css %}
+<style>
+    .container { max-width: 900px; }
+    .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .timer-display {
+        position: fixed; right: 20px; top: 80px; z-index: 100; background: white;
+        border: 2px solid #667eea; border-radius: 10px; padding: 6px 14px;
+        font-size: 18px; font-weight: 700; font-family: 'Courier New', monospace; color: #333;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .timer-display.warning { border-color: #ed8936; color: #ed8936; }
+    .timer-display.danger { border-color: #e53e3e; color: #e53e3e; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+    .progress-bar-wrap { background: #e2e8f0; border-radius: 20px; height: 12px; margin-bottom: 8px; overflow: hidden; }
+    .progress-bar-fill { background: linear-gradient(90deg, #667eea, #48bb78); height: 100%; border-radius: 20px; transition: width 0.3s; }
+    .progress-text { text-align: center; font-size: 14px; color: #666; margin-bottom: 20px; }
+    .question-card {
+        background: #f7fafc; border-radius: 15px; padding: 20px; margin-bottom: 15px;
+        border: 2px solid #e2e8f0; transition: border-color 0.2s;
+    }
+    .question-card.answered { border-color: #48bb78; }
+    .question-number { font-weight: 700; font-size: 14px; color: #a0aec0; }
+    .question-text { font-size: 17px; color: #2d3748; line-height: 1.6; margin-bottom: 15px; }
+    .choices-group { display: flex; flex-direction: column; gap: 8px; }
+    .choice-radio {
+        display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+        border: 2px solid #e2e8f0; border-radius: 10px; cursor: pointer;
+        transition: all 0.15s; background: white;
+    }
+    .choice-radio:hover { border-color: #667eea; background: #eef2ff; }
+    .choice-radio.selected { border-color: #667eea; background: #ebf4ff; }
+    .choice-radio input[type="radio"] { width: auto; margin: 0; transform: scale(1.2); }
+    .choice-letter { font-weight: 700; font-size: 16px; color: #667eea; min-width: 20px; }
+    .choice-text { font-size: 16px; color: #333; }
+    .submit-area { margin-top: 20px; text-align: center; }
+    .submit-area .btn { padding: 14px 50px; font-size: 18px; }
+    .concept-tag { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; background: #e9d8fd; color: #553c9a; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="header-row">
+    <a href="{% if learning_plan_id %}/child/{{ child.id }}/learning-plan/{{ learning_plan_id }}{% else %}/child/{{ child.id }}{% endif %}" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back</a>
+    <h2 style="margin: 0;">{{ test.title }}</h2>
+    <span></span>
+</div>
+
+{% if test.timer_mode != 'none' %}
+<div class="timer-display" id="timerDisplay">00:00</div>
+{% endif %}
+
+<div class="progress-text" id="progressText">0 / 0 answered</div>
+<div class="progress-bar-wrap">
+    <div class="progress-bar-fill" id="progressBar" style="width: 0%"></div>
+</div>
+
+<div id="loadingArea" style="text-align:center; padding:60px; color:#666; font-size:18px;">Loading questions...</div>
+<div id="questionsArea" style="display: none;"></div>
+
+<div class="submit-area" id="submitArea" style="display: none;">
+    <button class="btn btn-success" onclick="submitTest()" id="submitBtn">Submit Test</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const testId = {{ test.id }};
+const childId = {{ child.id }};
+const timerMode = '{{ test.timer_mode }}';
+const timeLimit = {{ test.time_limit_seconds }};
+let questions = [];
+let answers = {};
+let elapsed = 0;
+let timerInterval = null;
+
+function escHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+async function loadTest() {
+    const res = await fetch(`/api/math-bank-tests/${testId}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    questions = data.questions || [];
+    renderQuestions();
+    document.getElementById('loadingArea').style.display = 'none';
+    document.getElementById('questionsArea').style.display = '';
+    document.getElementById('submitArea').style.display = '';
+    startTimer();
+}
+
+function renderQuestions() {
+    const area = document.getElementById('questionsArea');
+    area.innerHTML = questions.map((q, i) => {
+        const concepts = (q.concepts ? (typeof q.concepts === 'string' ? JSON.parse(q.concepts) : q.concepts) : []);
+        const conceptsHtml = concepts.map(c => `<span class="concept-tag">${escHtml(c)}</span>`).join(' ');
+        let choicesHtml = '';
+        if (q.choices && typeof q.choices === 'object') {
+            choicesHtml = '<div class="choices-group">' + Object.entries(q.choices).map(([k, v]) =>
+                `<label class="choice-radio" id="choice-${q.id}-${k}" onclick="selectAnswer(${q.id}, '${k}')">
+                    <input type="radio" name="q${q.id}" value="${k}">
+                    <span class="choice-letter">${k}.</span>
+                    <span class="choice-text">${escHtml(v)}</span>
+                </label>`
+            ).join('') + '</div>';
+        }
+        return `<div class="question-card" id="qcard-${q.id}">
+            <div class="question-number">Question ${i + 1} ${conceptsHtml}</div>
+            ${q.image_path ? `<img src="/uploads/${q.image_path}" style="max-width:400px; margin:10px 0; border-radius:8px;">` : ''}
+            <div class="question-text">${escHtml(q.question_text)}</div>
+            ${choicesHtml}
+        </div>`;
+    }).join('');
+    updateProgress();
+}
+
+function selectAnswer(qid, letter) {
+    answers[String(qid)] = letter;
+    // Update UI
+    document.querySelectorAll(`[id^="choice-${qid}-"]`).forEach(el => el.classList.remove('selected'));
+    document.getElementById(`choice-${qid}-${letter}`).classList.add('selected');
+    document.getElementById(`qcard-${qid}`).classList.add('answered');
+    updateProgress();
+}
+
+function updateProgress() {
+    const answered = Object.keys(answers).length;
+    const total = questions.length;
+    document.getElementById('progressText').textContent = `${answered} / ${total} answered`;
+    document.getElementById('progressBar').style.width = total > 0 ? `${answered / total * 100}%` : '0%';
+}
+
+function startTimer() {
+    if (timerMode === 'none') return;
+    const display = document.getElementById('timerDisplay');
+    timerInterval = setInterval(() => {
+        elapsed++;
+        if (timerMode === 'countdown') {
+            const remaining = Math.max(0, timeLimit - elapsed);
+            display.textContent = formatTime(remaining);
+            if (remaining <= 60) display.className = 'timer-display danger';
+            else if (remaining <= 300) display.className = 'timer-display warning';
+            if (remaining <= 0) { clearInterval(timerInterval); submitTest(); }
+        } else {
+            display.textContent = formatTime(elapsed);
+        }
+    }, 1000);
+}
+
+function formatTime(s) {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+async function submitTest() {
+    if (timerInterval) clearInterval(timerInterval);
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
+
+    const res = await fetch(`/api/math-bank-tests/${testId}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answers, time_taken_seconds: elapsed })
+    });
+
+    if (res.ok) {
+        window.location.href = `/child/${childId}/math-bank-test/${testId}/review`;
+    } else {
+        btn.disabled = false;
+        btn.textContent = 'Submit Test';
+        alert('Failed to submit');
+    }
+}
+
+loadTest();
+</script>
+{% endblock %}
