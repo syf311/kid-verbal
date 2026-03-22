@@ -4929,7 +4929,8 @@ def generate_ai_questions(material_id):
         "1. Output a QUESTIONS section first, then an ANSWERS section separated by a line that says exactly 'ANSWERS'\n"
         "2. Questions should be numbered (1. 2. 3. etc.) with choices A. B. C. D. on separate lines\n"
         "3. Answers should be one letter per line (e.g. B) with NO numbering, NO periods, just the letter\n"
-        "4. Correct answers MUST be evenly distributed across A, B, C, D (roughly 2-3 of each letter among the 10 questions)\n\n"
+        "4. The correct answer position MUST be randomized across A, B, C, D. Do NOT put the correct answer in the same position repeatedly. "
+        "Each letter should appear roughly 2-3 times among the 10 answers. No letter should appear more than 4 times.\n\n"
         "Example format:\n"
         "1. What is the main idea?\n"
         "A. Option one\n"
@@ -4942,8 +4943,16 @@ def generate_ai_questions(material_id):
         "C. ...\n"
         "D. ...\n\n"
         "ANSWERS\n"
+        "C\n"
+        "A\n"
+        "D\n"
         "B\n"
         "A\n"
+        "C\n"
+        "D\n"
+        "B\n"
+        "A\n"
+        "D\n"
     )
 
     try:
