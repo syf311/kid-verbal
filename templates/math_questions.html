@@ -472,8 +472,24 @@ function buildPrompt() {
     );
 }
 
+function copyToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard!'));
+    } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast('Copied to clipboard!');
+    }
+}
+
 function copyPrompt() {
-    navigator.clipboard.writeText(buildPrompt()).then(() => showToast('Prompt copied to clipboard!'));
+    copyToClipboard(buildPrompt());
 }
 
 function buildPastePrompt() {
@@ -490,7 +506,7 @@ function updatePastePrompt() {
 }
 
 function copyPastePrompt() {
-    navigator.clipboard.writeText(buildPastePrompt()).then(() => showToast('Prompt copied to clipboard!'));
+    copyToClipboard(buildPastePrompt());
 }
 
 async function generateAI() {
