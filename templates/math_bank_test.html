@@ -4,7 +4,7 @@
 
 {% block extra_css %}
 <style>
-    .container { max-width: 900px; }
+    .container { max-width: 900px; -webkit-user-select: none; user-select: none; }
     .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
     .timer-display {
         position: fixed; right: 20px; top: 80px; z-index: 100; background: white;
@@ -180,6 +180,13 @@ async function submitTest() {
         alert('Failed to submit');
     }
 }
+
+// Prevent copy/paste cheating
+document.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('copy', e => e.preventDefault());
+document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'c') e.preventDefault();
+});
 
 loadTest();
 </script>

@@ -185,6 +185,7 @@
     <button class="btn btn-success" onclick="toggleSection('study')">+ Study Session</button>
     <button class="btn btn-warning" onclick="toggleSection('reading')">+ Reading Assignment</button>
     <button class="btn btn-primary" onclick="toggleSection('math')">+ Math Test</button>
+    <button class="btn" onclick="toggleSection('math-practice')" style="background:#ed8936;color:#fff;">+ Math Practice</button>
     <button class="btn" onclick="toggleSection('writing')" style="background:#38a169;color:#fff;">+ Writing Test</button>
     <button class="btn" onclick="toggleSection('science-study')" style="background:#2b6cb0;color:#fff;">+ Science Study</button>
     <button class="btn" onclick="toggleSection('science-test')" style="background:#c53030;color:#fff;">+ Science Test</button>
@@ -297,6 +298,58 @@
                 </div>
             </div>
         </div>
+    </div>
+</div>
+
+<!-- Add Math Practice (from bank) -->
+<div class="add-section" id="section-math-practice">
+    <div class="section-card">
+        <h3>Add Math Practice</h3>
+        <div style="margin-bottom: 10px;">
+            <label style="font-weight: 600; font-size: 14px;">Title</label>
+            <input type="text" id="mp-title" placeholder="e.g. Fractions & Geometry Review" style="margin-bottom: 8px;">
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+            <div>
+                <label style="font-weight: 600; font-size: 13px;">Timer Mode</label>
+                <select id="mp-timer-mode" style="width:100%; padding:8px; font-size:14px; border:1px solid #ccc; border-radius:8px;" onchange="document.getElementById('mp-time-limit-wrap').style.display = this.value === 'countdown' ? '' : 'none'">
+                    <option value="none">No Timer</option>
+                    <option value="stopwatch">Stopwatch</option>
+                    <option value="countdown">Countdown</option>
+                </select>
+            </div>
+            <div id="mp-time-limit-wrap" style="display:none;">
+                <label style="font-weight: 600; font-size: 13px;">Time Limit (minutes)</label>
+                <input type="number" id="mp-time-limit" min="1" max="120" value="30" style="padding:8px; font-size:14px;">
+            </div>
+        </div>
+        <div style="margin-bottom: 8px;">
+            <label style="font-weight: 600; font-size: 14px;">Filter by Concept</label>
+            <div class="filter-bar" id="mp-concept-bar"></div>
+        </div>
+        <div style="margin-bottom: 8px;">
+            <label style="font-weight: 600; font-size: 14px;">Filter by Difficulty</label>
+            <div class="filter-bar" id="mp-diff-bar">
+                <button class="filter-btn active" onclick="setMpDiffFilter(0)">All</button>
+                <button class="filter-btn" onclick="setMpDiffFilter(1)">1</button>
+                <button class="filter-btn" onclick="setMpDiffFilter(2)">2</button>
+                <button class="filter-btn" onclick="setMpDiffFilter(3)">3</button>
+                <button class="filter-btn" onclick="setMpDiffFilter(4)">4</button>
+                <button class="filter-btn" onclick="setMpDiffFilter(5)">5</button>
+            </div>
+        </div>
+        <div style="margin-bottom: 8px;">
+            <label style="font-weight: 600; font-size: 14px;">Filter by Mastery</label>
+            <div class="filter-bar" id="mp-mastery-bar"></div>
+        </div>
+        <div style="display:flex; gap:8px; margin-bottom:8px;">
+            <button class="btn btn-primary" style="padding:4px 10px; font-size:12px;" onclick="mpSelectAll()">Select All</button>
+            <button class="btn btn-warning" style="padding:4px 10px; font-size:12px;" onclick="mpDeselectAll()">Deselect All</button>
+            <span style="font-size:13px; color:#666;"><span id="mp-count">0</span> selected</span>
+        </div>
+        <div id="mp-q-list" style="max-height:400px; overflow-y:auto; border:1px solid #e2e8f0; border-radius:8px; padding:8px;"></div>
+        <button class="btn btn-success" style="margin-top: 10px;" onclick="addMathPractice()" id="add-mp-btn" disabled>Add Math Practice</button>
+        <span id="mp-status" style="margin-left: 10px; font-size: 13px;"></span>
     </div>
 </div>
 
@@ -577,6 +630,12 @@ function renderItems(items) {
             if (status === 'completed' && d.score != null) {
                 meta += ` | ${d.correct_count}/${d.total_count} correct (${d.score}%)`;
             }
+        } else if (item.item_type === 'math_bank_test') {
+            typeLabel = 'Math Practice';
+            meta = `${d.question_count || 0} questions`;
+            if (status === 'completed' && d.score != null) {
+                meta += ` | ${d.correct_count}/${d.total_count} correct (${d.score}%)`;
+            }
         } else if (item.item_type === 'parent_test') {
             typeLabel = '';
             meta = `${d.word_count || 0} words · Auto-created from study`;
@@ -591,6 +650,7 @@ function renderItems(items) {
             if (item.item_type === 'study_session') href = `/child/${childId}/study/${item.item_id}`;
             else if (item.item_type === 'reading_assignment') href = status === 'completed' ? `/child/${childId}/reading-assignment/${item.item_id}/review` : `/child/${childId}/reading-assignment/${item.item_id}`;
             else if (item.item_type === 'math_test') href = status === 'completed' ? `/child/${childId}/math-test/${item.item_id}/review` : `/child/${childId}/math-test/${item.item_id}`;
+            else if (item.item_type === 'math_bank_test') href = status === 'completed' ? `/child/${childId}/math-bank-test/${item.item_id}/review` : `/child/${childId}/math-bank-test/${item.item_id}`;
             else if (item.item_type === 'writing_test') href = status === 'completed' ? `/child/${childId}/writing-test/${item.item_id}/review` : `/child/${childId}/writing-test/${item.item_id}`;
             else if (item.item_type === 'science_study') href = `/child/${childId}/science-study/${item.item_id}`;
             else if (item.item_type === 'science_test') href = status === 'completed' ? `/child/${childId}/science-test/${item.item_id}/review` : `/child/${childId}/science-test/${item.item_id}`;
@@ -624,6 +684,7 @@ function toggleSection(section) {
     if (section === 'writing') loadWritingTopics();
     if (section === 'science-study' && !sciStudyLoaded) loadSciQuestions('study');
     if (section === 'science-test' && !sciTestLoaded) loadSciQuestions('test');
+    if (section === 'math-practice' && !mpLoaded) loadMathQuestions();
     if (section === 'existing' && !unassignedData) loadUnassignedItems();
 }
 
@@ -1124,6 +1185,152 @@ async function addWritingTest() {
         statusEl.style.color = '#f56565';
     }
     btn.disabled = false;
+}
+
+// ── Math Practice (from bank) ──
+
+let mpLoaded = false;
+let mpAllQuestions = [];
+let mpSelected = new Set();
+let mpConceptFilter = '';
+let mpDiffFilter = 0;
+let mpMasteryFilter = '';
+
+const MP_MASTERY_LABELS = { never: 'New', wrong: 'Needs Work', due: 'Due', good: 'Good', mastered: 'Mastered' };
+const MP_DIFF_COLORS = { 1: '#c6f6d5', 2: '#bee3f8', 3: '#fefcbf', 4: '#fed7d7', 5: '#e53e3e' };
+const MP_DIFF_TEXT = { 1: '#276749', 2: '#2b6cb0', 3: '#975a16', 4: '#c53030', 5: '#fff' };
+
+async function loadMathQuestions() {
+    let url = `/api/children/${childId}/math-questions?page=1&per_page=200`;
+    if (mpConceptFilter) url += `&concept=${encodeURIComponent(mpConceptFilter)}`;
+    if (mpDiffFilter) url += `&difficulty=${mpDiffFilter}`;
+    if (mpMasteryFilter) url += `&status=${mpMasteryFilter}`;
+
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const data = await res.json();
+    mpAllQuestions = data.questions || [];
+    mpLoaded = true;
+
+    buildMpConceptBar(data.concepts || []);
+    buildMpMasteryBar(data.status_counts || {});
+    renderMpQuestions();
+}
+
+function buildMpConceptBar(concepts) {
+    const bar = document.getElementById('mp-concept-bar');
+    let html = `<button class="filter-btn ${mpConceptFilter === '' ? 'active' : ''}" onclick="setMpConceptFilter('')">All</button>`;
+    concepts.forEach(c => {
+        html += `<button class="filter-btn ${mpConceptFilter === c ? 'active' : ''}" onclick="setMpConceptFilter('${escHtml(c)}')">${escHtml(c)}</button>`;
+    });
+    bar.innerHTML = html;
+}
+
+function buildMpMasteryBar(counts) {
+    const bar = document.getElementById('mp-mastery-bar');
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    let html = `<button class="filter-btn ${mpMasteryFilter === '' ? 'active' : ''}" onclick="setMpMasteryFilter('')">All (${total})</button>`;
+    for (const [key, label] of Object.entries(MP_MASTERY_LABELS)) {
+        const count = counts[key] || 0;
+        if (count > 0) html += `<button class="filter-btn ${mpMasteryFilter === key ? 'active' : ''}" onclick="setMpMasteryFilter('${key}')">${label} (${count})</button>`;
+    }
+    bar.innerHTML = html;
+}
+
+function setMpConceptFilter(c) { mpConceptFilter = c; mpLoaded = false; loadMathQuestions(); }
+function setMpDiffFilter(d) {
+    mpDiffFilter = d;
+    document.querySelectorAll('#mp-diff-bar .filter-btn').forEach((btn, i) => btn.classList.toggle('active', i === d));
+    mpLoaded = false;
+    loadMathQuestions();
+}
+function setMpMasteryFilter(m) { mpMasteryFilter = m; mpLoaded = false; loadMathQuestions(); }
+
+function renderMpQuestions() {
+    const list = document.getElementById('mp-q-list');
+    if (mpAllQuestions.length === 0) {
+        list.innerHTML = '<span class="empty-msg">No questions match filters. Add questions to the bank first.</span>';
+        return;
+    }
+    list.innerHTML = mpAllQuestions.map(q => {
+        const sel = mpSelected.has(q.id);
+        const concepts = (q.concepts || []).map(c => `<span style="background:#e9d8fd;color:#553c9a;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;">${escHtml(c)}</span>`).join(' ');
+        const diffBg = MP_DIFF_COLORS[q.difficulty] || '#fefcbf';
+        const diffColor = MP_DIFF_TEXT[q.difficulty] || '#975a16';
+        const masteryLabel = MP_MASTERY_LABELS[q.mastery_status] || 'New';
+        return `
+        <div onclick="mpToggle(${q.id})" style="background:${sel ? '#ebf4ff' : '#f7fafc'}; border:2px solid ${sel ? '#667eea' : 'transparent'}; border-left:4px solid #ed8936; border-radius:10px; padding:10px 12px; margin-bottom:8px; cursor:pointer; transition:all 0.15s;">
+            <div style="display:flex; align-items:flex-start; gap:8px;">
+                <input type="checkbox" ${sel ? 'checked' : ''} style="width:16px; height:16px; margin-top:3px; pointer-events:none; flex-shrink:0;">
+                <div style="flex:1; min-width:0;">
+                    <div style="font-size:13px; color:#333; line-height:1.4;">${escHtml(q.question_text)}</div>
+                    <div style="font-size:11px; margin-top:4px;">
+                        ${concepts}
+                        <span style="background:${diffBg};color:${diffColor};padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;">Diff ${q.difficulty}</span>
+                        <span style="background:#e2e8f0;color:#4a5568;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;">${masteryLabel}</span>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function mpToggle(id) {
+    if (mpSelected.has(id)) mpSelected.delete(id); else mpSelected.add(id);
+    renderMpQuestions();
+    updateMpCount();
+}
+
+function mpSelectAll() {
+    mpAllQuestions.forEach(q => mpSelected.add(q.id));
+    renderMpQuestions();
+    updateMpCount();
+}
+
+function mpDeselectAll() {
+    mpAllQuestions.forEach(q => mpSelected.delete(q.id));
+    renderMpQuestions();
+    updateMpCount();
+}
+
+function updateMpCount() {
+    document.getElementById('mp-count').textContent = mpSelected.size;
+    document.getElementById('add-mp-btn').disabled = mpSelected.size === 0;
+}
+
+async function addMathPractice() {
+    const title = document.getElementById('mp-title').value.trim() || `Math Practice ${new Date().toLocaleDateString()}`;
+    if (mpSelected.size === 0) return;
+    const timerMode = document.getElementById('mp-timer-mode').value;
+    const timeLimitMinutes = parseInt(document.getElementById('mp-time-limit').value) || 0;
+    const statusEl = document.getElementById('mp-status');
+    statusEl.textContent = 'Adding...';
+    const btn = document.getElementById('add-mp-btn');
+    btn.disabled = true;
+
+    const res = await fetch(`/api/learning-plans/${planId}/items/math-bank-test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            title,
+            question_ids: [...mpSelected],
+            timer_mode: timerMode,
+            time_limit_seconds: timerMode === 'countdown' ? timeLimitMinutes * 60 : 0
+        })
+    });
+    if (res.ok) {
+        statusEl.textContent = '';
+        document.getElementById('mp-title').value = '';
+        mpSelected.clear();
+        renderMpQuestions();
+        updateMpCount();
+        loadPlan();
+    } else {
+        const data = await res.json();
+        statusEl.textContent = data.error || 'Failed';
+        statusEl.style.color = '#f56565';
+        btn.disabled = false;
+    }
 }
 
 // ── Existing items ──

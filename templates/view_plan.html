@@ -270,6 +270,17 @@ function render(data) {
             href = completed
                 ? `/child/${childId}/science-test/${item.item_id}/review`
                 : `/child/${childId}/science-test/${item.item_id}`;
+        } else if (item.item_type === 'math_bank_test') {
+            icon = '&#x1F4CA;';
+            typeLabel = 'Math Practice';
+            typeCls = 'type-math';
+            meta = `${d.question_count || 0} questions`;
+            if (completed && d.score != null) {
+                meta += ` &middot; ${d.correct_count}/${d.total_count} correct (${d.score}%)`;
+            }
+            href = completed
+                ? `/child/${childId}/math-bank-test/${item.item_id}/review`
+                : `/child/${childId}/math-bank-test/${item.item_id}`;
         }
 
         const statusBadge = reviewed

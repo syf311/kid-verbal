@@ -116,6 +116,8 @@ def check_plan_completion(plan_id, conn):
             row = conn.execute("SELECT status FROM science_study_session WHERE id = ?", (item["item_id"],)).fetchone()
         elif item["item_type"] == "science_test":
             row = conn.execute("SELECT status FROM science_test WHERE id = ?", (item["item_id"],)).fetchone()
+        elif item["item_type"] == "math_bank_test":
+            row = conn.execute("SELECT status FROM math_bank_test WHERE id = ?", (item["item_id"],)).fetchone()
         else:
             continue
         if not row or row["status"] != "completed":
@@ -361,7 +363,8 @@ def child_dashboard_summary(child_id):
                        (lpi.item_type = 'study_session' AND (SELECT status FROM study_session WHERE id = lpi.item_id) = 'completed') OR
                        (lpi.item_type = 'reading_assignment' AND (SELECT status FROM reading_assignment WHERE id = lpi.item_id) = 'completed') OR
                        (lpi.item_type = 'math_test' AND (SELECT status FROM math_test WHERE id = lpi.item_id) = 'completed') OR
-                       (lpi.item_type = 'writing_test' AND (SELECT status FROM writing_test WHERE id = lpi.item_id) = 'completed')
+                       (lpi.item_type = 'writing_test' AND (SELECT status FROM writing_test WHERE id = lpi.item_id) = 'completed') OR
+                       (lpi.item_type = 'math_bank_test' AND (SELECT status FROM math_bank_test WHERE id = lpi.item_id) = 'completed')
                    )) as completed_item_count
            FROM learning_plan lp
            WHERE lp.child_id = ?
@@ -3358,6 +3361,16 @@ def get_learning_plan(plan_id):
                    FROM science_test st WHERE st.id = ?""",
                 (item["item_id"],)
             ).fetchone()
+        elif item["item_type"] == "math_bank_test":
+            row = conn.execute(
+                """SELECT mbt.id, mbt.title, mbt.status,
+                          (SELECT COUNT(*) FROM math_bank_test_question WHERE test_id = mbt.id) as question_count,
+                          (SELECT score FROM math_bank_test_submission WHERE test_id = mbt.id ORDER BY submitted_at DESC LIMIT 1) as score,
+                          (SELECT correct_count FROM math_bank_test_submission WHERE test_id = mbt.id ORDER BY submitted_at DESC LIMIT 1) as correct_count,
+                          (SELECT total_count FROM math_bank_test_submission WHERE test_id = mbt.id ORDER BY submitted_at DESC LIMIT 1) as total_count
+                   FROM math_bank_test mbt WHERE mbt.id = ?""",
+                (item["item_id"],)
+            ).fetchone()
         else:
             row = None
         if row:
@@ -5145,6 +5158,41 @@ def review_science_test(child_id, test_id):
 
 
 # ── Science Learning Plan Integration ──
+
+@app.route("/api/learning-plans/<int:plan_id>/items/math-bank-test", methods=["POST"])
+@parent_required
+def add_plan_math_bank_test(plan_id):
+    conn = get_db()
+    plan = conn.execute("SELECT * FROM learning_plan WHERE id = ?", (plan_id,)).fetchone()
+    if not plan or plan["status"] != "draft":
+        conn.close()
+        return jsonify({"error": "Plan not found or not in draft"}), 400
+    data = request.json
+    title = data.get("title", "").strip() or "Math Practice"
+    question_ids = data.get("question_ids", [])
+    if not question_ids:
+        conn.close()
+        return jsonify({"error": "question_ids required"}), 400
+    timer_mode = data.get("timer_mode", "none")
+    time_limit_seconds = data.get("time_limit_seconds", 0)
+    account = get_current_account()
+    cursor = conn.execute(
+        """INSERT INTO math_bank_test (child_id, created_by, title, timer_mode, time_limit_seconds, learning_plan_id)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (plan["child_id"], account["id"], title, timer_mode, time_limit_seconds, plan_id)
+    )
+    test_id = cursor.lastrowid
+    for qid in question_ids:
+        conn.execute("INSERT INTO math_bank_test_question (test_id, question_id) VALUES (?, ?)", (test_id, qid))
+    max_order = conn.execute("SELECT COALESCE(MAX(sort_order), 0) FROM learning_plan_item WHERE plan_id = ?", (plan_id,)).fetchone()[0]
+    conn.execute(
+        "INSERT INTO learning_plan_item (plan_id, item_type, item_id, sort_order) VALUES (?, 'math_bank_test', ?, ?)",
+        (plan_id, test_id, max_order + 1)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"id": test_id}), 201
+
 
 @app.route("/api/learning-plans/<int:plan_id>/items/science-study", methods=["POST"])
 @parent_required

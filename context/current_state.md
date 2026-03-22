@@ -84,7 +84,9 @@
 
 ## Recent Changes (latest commits)
 
-1. **Math bank tests with auto-grading and progress tracking** (task_009) — Create tests from math question bank, child takes MC test with timer, auto-graded with solution steps in review, per-question mastery tracking, dashboard integration with Bank badge
+1. **Prevent copy/paste on math tests** (task_011) — Disable text selection, right-click, and Ctrl+C on math bank test page to deter cheating
+2. **Math practice in learning plans** (task_010) — "+ Math Practice" button in learning plan management with concept/difficulty/mastery filters, plan completion detection
+3. **Math bank tests with auto-grading and progress tracking** (task_009) — Create tests from math question bank, child takes MC test with timer, auto-graded with solution steps in review, per-question mastery tracking, dashboard integration with Bank badge
 2. **Math question bank with AI generation** (task_008) — New math_question/math_question_progress tables, question bank page with search/filters (concept, difficulty 1-5, mastery), manual add, AI generate via OpenAI, copy prompt/paste response for ChatGPT, duplicate detection, difficulty control (mixed or focused)
 2. **Auto-create writing assignment for reading** (task_007) — Adding a reading assignment to a learning plan auto-creates a writing test prompting the child to summarize and share their point of view, with grade-level word limits and toast notification
 2. **Fix AI question answer distribution** (bug_002) — Expanded few-shot example and strengthened prompt to distribute correct answers evenly across A/B/C/D
