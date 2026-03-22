@@ -955,9 +955,11 @@ def get_words(child_id):
     conn = get_db()
     words = conn.execute(
         """SELECT w.*, wp.correct_count, wp.wrong_count, wp.difficulty_level,
-                  wp.last_tested, wp.last_correct_at
+                  wp.last_tested, wp.last_correct_at,
+                  rm.title as source_material_title, rm.source_url as source_material_url
            FROM word w
            LEFT JOIN word_progress wp ON w.id = wp.word_id AND wp.child_id = w.child_id
+           LEFT JOIN reading_material rm ON w.source_material_id = rm.id
            WHERE w.child_id = ?
            ORDER BY w.created_at DESC""",
         (child_id,)
@@ -1970,8 +1972,8 @@ def add_power_words_to_vocab(material_id):
         if existing:
             continue
         conn.execute(
-            "INSERT INTO word (child_id, word, definition) VALUES (?, ?, ?)",
-            (child_id, pw["word"], pw["definition"])
+            "INSERT INTO word (child_id, word, definition, source_material_id) VALUES (?, ?, ?, ?)",
+            (child_id, pw["word"], pw["definition"], material_id)
         )
         added += 1
     conn.commit()

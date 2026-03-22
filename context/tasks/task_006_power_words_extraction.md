@@ -60,9 +60,9 @@ When expanded, the panel shows:
 
 ### 6. Word source tracking
 
-When adding power words to vocab, set a recognizable source so we can trace where the word came from:
-- Option: add the word normally to `word` table with the definition from the power word entry
-- No schema changes to `word` table needed — the definition itself is the value
+Add `source_material_id` column to the `word` table (nullable INTEGER, FK to `reading_material`).
+When adding power words to vocab, set this field to the material ID.
+In the word list UI, words with a source material show the material title as a clickable link to the source URL.
 
 ### 7. Learning plan integration
 

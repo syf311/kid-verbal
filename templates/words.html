@@ -172,6 +172,7 @@ function filterWords() {
                 ${word.example_sentence ? `<div style="color: #888; font-style: italic; margin-top: 5px;">"${word.example_sentence}"</div>` : ''}
                 <div style="margin-top: 8px; font-size: 12px; color: #999;">
                     ✓ ${word.correct_count || 0} | ✗ ${word.wrong_count || 0}
+                    ${word.source_material_title ? ` | From: ${word.source_material_url ? `<a href="${word.source_material_url}" target="_blank" rel="noopener" style="color: #667eea;">${word.source_material_title}</a>` : word.source_material_title}` : ''}
                 </div>
             </div>
             <div>

@@ -84,7 +84,7 @@
 
 ## Recent Changes (latest commits)
 
-1. **Power Words extraction from articles** (task_006) — Extract Power Words from Science News Explores articles during RSS import, store on material, parent can selectively add to child's vocab, auto-creates study session in learning plans
+1. **Power Words extraction from articles** (task_006) — Extract Power Words from Science News Explores articles during RSS import, store on material, parent can selectively add to child's vocab, source link shown in word bank, auto-creates study session in learning plans
 2. **Reading picker filters in learning plan** (task_005) — Reading assignment picker in manage/create plan replaced with scrollable card list showing attempt badges, scores, last tried date, and filter buttons (All / New / Needs Review / Worth Refreshing)
 2. **Fix vocab test detail back link** (bug_001) — Back link on vocab test review now navigates to learning plan page when accessed from a plan, falls back to dashboard otherwise
 2. **Reading material attempt tracking** (task_004) — per-child attempt count, last tried date, correct ratio on materials page with filter buttons (New / Needs Review / Worth Refreshing)
