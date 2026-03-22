@@ -1,6 +1,6 @@
 # Current State
 
-*Last updated: 2026-03-14*
+*Last updated: 2026-03-22*
 
 ## What's Built and Working
 
@@ -18,6 +18,7 @@
 - Comprehension questions per material
 - **AI question generation:** "Generate by AI" button in batch import uses OpenAI to create 10 MCQs from material content/URL, grade-level aware, answers evenly distributed across A/B/C/D
 - Article import auto-assigns to currently filtered child
+- **Power Words:** Auto-extracted from Science News Explores articles during RSS import. Parent can selectively add to child's vocabulary with source link tracking.
 - **Web reading view:** RSS-imported materials with source URL show the original website in a sandboxed proxy iframe (images, formatting preserved). All links disabled, no navigation possible. Questions panel shown by default alongside web content.
 - Reading assignments to children
 - Child answers with required evidence text ("Why?")
@@ -33,6 +34,9 @@
 - Retry wrong questions only
 - Score tracking with original vs retry scores
 - Auto-save drafts
+- **Math Question Bank:** AI-generated or manually added MC questions with concept tags, difficulty (1-5), solution steps, and per-question mastery tracking
+- **Math Bank Tests:** Create tests from the question bank with concept/difficulty/mastery filters, auto-graded, solution steps in review
+- **Copy/paste prevention:** Text selection, right-click, and Ctrl+C disabled on test pages to deter cheating
 
 ### Writing
 - Writing topics management
@@ -54,7 +58,9 @@
 
 ### Learning Plans
 - Bundle activities across subjects into daily plans
-- Supports all activity types: vocab study, vocab test, reading, math test, writing test, science study, science test
+- Supports all activity types: vocab study, vocab test, reading, math test, math bank test, writing test, science study, science test
+- Adding reading assignment auto-creates a writing summary assignment (grade-level word limits)
+- Adding reading assignment auto-creates power words study session if words are in child's vocab
 - Draft → released → completed lifecycle
 - Auto-completion detection when all items done
 - Parent review tracking per item
@@ -73,7 +79,7 @@
 
 ## Known Issues / Tech Debt
 
-- `app.py` is very large (~4550 lines) — could benefit from splitting into blueprints
+- `app.py` is very large (~5500+ lines) — could benefit from splitting into blueprints
 - All CSS is inline in templates — lots of duplication
 - No automated tests
 - No input validation library — manual validation in each route
