@@ -523,6 +523,7 @@ function updateQuickLinks(childId) {
     `;
     document.getElementById('math-links').innerHTML = `
         <a href="/parent/child/${childId}/math-test/new" class="btn-success">Create Math Test</a>
+        <a href="/parent/child/${childId}/math-questions" class="btn-primary">Question Bank</a>
     `;
     document.getElementById('science-links').innerHTML = `
         <a href="#" class="btn-success" onclick="event.preventDefault(); openScienceImport()">Import Questions</a>

@@ -1,0 +1,579 @@
+{% extends "base.html" %}
+
+{% block title %}Math Question Bank - {{ child.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .filter-bar { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+    .filter-btn {
+        padding: 4px 10px; font-size: 12px; border-radius: 12px; border: 1px solid #cbd5e0;
+        background: #fff; cursor: pointer; font-weight: 600; transition: all 0.15s;
+    }
+    .filter-btn:hover { border-color: #667eea; }
+    .filter-btn.active { background: #667eea; color: #fff; border-color: #667eea; }
+    .q-card {
+        background: #f7fafc; border-radius: 10px; padding: 12px 16px; margin-bottom: 8px;
+        border-left: 4px solid #667eea; transition: all 0.15s;
+    }
+    .q-card:hover { background: #edf2f7; }
+    .q-text { font-size: 14px; color: #333; line-height: 1.5; }
+    .q-meta { font-size: 11px; margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .concept-tag {
+        display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600;
+        background: #e9d8fd; color: #553c9a;
+    }
+    .diff-badge {
+        display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600;
+    }
+    .diff-1 { background: #c6f6d5; color: #276749; }
+    .diff-2 { background: #bee3f8; color: #2b6cb0; }
+    .diff-3 { background: #fefcbf; color: #975a16; }
+    .diff-4 { background: #fed7d7; color: #c53030; }
+    .diff-5 { background: #e53e3e; color: #fff; }
+    .mastery-badge {
+        font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px;
+        display: inline-block;
+    }
+    .mastery-never { background: #e2e8f0; color: #4a5568; }
+    .mastery-wrong { background: #fed7d7; color: #c53030; }
+    .mastery-due { background: #fefcbf; color: #975a16; }
+    .mastery-good { background: #c6f6d5; color: #276749; }
+    .mastery-mastered { background: #667eea; color: #fff; }
+    .choices-inline { font-size: 12px; color: #555; margin-top: 4px; }
+    .solution-toggle { font-size: 12px; color: #667eea; cursor: pointer; font-weight: 600; margin-top: 4px; }
+    .solution-box { font-size: 13px; color: #555; margin-top: 6px; padding: 8px 12px; background: #fff; border-radius: 6px; border: 1px solid #e2e8f0; white-space: pre-wrap; display: none; }
+    .section-card { background: #f7fafc; border-radius: 12px; padding: 16px 20px; margin-bottom: 16px; }
+    .section-card h3 { font-size: 16px; margin-bottom: 12px; color: #333; }
+    .ai-section { display: none; margin-bottom: 20px; }
+    .ai-section.open { display: block; }
+    .toast-notification {
+        position: fixed; bottom: 24px; right: 24px; background: #333; color: white;
+        padding: 14px 20px; border-radius: 10px; font-size: 14px; max-width: 350px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2); cursor: pointer; opacity: 0;
+        transform: translateY(10px); transition: opacity 0.3s, transform 0.3s; z-index: 1000;
+    }
+    .toast-notification.show { opacity: 1; transform: translateY(0); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="toast" class="toast-notification" onclick="this.classList.remove('show')"></div>
+<a href="/parent" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back to Dashboard</a>
+<h1 style="margin-top: 10px;">Math Question Bank — {{ child.name }}</h1>
+
+<!-- Action buttons -->
+<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
+    <button class="btn btn-success" onclick="toggleSection('add')">+ Add Question</button>
+    <button class="btn btn-primary" onclick="toggleSection('ai')">Generate by AI</button>
+    <button class="btn btn-warning" onclick="toggleSection('paste')">Paste AI Response</button>
+</div>
+
+<!-- Add Question section -->
+<div class="ai-section" id="section-add">
+    <div class="section-card">
+        <h3>Add Question Manually</h3>
+        <div style="margin-bottom: 8px;">
+            <label style="font-weight: 600; font-size: 13px;">Question Text</label>
+            <textarea id="add-q-text" rows="3" placeholder="Enter the math problem..." style="font-size: 14px;"></textarea>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+            <div><label style="font-size: 12px; font-weight: 600;">A.</label><input type="text" id="add-choice-a" placeholder="Choice A"></div>
+            <div><label style="font-size: 12px; font-weight: 600;">B.</label><input type="text" id="add-choice-b" placeholder="Choice B"></div>
+            <div><label style="font-size: 12px; font-weight: 600;">C.</label><input type="text" id="add-choice-c" placeholder="Choice C"></div>
+            <div><label style="font-size: 12px; font-weight: 600;">D.</label><input type="text" id="add-choice-d" placeholder="Choice D"></div>
+            <div><label style="font-size: 12px; font-weight: 600;">E.</label><input type="text" id="add-choice-e" placeholder="Choice E (optional)"></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+            <div>
+                <label style="font-size: 12px; font-weight: 600;">Correct Answer</label>
+                <select id="add-answer" style="width:100%; padding:6px; font-size:14px; border:1px solid #ccc; border-radius:6px;">
+                    <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option><option value="E">E</option>
+                </select>
+            </div>
+            <div>
+                <label style="font-size: 12px; font-weight: 600;">Difficulty (1-5)</label>
+                <select id="add-difficulty" style="width:100%; padding:6px; font-size:14px; border:1px solid #ccc; border-radius:6px;">
+                    <option value="1">1 (Easiest)</option><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option><option value="5">5 (Hardest)</option>
+                </select>
+            </div>
+            <div>
+                <label style="font-size: 12px; font-weight: 600;">Grade Level</label>
+                <input type="text" id="add-grade" value="{{ child.grade_level or '4th grade' }}" style="padding:6px;">
+            </div>
+        </div>
+        <div style="margin-bottom: 8px;">
+            <label style="font-size: 12px; font-weight: 600;">Concepts (comma-separated)</label>
+            <input type="text" id="add-concepts" placeholder="e.g., Fractions, Ratios">
+        </div>
+        <div style="margin-bottom: 8px;">
+            <label style="font-size: 12px; font-weight: 600;">Solution Steps</label>
+            <textarea id="add-steps" rows="3" placeholder="Step-by-step solution..." style="font-size: 13px;"></textarea>
+        </div>
+        <button class="btn btn-success" onclick="addQuestion()">Add Question</button>
+        <span id="add-status" style="margin-left: 10px; font-size: 13px;"></span>
+    </div>
+</div>
+
+<!-- AI Generate section -->
+<div class="ai-section" id="section-ai">
+    <div class="section-card">
+        <h3>Generate by AI</h3>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+            <div>
+                <label style="font-size: 12px; font-weight: 600;">Number of Questions</label>
+                <input type="number" id="ai-count" value="10" min="1" max="20" style="padding:6px;">
+            </div>
+            <div>
+                <label style="font-size: 12px; font-weight: 600;">Style</label>
+                <select id="ai-style" style="width:100%; padding:6px; font-size:14px; border:1px solid #ccc; border-radius:6px;">
+                    <option value="Mixed">Mixed</option>
+                    <option value="Academic">Academic</option>
+                    <option value="Olympiad">Olympiad</option>
+                    <option value="AMC 8">AMC 8</option>
+                    <option value="AMC 10">AMC 10</option>
+                </select>
+            </div>
+            <div>
+                <label style="font-size: 12px; font-weight: 600;">Grade Level</label>
+                <input type="text" id="ai-grade" value="{{ child.grade_level or '4th grade' }}" style="padding:6px;">
+            </div>
+            <div>
+                <label style="font-size: 12px; font-weight: 600;">Difficulty</label>
+                <select id="ai-diff" style="width:100%; padding:6px; font-size:14px; border:1px solid #ccc; border-radius:6px;">
+                    <option value="mixed">Mixed (1-5)</option>
+                    <option value="1">1 (Easiest)</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5 (Hardest)</option>
+                </select>
+            </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+            <button class="btn btn-primary" onclick="generateAI()" id="ai-generate-btn">Generate</button>
+            <button class="btn" style="background:#edf2f7; color:#4a5568;" onclick="copyPrompt()">Copy Prompt</button>
+        </div>
+        <span id="ai-status" style="margin-left: 10px; font-size: 13px;"></span>
+    </div>
+</div>
+
+<!-- Paste AI Response section -->
+<div class="ai-section" id="section-paste">
+    <div class="section-card">
+        <h3>Paste AI Response</h3>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+            <div>
+                <label style="font-size: 12px; font-weight: 600;">Number of Questions</label>
+                <input type="number" id="paste-count" value="10" min="1" max="20" style="padding:6px;">
+            </div>
+            <div>
+                <label style="font-size: 12px; font-weight: 600;">Style</label>
+                <select id="paste-style" style="width:100%; padding:6px; font-size:14px; border:1px solid #ccc; border-radius:6px;">
+                    <option value="Mixed">Mixed</option>
+                    <option value="Academic">Academic</option>
+                    <option value="Olympiad">Olympiad</option>
+                    <option value="AMC 8">AMC 8</option>
+                    <option value="AMC 10">AMC 10</option>
+                </select>
+            </div>
+            <div>
+                <label style="font-size: 12px; font-weight: 600;">Grade Level</label>
+                <input type="text" id="paste-grade" value="{{ child.grade_level or '4th grade' }}" style="padding:6px;">
+            </div>
+            <div>
+                <label style="font-size: 12px; font-weight: 600;">Difficulty</label>
+                <select id="paste-diff" style="width:100%; padding:6px; font-size:14px; border:1px solid #ccc; border-radius:6px;" onchange="updatePastePrompt()">
+                    <option value="mixed">Mixed (1-5)</option>
+                    <option value="1">1 (Easiest)</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5 (Hardest)</option>
+                </select>
+            </div>
+        </div>
+        <div style="margin-bottom: 10px;">
+            <label style="font-size: 12px; font-weight: 600;">Step 1: Copy this prompt to ChatGPT</label>
+            <div style="position: relative;">
+                <textarea id="paste-prompt-display" rows="6" readonly style="font-size: 12px; font-family: monospace; background: #edf2f7; color: #333; cursor: text;"></textarea>
+                <button class="btn" style="position:absolute; top:6px; right:6px; padding:4px 10px; font-size:11px; background:#667eea; color:#fff;" onclick="copyPastePrompt()">Copy</button>
+            </div>
+        </div>
+        <div style="margin-bottom: 8px;">
+            <label style="font-size: 12px; font-weight: 600;">Step 2: Paste AI response here</label>
+            <textarea id="paste-text" rows="12" placeholder="Paste the full AI response here (PROBLEMS + ANSWERS sections)..." style="font-size: 13px; font-family: monospace;"></textarea>
+        </div>
+        <div style="margin-top: 8px;">
+            <button class="btn btn-success" onclick="importPasted()">Import Questions</button>
+            <span id="paste-status" style="margin-left: 10px; font-size: 13px;"></span>
+        </div>
+    </div>
+</div>
+
+<!-- Filters -->
+<div style="margin-bottom: 10px;">
+    <input type="text" id="search-input" placeholder="Search questions..." style="padding: 8px 12px; border: 2px solid #ddd; border-radius: 8px; width: 100%; max-width: 400px; box-sizing: border-box;" oninput="loadQuestions()">
+</div>
+<div style="margin-bottom: 8px;">
+    <label style="font-size: 13px; font-weight: 600; margin-right: 6px;">Concept:</label>
+    <span id="concept-filters"></span>
+</div>
+<div style="margin-bottom: 8px;">
+    <label style="font-size: 13px; font-weight: 600; margin-right: 6px;">Difficulty:</label>
+    <span id="diff-filters">
+        <button class="filter-btn active" onclick="setDiffFilter(0)">All</button>
+        <button class="filter-btn" onclick="setDiffFilter(1)">1</button>
+        <button class="filter-btn" onclick="setDiffFilter(2)">2</button>
+        <button class="filter-btn" onclick="setDiffFilter(3)">3</button>
+        <button class="filter-btn" onclick="setDiffFilter(4)">4</button>
+        <button class="filter-btn" onclick="setDiffFilter(5)">5</button>
+    </span>
+</div>
+<div style="margin-bottom: 12px;">
+    <label style="font-size: 13px; font-weight: 600; margin-right: 6px;">Mastery:</label>
+    <span id="mastery-filters"></span>
+</div>
+
+<!-- Question list -->
+<div id="question-count" style="font-size: 13px; color: #888; margin-bottom: 8px;"></div>
+<div id="question-list">Loading...</div>
+<div id="pagination" style="text-align: center; margin-top: 12px;"></div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const childId = {{ child.id }};
+let currentConcept = '';
+let currentDiff = 0;
+let currentMastery = '';
+let currentPage = 1;
+
+const MASTERY_LABELS = { never: 'New', wrong: 'Needs Work', due: 'Due', good: 'Good', mastered: 'Mastered' };
+const DIFF_COLORS = { 1: 'diff-1', 2: 'diff-2', 3: 'diff-3', 4: 'diff-4', 5: 'diff-5' };
+
+function escHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function showToast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(el._timer);
+    el._timer = setTimeout(() => el.classList.remove('show'), 4000);
+}
+
+let openSectionId = null;
+function toggleSection(name) {
+    const id = 'section-' + name;
+    document.querySelectorAll('.ai-section').forEach(el => el.classList.remove('open'));
+    if (openSectionId === id) { openSectionId = null; return; }
+    document.getElementById(id).classList.add('open');
+    openSectionId = id;
+}
+
+// ── Load & Render ──
+
+async function loadQuestions() {
+    const search = document.getElementById('search-input').value.trim();
+    let url = `/api/children/${childId}/math-questions?page=${currentPage}&per_page=50`;
+    if (currentConcept) url += `&concept=${encodeURIComponent(currentConcept)}`;
+    if (currentDiff) url += `&difficulty=${currentDiff}`;
+    if (currentMastery) url += `&status=${currentMastery}`;
+    if (search) url += `&search=${encodeURIComponent(search)}`;
+
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    renderConceptFilters(data.concepts || []);
+    renderMasteryFilters(data.status_counts || {});
+    renderQuestions(data.questions || []);
+    document.getElementById('question-count').textContent = `${data.total} question${data.total !== 1 ? 's' : ''}`;
+
+    // Pagination
+    const pagEl = document.getElementById('pagination');
+    if (data.total <= data.per_page) {
+        pagEl.innerHTML = '';
+    } else {
+        let html = '';
+        for (let p = 1; p <= data.total_pages; p++) {
+            html += `<button class="filter-btn ${p === data.page ? 'active' : ''}" onclick="goPage(${p})" style="margin:2px;">${p}</button>`;
+        }
+        pagEl.innerHTML = html;
+    }
+}
+
+function goPage(p) { currentPage = p; loadQuestions(); }
+
+function renderConceptFilters(concepts) {
+    const el = document.getElementById('concept-filters');
+    let html = `<button class="filter-btn ${currentConcept === '' ? 'active' : ''}" onclick="setConceptFilter('')">All</button>`;
+    concepts.forEach(c => {
+        html += `<button class="filter-btn ${currentConcept === c ? 'active' : ''}" onclick="setConceptFilter('${escHtml(c)}')">${escHtml(c)}</button>`;
+    });
+    el.innerHTML = html;
+}
+
+function renderMasteryFilters(counts) {
+    const el = document.getElementById('mastery-filters');
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    let html = `<button class="filter-btn ${currentMastery === '' ? 'active' : ''}" onclick="setMasteryFilter('')">All (${total})</button>`;
+    for (const [key, label] of Object.entries(MASTERY_LABELS)) {
+        const count = counts[key] || 0;
+        if (count > 0) {
+            html += `<button class="filter-btn ${currentMastery === key ? 'active' : ''}" onclick="setMasteryFilter('${key}')">${label} (${count})</button>`;
+        }
+    }
+    el.innerHTML = html;
+}
+
+function setConceptFilter(c) { currentConcept = c; currentPage = 1; loadQuestions(); }
+function setDiffFilter(d) {
+    currentDiff = d;
+    currentPage = 1;
+    document.querySelectorAll('#diff-filters .filter-btn').forEach((btn, i) => btn.classList.toggle('active', i === d));
+    loadQuestions();
+}
+function setMasteryFilter(m) { currentMastery = m; currentPage = 1; loadQuestions(); }
+
+function renderQuestions(questions) {
+    const list = document.getElementById('question-list');
+    if (questions.length === 0) {
+        list.innerHTML = '<p style="color: #999;">No questions found. Add some or generate with AI!</p>';
+        return;
+    }
+    list.innerHTML = questions.map(q => {
+        const concepts = (q.concepts || []).map(c => `<span class="concept-tag">${escHtml(c)}</span>`).join(' ');
+        const diffCls = DIFF_COLORS[q.difficulty] || 'diff-3';
+        const masteryCls = 'mastery-' + (q.mastery_status || 'never');
+        const masteryLabel = MASTERY_LABELS[q.mastery_status] || 'New';
+
+        let choicesHtml = '';
+        if (q.choices && typeof q.choices === 'object') {
+            choicesHtml = '<div class="choices-inline">' +
+                Object.entries(q.choices).map(([k, v]) =>
+                    `<span style="margin-right:10px;${k === q.correct_answer ? 'font-weight:700;color:#276749;' : ''}"><strong>${escHtml(k)}.</strong> ${escHtml(v)}</span>`
+                ).join('') + '</div>';
+        }
+
+        const hasSteps = q.solution_steps && q.solution_steps.trim();
+
+        return `<div class="q-card" id="q-${q.id}">
+            <div class="q-text">${escHtml(q.question_text)}</div>
+            ${q.image_path ? `<img src="/uploads/${q.image_path}" style="max-width:300px; max-height:200px; margin-top:6px; border-radius:6px;">` : ''}
+            ${choicesHtml}
+            <div class="q-meta">
+                ${concepts}
+                <span class="diff-badge ${diffCls}">Diff ${q.difficulty}</span>
+                <span class="mastery-badge ${masteryCls}">${masteryLabel}</span>
+                ${q.grade_level ? `<span style="color:#888;">${escHtml(q.grade_level)}</span>` : ''}
+                ${q.source ? `<span style="color:#aaa;">${escHtml(q.source)}</span>` : ''}
+                <span style="color:#667eea; cursor:pointer; font-weight:600;" onclick="editQuestion(${q.id})">Edit</span>
+                <span style="color:#e53e3e; cursor:pointer; font-weight:600;" onclick="deleteQuestion(${q.id})">Delete</span>
+            </div>
+            ${hasSteps ? `<div class="solution-toggle" onclick="toggleSolution(${q.id})">Show Solution</div>
+            <div class="solution-box" id="sol-${q.id}">${escHtml(q.solution_steps)}</div>` : ''}
+        </div>`;
+    }).join('');
+}
+
+function toggleSolution(id) {
+    const box = document.getElementById('sol-' + id);
+    const isVisible = box.style.display === 'block';
+    box.style.display = isVisible ? 'none' : 'block';
+    box.previousElementSibling.textContent = isVisible ? 'Show Solution' : 'Hide Solution';
+}
+
+// ── Add Question ──
+
+async function addQuestion() {
+    const qText = document.getElementById('add-q-text').value.trim();
+    if (!qText) { alert('Enter question text'); return; }
+    const choices = {};
+    for (const l of ['a','b','c','d','e']) {
+        const v = document.getElementById('add-choice-' + l).value.trim();
+        if (v) choices[l.toUpperCase()] = v;
+    }
+    if (Object.keys(choices).length < 2) { alert('Enter at least 2 choices'); return; }
+
+    const concepts = document.getElementById('add-concepts').value.split(',').map(c => c.trim()).filter(c => c);
+    const res = await fetch(`/api/children/${childId}/math-questions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            question_text: qText,
+            choices,
+            correct_answer: document.getElementById('add-answer').value,
+            difficulty: parseInt(document.getElementById('add-difficulty').value),
+            grade_level: document.getElementById('add-grade').value.trim(),
+            concepts,
+            solution_steps: document.getElementById('add-steps').value.trim(),
+            source: 'manual'
+        })
+    });
+    if (res.ok) {
+        document.getElementById('add-q-text').value = '';
+        for (const l of ['a','b','c','d','e']) document.getElementById('add-choice-' + l).value = '';
+        document.getElementById('add-concepts').value = '';
+        document.getElementById('add-steps').value = '';
+        showToast('Question added!');
+        loadQuestions();
+    } else {
+        const data = await res.json();
+        alert('Error: ' + (data.error || 'Failed'));
+    }
+}
+
+// ── Edit & Delete ──
+
+async function editQuestion(id) {
+    const card = document.getElementById('q-' + id);
+    const newText = prompt('Edit question text:', card.querySelector('.q-text').textContent);
+    if (newText === null) return;
+    await fetch(`/api/math-questions/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question_text: newText })
+    });
+    loadQuestions();
+}
+
+async function deleteQuestion(id) {
+    if (!confirm('Delete this question?')) return;
+    await fetch(`/api/math-questions/${id}`, { method: 'DELETE' });
+    loadQuestions();
+}
+
+// ── AI Generation ──
+
+function buildDiffInstruction(diff) {
+    if (diff === 'mixed') {
+        return '- Rate each problem\'s difficulty from 1 to 5 (1=easiest, 5=hardest) relative to the grade level\n- Provide a balanced mix of difficulties: include problems at levels 1, 2, 3, 4, and 5';
+    }
+    return `- All problems should be at difficulty level ${diff} out of 5 (1=easiest, 5=hardest) relative to the grade level`;
+}
+
+function buildPromptWithParams(count, style, grade, diff) {
+    const diffInstr = buildDiffInstruction(diff);
+    return `Generate ${count} ${style} multiple choice math problems for ${grade} level.\n\nRequirements:\n- Each problem should be appropriately challenging for ${grade}\n- Each problem has 5 choices labeled A through E\n- Tag each problem with math concepts it covers (e.g., Fractions, Geometry, Number Theory, Algebra, Combinatorics, Ratios, Percentages, Arithmetic, Measurement, Probability)\n${diffInstr}\n- Correct answers MUST be randomized across A-E. No letter should appear more than 3 times.\n\nOutput format:\n\nPROBLEMS\n1. [problem text]\nA. [choice]\nB. [choice]\nC. [choice]\nD. [choice]\nE. [choice]\nConcepts: [comma-separated tags]\nDifficulty: [1-5]\n\nANSWERS\n1. Answer: [letter]\nSteps: [step-by-step solution]\n\n2. Answer: [letter]\nSteps: [step-by-step solution]`;
+}
+
+function buildPrompt() {
+    return buildPromptWithParams(
+        document.getElementById('ai-count').value,
+        document.getElementById('ai-style').value,
+        document.getElementById('ai-grade').value,
+        document.getElementById('ai-diff').value
+    );
+}
+
+function copyPrompt() {
+    navigator.clipboard.writeText(buildPrompt()).then(() => showToast('Prompt copied to clipboard!'));
+}
+
+function buildPastePrompt() {
+    return buildPromptWithParams(
+        document.getElementById('paste-count').value,
+        document.getElementById('paste-style').value,
+        document.getElementById('paste-grade').value,
+        document.getElementById('paste-diff').value
+    );
+}
+
+function updatePastePrompt() {
+    document.getElementById('paste-prompt-display').value = buildPastePrompt();
+}
+
+function copyPastePrompt() {
+    navigator.clipboard.writeText(buildPastePrompt()).then(() => showToast('Prompt copied to clipboard!'));
+}
+
+async function generateAI() {
+    const btn = document.getElementById('ai-generate-btn');
+    const statusEl = document.getElementById('ai-status');
+    btn.disabled = true;
+    btn.textContent = 'Generating...';
+    statusEl.textContent = '';
+
+    const res = await fetch(`/api/children/${childId}/math-questions/generate-ai`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            count: parseInt(document.getElementById('ai-count').value),
+            style: document.getElementById('ai-style').value,
+            grade_level: document.getElementById('ai-grade').value,
+            difficulty: document.getElementById('ai-diff').value
+        })
+    });
+
+    btn.disabled = false;
+    btn.textContent = 'Generate';
+
+    if (!res.ok) {
+        const data = await res.json();
+        statusEl.textContent = data.error || 'Failed';
+        statusEl.style.color = '#e53e3e';
+        return;
+    }
+
+    const data = await res.json();
+    // Auto-import the response
+    const importRes = await fetch(`/api/children/${childId}/math-questions/import-ai`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: data.raw_response, grade_level: document.getElementById('ai-grade').value })
+    });
+
+    if (importRes.ok) {
+        const importData = await importRes.json();
+        let msg = `Generated and imported ${importData.added} question${importData.added !== 1 ? 's' : ''}!`;
+        if (importData.skipped > 0) msg += ` ${importData.skipped} skipped (already in bank).`;
+        showToast(msg);
+        loadQuestions();
+    } else {
+        statusEl.textContent = 'Generated but failed to parse. Try "Paste AI Response" with the output.';
+        statusEl.style.color = '#e53e3e';
+    }
+}
+
+// ── Paste Import ──
+
+async function importPasted() {
+    const text = document.getElementById('paste-text').value.trim();
+    if (!text) { alert('Paste the AI response first'); return; }
+    const statusEl = document.getElementById('paste-status');
+    statusEl.textContent = 'Importing...';
+
+    const res = await fetch(`/api/children/${childId}/math-questions/import-ai`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, grade_level: document.getElementById('paste-grade').value.trim() })
+    });
+
+    if (res.ok) {
+        const data = await res.json();
+        let msg = `Imported ${data.added} question${data.added !== 1 ? 's' : ''}!`;
+        if (data.skipped > 0) msg += ` ${data.skipped} skipped (already in bank).`;
+        statusEl.textContent = msg;
+        statusEl.style.color = '#48bb78';
+        document.getElementById('paste-text').value = '';
+        loadQuestions();
+    } else {
+        statusEl.textContent = 'Failed to parse. Check the format.';
+        statusEl.style.color = '#e53e3e';
+    }
+}
+
+// ── Init ──
+loadQuestions();
+updatePastePrompt();
+document.getElementById('paste-count').addEventListener('input', updatePastePrompt);
+document.getElementById('paste-style').addEventListener('change', updatePastePrompt);
+document.getElementById('paste-grade').addEventListener('input', updatePastePrompt);
+</script>
+{% endblock %}

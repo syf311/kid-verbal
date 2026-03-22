@@ -356,6 +356,38 @@ def init_db():
             FOREIGN KEY (material_id) REFERENCES reading_material(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS math_question (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id INTEGER NOT NULL,
+            question_text TEXT NOT NULL,
+            answer_format TEXT NOT NULL DEFAULT 'multiple_choice',
+            choices TEXT NOT NULL,
+            correct_answer TEXT NOT NULL,
+            solution_steps TEXT,
+            image_path TEXT,
+            concepts TEXT,
+            grade_level TEXT,
+            difficulty INTEGER DEFAULT 3,
+            source TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS math_question_progress (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id INTEGER NOT NULL,
+            question_id INTEGER NOT NULL,
+            correct_count INTEGER DEFAULT 0,
+            wrong_count INTEGER DEFAULT 0,
+            streak INTEGER DEFAULT 0,
+            difficulty_level INTEGER DEFAULT 1,
+            last_tested DATETIME,
+            last_correct_at DATETIME,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE,
+            FOREIGN KEY (question_id) REFERENCES math_question(id) ON DELETE CASCADE,
+            UNIQUE(child_id, question_id)
+        );
+
         CREATE TABLE IF NOT EXISTS science_question_progress (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             child_id INTEGER NOT NULL,

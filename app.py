@@ -4157,6 +4157,349 @@ def delete_science_question(question_id):
     return jsonify({"success": True})
 
 
+# ── Math Question Bank ──
+
+@app.route("/parent/child/<int:child_id>/math-questions")
+@parent_required
+def math_question_bank_page(child_id):
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    conn.close()
+    if not child:
+        return "Child not found", 404
+    return render_template("math_questions.html", child=dict(child))
+
+@app.route("/api/children/<int:child_id>/math-questions", methods=["GET"])
+@login_required
+def list_math_questions(child_id):
+    from datetime import datetime, timedelta
+    concept_filter = request.args.get("concept")
+    difficulty_filter = request.args.get("difficulty", type=int)
+    status_filter = request.args.get("status")
+    search = request.args.get("search", "").strip().lower()
+    page = request.args.get("page", type=int)
+    per_page = request.args.get("per_page", 50, type=int)
+    per_page = min(per_page, 200)
+
+    conn = get_db()
+
+    sql = """SELECT mq.*, COALESCE(mp.correct_count, 0) as m_correct_count,
+                    COALESCE(mp.wrong_count, 0) as m_wrong_count,
+                    COALESCE(mp.streak, 0) as m_streak,
+                    COALESCE(mp.difficulty_level, 1) as m_difficulty_level,
+                    mp.last_tested as m_last_tested, mp.last_correct_at as m_last_correct_at
+             FROM math_question mq
+             LEFT JOIN math_question_progress mp ON mq.id = mp.question_id AND mp.child_id = mq.child_id
+             WHERE mq.child_id = ?"""
+    params = [child_id]
+    if difficulty_filter:
+        sql += " AND mq.difficulty = ?"
+        params.append(difficulty_filter)
+    sql += " ORDER BY mq.created_at DESC"
+    questions = conn.execute(sql, params).fetchall()
+
+    # All distinct concepts for this child
+    all_concepts_raw = conn.execute(
+        "SELECT DISTINCT concepts FROM math_question WHERE child_id = ? AND concepts IS NOT NULL",
+        (child_id,)
+    ).fetchall()
+    all_concepts = set()
+    for row in all_concepts_raw:
+        try:
+            for c in json.loads(row["concepts"]):
+                all_concepts.add(c)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    conn.close()
+
+    cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+
+    result = []
+    status_counts = {"never": 0, "wrong": 0, "due": 0, "good": 0, "mastered": 0}
+    for q in questions:
+        d = dict(q)
+        if d["choices"]:
+            try:
+                d["choices"] = json.loads(d["choices"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if d["concepts"]:
+            try:
+                d["concepts"] = json.loads(d["concepts"])
+            except (json.JSONDecodeError, TypeError):
+                d["concepts"] = []
+        else:
+            d["concepts"] = []
+
+        d["mastery_status"] = compute_mastery_status(d, cutoff)
+        status_counts[d["mastery_status"]] += 1
+
+        # Apply concept filter
+        if concept_filter and concept_filter not in d["concepts"]:
+            for k in ("m_correct_count", "m_wrong_count", "m_streak", "m_difficulty_level", "m_last_tested", "m_last_correct_at"):
+                del d[k]
+            continue
+
+        # Apply search filter
+        if search and search not in d["question_text"].lower():
+            for k in ("m_correct_count", "m_wrong_count", "m_streak", "m_difficulty_level", "m_last_tested", "m_last_correct_at"):
+                del d[k]
+            continue
+
+        for k in ("m_correct_count", "m_wrong_count", "m_streak", "m_difficulty_level", "m_last_tested", "m_last_correct_at"):
+            del d[k]
+        result.append(d)
+
+    # Apply status filter
+    if status_filter:
+        statuses = set(status_filter.split(","))
+        result = [q for q in result if q["mastery_status"] in statuses]
+
+    if page is None:
+        return jsonify(result)
+
+    total = len(result)
+    total_pages = math.ceil(total / per_page) if total > 0 else 1
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * per_page
+    page_items = result[start:start + per_page]
+
+    return jsonify({
+        "questions": page_items,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": total_pages,
+        "concepts": sorted(all_concepts),
+        "status_counts": status_counts
+    })
+
+
+@app.route("/api/children/<int:child_id>/math-questions", methods=["POST"])
+@parent_required
+def add_math_question(child_id):
+    data = request.json
+    question_text = data.get("question_text", "").strip()
+    choices = data.get("choices", {})
+    correct_answer = data.get("correct_answer", "").strip().upper()
+    if not question_text or not choices or not correct_answer:
+        return jsonify({"error": "question_text, choices, and correct_answer required"}), 400
+
+    conn = get_db()
+    cursor = conn.execute(
+        """INSERT INTO math_question (child_id, question_text, choices, correct_answer, solution_steps, concepts, grade_level, difficulty, source)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (child_id, question_text, json.dumps(choices), correct_answer,
+         data.get("solution_steps", ""), json.dumps(data.get("concepts", [])),
+         data.get("grade_level", ""), data.get("difficulty", 3), data.get("source", "manual"))
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"id": cursor.lastrowid}), 201
+
+
+@app.route("/api/math-questions/<int:question_id>", methods=["PUT"])
+@parent_required
+def update_math_question(question_id):
+    data = request.json
+    conn = get_db()
+    q = conn.execute("SELECT * FROM math_question WHERE id = ?", (question_id,)).fetchone()
+    if not q:
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+    conn.execute(
+        """UPDATE math_question SET question_text = ?, choices = ?, correct_answer = ?,
+           solution_steps = ?, concepts = ?, grade_level = ?, difficulty = ?, source = ?
+           WHERE id = ?""",
+        (data.get("question_text", q["question_text"]),
+         json.dumps(data.get("choices", json.loads(q["choices"]))),
+         data.get("correct_answer", q["correct_answer"]).upper(),
+         data.get("solution_steps", q["solution_steps"]),
+         json.dumps(data.get("concepts", json.loads(q["concepts"] or "[]"))),
+         data.get("grade_level", q["grade_level"]),
+         data.get("difficulty", q["difficulty"]),
+         data.get("source", q["source"]),
+         question_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/math-questions/<int:question_id>", methods=["DELETE"])
+@parent_required
+def delete_math_question(question_id):
+    conn = get_db()
+    conn.execute("DELETE FROM math_question WHERE id = ?", (question_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/children/<int:child_id>/math-questions/generate-ai", methods=["POST"])
+@parent_required
+def generate_math_questions_ai(child_id):
+    api_key = get_config("openai_api_key")
+    if not api_key:
+        return jsonify({"error": "OpenAI API key not configured. Go to Settings to add it."}), 400
+
+    data = request.json
+    count = data.get("count", 10)
+    style = data.get("style", "Mixed")
+    grade_level = data.get("grade_level", "4th grade")
+    difficulty = data.get("difficulty", "mixed")
+
+    if difficulty == "mixed":
+        diff_instruction = (
+            "- Rate each problem's difficulty from 1 to 5 (1=easiest, 5=hardest) relative to the grade level\n"
+            "- Provide a balanced mix of difficulties: include problems at levels 1, 2, 3, 4, and 5\n"
+        )
+    else:
+        diff_instruction = f"- All problems should be at difficulty level {difficulty} out of 5 (1=easiest, 5=hardest) relative to the grade level\n"
+
+    prompt = (
+        f"Generate {count} {style} multiple choice math problems for {grade_level} level.\n\n"
+        "Requirements:\n"
+        f"- Each problem should be appropriately challenging for {grade_level}\n"
+        "- Each problem has 5 choices labeled A through E\n"
+        "- Tag each problem with math concepts it covers (e.g., Fractions, Geometry, Number Theory, Algebra, Combinatorics, Ratios, Percentages, Arithmetic, Measurement, Probability)\n"
+        f"{diff_instruction}"
+        "- Correct answers MUST be randomized across A-E. No letter should appear more than 3 times.\n\n"
+        "Output format:\n\n"
+        "PROBLEMS\n"
+        "1. [problem text]\n"
+        "A. [choice]\n"
+        "B. [choice]\n"
+        "C. [choice]\n"
+        "D. [choice]\n"
+        "E. [choice]\n"
+        "Concepts: [comma-separated tags]\n"
+        "Difficulty: [1-5]\n\n"
+        "ANSWERS\n"
+        "1. Answer: [letter]\n"
+        "Steps: [step-by-step solution]\n\n"
+        "2. Answer: [letter]\n"
+        "Steps: [step-by-step solution]\n"
+    )
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=4000,
+        )
+        result = response.choices[0].message.content.strip()
+        return jsonify({"raw_response": result, "prompt": prompt})
+    except Exception as e:
+        return jsonify({"error": f"AI generation failed: {str(e)}"}), 500
+
+
+@app.route("/api/children/<int:child_id>/math-questions/import-ai", methods=["POST"])
+@parent_required
+def import_math_questions_ai(child_id):
+    data = request.json
+    raw_text = data.get("text", "")
+    grade_level = data.get("grade_level", "")
+    if not raw_text:
+        return jsonify({"error": "No text provided"}), 400
+
+    # Parse the AI response
+    parts = re.split(r'\n\s*ANSWERS\s*\n', raw_text, maxsplit=1)
+    problems_text = parts[0].strip()
+    answers_text = parts[1].strip() if len(parts) > 1 else ""
+
+    # Remove leading "PROBLEMS" header if present
+    problems_text = re.sub(r'^\s*PROBLEMS\s*\n', '', problems_text, flags=re.IGNORECASE)
+
+    # Parse problems
+    problem_blocks = re.split(r'\n(?=\d+\.)', problems_text)
+    problems = []
+    for block in problem_blocks:
+        block = block.strip()
+        if not block:
+            continue
+        # Extract question number and text
+        m = re.match(r'(\d+)\.\s*(.*?)(?=\nA\.)', block, re.DOTALL)
+        if not m:
+            continue
+        q_num = int(m.group(1))
+        q_text = m.group(2).strip()
+
+        # Extract choices
+        choices = {}
+        for letter in ['A', 'B', 'C', 'D', 'E']:
+            cm = re.search(rf'{letter}\.\s*(.*?)(?=\n[A-E]\.|(?:\nConcepts:)|\nDifficulty:|\Z)', block, re.DOTALL)
+            if cm:
+                choices[letter] = cm.group(1).strip()
+
+        # Extract concepts
+        concepts = []
+        cm = re.search(r'Concepts:\s*(.*?)(?=\nDifficulty:|\Z)', block, re.DOTALL)
+        if cm:
+            concepts = [c.strip() for c in cm.group(1).split(",") if c.strip()]
+
+        # Extract difficulty
+        difficulty = 3
+        dm = re.search(r'Difficulty:\s*(\d)', block)
+        if dm:
+            difficulty = int(dm.group(1))
+
+        problems.append({
+            "num": q_num,
+            "question_text": q_text,
+            "choices": choices,
+            "concepts": concepts,
+            "difficulty": difficulty
+        })
+
+    # Parse answers
+    answers = {}
+    if answers_text:
+        answer_blocks = re.split(r'\n(?=\d+\.)', answers_text)
+        for block in answer_blocks:
+            block = block.strip()
+            am = re.match(r'(\d+)\.\s*Answer:\s*([A-E])', block)
+            if am:
+                num = int(am.group(1))
+                letter = am.group(2)
+                steps = ""
+                sm = re.search(r'Steps:\s*(.*?)(?=\n\d+\.|$)', block, re.DOTALL)
+                if sm:
+                    steps = sm.group(1).strip()
+                answers[num] = {"answer": letter, "steps": steps}
+
+    # Store in database, skipping duplicates
+    conn = get_db()
+    added = 0
+    skipped = 0
+    for p in problems:
+        ans_data = answers.get(p["num"], {})
+        correct_answer = ans_data.get("answer", "")
+        solution_steps = ans_data.get("steps", "")
+        if not correct_answer or not p["choices"]:
+            continue
+        existing = conn.execute(
+            "SELECT id FROM math_question WHERE child_id = ? AND LOWER(TRIM(question_text)) = LOWER(TRIM(?))",
+            (child_id, p["question_text"])
+        ).fetchone()
+        if existing:
+            skipped += 1
+            continue
+        conn.execute(
+            """INSERT INTO math_question (child_id, question_text, choices, correct_answer, solution_steps, concepts, grade_level, difficulty, source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (child_id, p["question_text"], json.dumps(p["choices"]), correct_answer,
+             solution_steps, json.dumps(p["concepts"]), grade_level, p["difficulty"], "AI generated")
+        )
+        added += 1
+    conn.commit()
+    conn.close()
+    return jsonify({"added": added, "skipped": skipped})
+
+
 # ── Science Study Sessions ──
 
 @app.route("/api/science-study-sessions", methods=["POST"])
