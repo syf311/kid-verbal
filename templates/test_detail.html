@@ -73,7 +73,7 @@
 {% endblock %}
 
 {% block content %}
-<a href="/" style="color: #667eea; text-decoration: none;">&larr; Back</a>
+<a href="{% if learning_plan_id %}/child/{{ child.id }}/learning-plan/{{ learning_plan_id }}{% else %}/{% endif %}" style="color: #667eea; text-decoration: none;">&larr; Back</a>
 <h1 style="margin-top: 10px;">Test Detail</h1>
 
 <div class="card" style="margin-bottom: 20px;">

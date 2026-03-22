@@ -237,7 +237,7 @@ function render(data) {
                 meta += ` &middot; ${d.correct_count}/${d.total_count} correct (${pct}%)`;
             }
             href = completed
-                ? `/child/${childId}/tests/${d.test_session_id || ''}`
+                ? `/child/${childId}/tests/${d.test_session_id || ''}?plan_id=${planId}`
                 : `/child/${childId}/test/${item.item_id}`;
         } else if (item.item_type === 'writing_test') {
             icon = '&#x270D;';

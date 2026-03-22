@@ -1376,11 +1376,13 @@ def test_detail(child_id, session_id):
             d["choices"] = []
         answers_list.append(d)
 
+    learning_plan_id = request.args.get("plan_id")
     return render_template(
         "test_detail.html",
         child=dict(child),
         test_session=dict(test_session),
-        answers=answers_list
+        answers=answers_list,
+        learning_plan_id=learning_plan_id
     )
 
 
