@@ -3082,8 +3082,36 @@ def get_child_reading_materials(child_id):
            ORDER BY rm.created_at DESC""",
         (child_id,)
     ).fetchall()
+    result = []
+    for m in materials:
+        if m["question_count"] == 0:
+            continue
+        d = dict(m)
+        assignments = conn.execute(
+            """SELECT ra.id, ra.completed_at
+               FROM reading_assignment ra
+               WHERE ra.material_id = ? AND ra.child_id = ? AND ra.status = 'completed'
+               ORDER BY ra.completed_at DESC""",
+            (m["id"], child_id)
+        ).fetchall()
+        d["times_tried"] = len(assignments)
+        d["last_tried_at"] = None
+        d["last_correct"] = None
+        d["last_total"] = None
+        if len(assignments) > 0:
+            d["last_tried_at"] = assignments[0]["completed_at"]
+            stats = conn.execute(
+                """SELECT COUNT(*) as total,
+                          SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) as correct
+                   FROM reading_assignment_answer
+                   WHERE assignment_id = ?""",
+                (assignments[0]["id"],)
+            ).fetchone()
+            d["last_total"] = stats["total"]
+            d["last_correct"] = stats["correct"] or 0
+        result.append(d)
     conn.close()
-    return jsonify([dict(m) for m in materials if m["question_count"] > 0])
+    return jsonify(result)
 
 @app.route("/parent/child/<int:child_id>/learning-plan/new")
 @parent_required

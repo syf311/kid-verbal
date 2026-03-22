@@ -84,7 +84,9 @@
 
 ## Recent Changes (latest commits)
 
-1. **Reading material attempt tracking** (task_004) — per-child attempt count, last tried date, correct ratio on materials page with filter buttons (New / Needs Review / Worth Refreshing)
+1. **Reading picker filters in learning plan** (task_005) — Reading assignment picker in manage/create plan replaced with scrollable card list showing attempt badges, scores, last tried date, and filter buttons (All / New / Needs Review / Worth Refreshing)
+2. **Fix vocab test detail back link** (bug_001) — Back link on vocab test review now navigates to learning plan page when accessed from a plan, falls back to dashboard otherwise
+2. **Reading material attempt tracking** (task_004) — per-child attempt count, last tried date, correct ratio on materials page with filter buttons (New / Needs Review / Worth Refreshing)
 2. **Writing auto-save with checkpoints** (task_003) — client-side auto-save (debounced + periodic), 5-minute checkpoint snapshots (last 2), revert UI, beforeunload warning, cleared on submit
 2. **Web reading view for RSS materials** (task_002) — server-side proxy serves sanitized website content in sandboxed iframe, all links disabled, questions panel open by default
 3. **AI question generation for reading materials** (task_001) — OpenAI integration, settings page, child grade levels, article import child assignment fix

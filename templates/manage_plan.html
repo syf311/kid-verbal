@@ -45,6 +45,43 @@
     .add-toggle { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
     .add-toggle .btn { padding: 8px 14px; font-size: 14px; }
     .word-list-scroll { max-height: 300px; overflow-y: auto; }
+    .material-list-scroll { max-height: 350px; overflow-y: auto; }
+    .material-select-item {
+        display: flex;
+        align-items: center;
+        padding: 10px 12px;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px;
+        margin-bottom: 6px;
+        cursor: pointer;
+        transition: all 0.2s;
+        user-select: none;
+        font-size: 14px;
+    }
+    .material-select-item:hover { border-color: #667eea; background: #f7fafc; }
+    .material-select-item.selected { border-color: #667eea; background: #ebf4ff; }
+    .attempt-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .attempt-badge.new { background: #bee3f8; color: #2b6cb0; }
+    .attempt-badge.tried { background: #c6f6d5; color: #276749; }
+    .attempt-badge.needs-review { background: #fed7d7; color: #c53030; }
+    .attempt-badge.refresh { background: #fefcbf; color: #975a16; }
+    .rm-filter-btn {
+        padding: 6px 14px;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px;
+        background: white;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+    .rm-filter-btn:hover { border-color: #667eea; }
+    .rm-filter-btn.active { background: #667eea; color: white; border-color: #667eea; }
     .select-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px; }
     .file-input-wrap {
         border: 2px dashed #cbd5e0;
@@ -166,10 +203,15 @@
 <div class="add-section" id="section-reading">
     <div class="section-card">
         <h3>Add Reading Assignment</h3>
-        <select id="material-select" style="width:100%; padding:10px; font-size:15px; border:1px solid #ccc; border-radius:8px; margin-bottom:10px;">
-            <option value="">Select a reading material...</option>
-        </select>
-        <button class="btn btn-success" onclick="addReadingAssignment()" id="add-ra-btn">Add Reading Assignment</button>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+            <button class="rm-filter-btn active" onclick="filterReadingMaterials('all')" id="rm-filter-all">All</button>
+            <button class="rm-filter-btn" onclick="filterReadingMaterials('new')" id="rm-filter-new">New</button>
+            <button class="rm-filter-btn" onclick="filterReadingMaterials('needs-review')" id="rm-filter-needs-review">Needs Review (&lt;80%)</button>
+            <button class="rm-filter-btn" onclick="filterReadingMaterials('refresh')" id="rm-filter-refresh">Worth Refreshing (&gt;1 month)</button>
+        </div>
+        <div class="material-list-scroll" id="material-checklist">Loading materials...</div>
+        <div id="rm-empty-msg" style="display:none; text-align:center; color:#999; padding:20px; font-size:14px;">No materials match this filter.</div>
+        <button class="btn btn-success" onclick="addReadingAssignment()" id="add-ra-btn" disabled style="margin-top: 10px;">Add Reading Assignment</button>
     </div>
 </div>
 
@@ -640,40 +682,109 @@ async function addStudySession() {
 
 // ── Reading assignment ──
 
-async function loadMaterials() {
-    const res = await fetch(`/api/children/${childId}/words`); // just to trigger; we need materials
-    // Actually fetch materials for this child
-    const mres = await fetch(`/materials?child_id=${childId}&format=json`).catch(() => null);
-    // Fallback: fetch all materials from the reading_material table directly
-    // The materials page doesn't have a JSON API, so let's use a simple approach
-    const select = document.getElementById('material-select');
-    if (select.options.length > 1) return; // already loaded
+let allMaterials = [];
+let selectedMaterialId = null;
 
-    // We'll query materials via a dedicated approach
+async function loadMaterials() {
+    const container = document.getElementById('material-checklist');
+    if (container.dataset.loaded === '1') return;
+
     try {
         const r = await fetch(`/api/children/${childId}/reading-materials`);
         if (r.ok) {
-            const materials = await r.json();
-            materials.forEach(m => {
-                const opt = document.createElement('option');
-                opt.value = m.id;
-                opt.textContent = `${m.title} (${m.question_count} questions)`;
-                select.appendChild(opt);
-            });
+            allMaterials = await r.json();
+            container.dataset.loaded = '1';
+            renderMaterialList(allMaterials);
         }
-    } catch(e) {}
+    } catch(e) {
+        container.innerHTML = '<div style="color:#999; padding:10px;">Failed to load materials.</div>';
+    }
+}
+
+function renderMaterialList(materials) {
+    const container = document.getElementById('material-checklist');
+    container.innerHTML = '';
+    selectedMaterialId = null;
+    document.getElementById('add-ra-btn').disabled = true;
+
+    if (materials.length === 0) {
+        document.getElementById('rm-empty-msg').style.display = 'block';
+        return;
+    }
+    document.getElementById('rm-empty-msg').style.display = 'none';
+
+    materials.forEach(m => {
+        const tried = m.times_tried || 0;
+        const lastTotal = m.last_total || 0;
+        const lastCorrect = m.last_correct || 0;
+        const ratio = lastTotal > 0 ? Math.round(lastCorrect * 100 / lastTotal) : 0;
+        const lastTried = m.last_tried_at || '';
+
+        let badge = '';
+        if (tried === 0) {
+            badge = '<span class="attempt-badge new">New</span>';
+        } else if (ratio < 80) {
+            badge = `<span class="attempt-badge needs-review">Tried ${tried}x &mdash; ${lastCorrect}/${lastTotal} (${ratio}%)</span>`;
+        } else {
+            badge = `<span class="attempt-badge tried">Tried ${tried}x &mdash; ${lastCorrect}/${lastTotal} (${ratio}%)</span>`;
+        }
+
+        let meta = `${m.question_count} questions`;
+        if (tried > 0 && lastTried) {
+            meta += ` &middot; Last tried: ${lastTried.substring(0, 10)}`;
+        }
+
+        const div = document.createElement('div');
+        div.className = 'material-select-item';
+        div.dataset.id = m.id;
+        div.innerHTML = `<div style="flex:1; min-width:0;">
+            <div style="font-weight:600;">${m.title} ${badge}</div>
+            <div style="font-size:12px; color:#999; margin-top:2px;">${meta}</div>
+        </div>`;
+        div.onclick = () => {
+            container.querySelectorAll('.material-select-item').forEach(el => el.classList.remove('selected'));
+            div.classList.add('selected');
+            selectedMaterialId = m.id;
+            document.getElementById('add-ra-btn').disabled = false;
+        };
+        container.appendChild(div);
+    });
+}
+
+function filterReadingMaterials(filter) {
+    document.querySelectorAll('.rm-filter-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('rm-filter-' + filter).classList.add('active');
+
+    const now = Date.now();
+    const ONE_MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+
+    const filtered = allMaterials.filter(m => {
+        const tried = m.times_tried || 0;
+        const lastTotal = m.last_total || 0;
+        const lastCorrect = m.last_correct || 0;
+        const ratio = lastTotal > 0 ? Math.round(lastCorrect * 100 / lastTotal) : 0;
+        const lastTriedMs = m.last_tried_at ? new Date(m.last_tried_at).getTime() : 0;
+
+        if (filter === 'new') return tried === 0;
+        if (filter === 'needs-review') return tried > 0 && ratio < 80;
+        if (filter === 'refresh') return tried > 0 && lastTriedMs > 0 && (now - lastTriedMs) > ONE_MONTH_MS;
+        return true;
+    });
+
+    renderMaterialList(filtered);
 }
 
 async function addReadingAssignment() {
-    const materialId = document.getElementById('material-select').value;
-    if (!materialId) { alert('Please select a reading material'); return; }
+    if (!selectedMaterialId) { alert('Please select a reading material'); return; }
     const res = await fetch(`/api/learning-plans/${planId}/items/reading-assignment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ material_id: parseInt(materialId) })
+        body: JSON.stringify({ material_id: selectedMaterialId })
     });
     if (res.ok) {
-        document.getElementById('material-select').value = '';
+        selectedMaterialId = null;
+        document.getElementById('material-checklist').querySelectorAll('.material-select-item').forEach(el => el.classList.remove('selected'));
+        document.getElementById('add-ra-btn').disabled = true;
         loadPlan();
     } else {
         const data = await res.json();
