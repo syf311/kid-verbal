@@ -322,10 +322,6 @@
         <label for="source-filter" style="white-space: nowrap;">Filter by source:</label>
         <select id="source-filter" style="padding: 8px 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 14px; flex: 1; max-width: 300px;">
             <option value="">All Sources</option>
-            <option value="Science News for Students">Science News for Students</option>
-            <option value="Time for Kids">Time for Kids</option>
-            <option value="Curious Kids">Curious Kids</option>
-            <option value="NYT Education">NYT Education</option>
         </select>
         <button class="btn btn-primary" style="padding: 8px 20px; font-size: 14px;" onclick="loadArticles()">Refresh</button>
     </div>
@@ -495,16 +491,33 @@ async function loadArticles() {
     const errorEl = document.getElementById('browse-error');
     const container = document.getElementById('browse-articles');
     const source = document.getElementById('source-filter').value;
+    const childFilter = document.getElementById('child-filter').value;
 
     loading.style.display = 'block';
     errorEl.style.display = 'none';
     container.innerHTML = '';
 
     try {
-        const params = source ? `?source=${encodeURIComponent(source)}` : '';
+        let params = '';
+        if (source) params += (params ? '&' : '?') + 'source=' + encodeURIComponent(source);
+        if (childFilter) params += (params ? '&' : '?') + 'child_id=' + childFilter;
         const res = await fetch(`/api/materials/browse${params}`);
         if (!res.ok) throw new Error('Failed to load articles');
-        const articles = await res.json();
+        const data = await res.json();
+        const articles = data.articles;
+        const feedNames = data.feed_names;
+
+        // Update source filter dropdown dynamically
+        const sourceSelect = document.getElementById('source-filter');
+        const currentSource = sourceSelect.value;
+        sourceSelect.innerHTML = '<option value="">All Sources</option>';
+        feedNames.forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            if (name === currentSource) opt.selected = true;
+            sourceSelect.appendChild(opt);
+        });
 
         loading.style.display = 'none';
 

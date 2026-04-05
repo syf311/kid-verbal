@@ -28,12 +28,30 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 # Store active sessions
 active_sessions = {}
 
-# RSS feed sources for browsing articles
+# Grade-level to approximate age mapping
+GRADE_TO_AGE = {
+    "k": 6, "1st": 7, "2nd": 8, "3rd": 9, "4th": 10,
+    "5th": 11, "6th": 12, "7th": 13, "8th": 14, "9th": 15,
+    "10th": 16, "11th": 17, "12th": 18,
+}
+
+# RSS feed sources for browsing articles (age-filtered per child)
 RSS_FEEDS = [
-    {"name": "Science News for Students", "url": "https://www.sciencenewsforstudents.org/feed", "category": "Science"},
-    {"name": "Time for Kids", "url": "https://www.timeforkids.com/feed/", "category": "News"},
-    {"name": "Curious Kids", "url": "https://theconversation.com/us/topics/curious-kids-us-74795/articles.atom", "category": "General"},
-    {"name": "NYT Education", "url": "https://rss.nytimes.com/services/xml/rss/nyt/Education.xml", "category": "News"},
+    # Younger readers (age 8-12)
+    {"name": "Science News Explores", "url": "https://www.snexplores.org/feed", "category": "Science", "age_min": 9, "age_max": 15},
+    {"name": "Time for Kids", "url": "https://www.timeforkids.com/feed/", "category": "News", "age_min": 8, "age_max": 11},
+    {"name": "Curious Kids", "url": "https://theconversation.com/us/topics/curious-kids-us-74795/articles.atom", "category": "Science", "age_min": 8, "age_max": 12},
+    {"name": "Mongabay Kids", "url": "https://kids.mongabay.com/feed/", "category": "Science", "age_min": 8, "age_max": 12},
+    {"name": "Cool Kid Facts", "url": "https://www.coolkidfacts.com/feed/", "category": "General", "age_min": 8, "age_max": 12},
+    # Older readers (age 12-18)
+    {"name": "NYT Education", "url": "https://rss.nytimes.com/services/xml/rss/nyt/Education.xml", "category": "News", "age_min": 12, "age_max": 18},
+    {"name": "Ars Technica", "url": "https://feeds.arstechnica.com/arstechnica/index", "category": "Technology", "age_min": 13, "age_max": 18},
+    {"name": "The Verge", "url": "https://www.theverge.com/rss/index.xml", "category": "Technology", "age_min": 13, "age_max": 18},
+    {"name": "IEEE Spectrum", "url": "https://spectrum.ieee.org/feeds/feed.rss", "category": "Engineering", "age_min": 13, "age_max": 18},
+    {"name": "ScienceDaily Health", "url": "https://www.sciencedaily.com/rss/health_medicine.xml", "category": "Health", "age_min": 12, "age_max": 18},
+    {"name": "Live Science", "url": "https://www.livescience.com/feeds/all", "category": "Science", "age_min": 12, "age_max": 18},
+    {"name": "Phys.org", "url": "https://phys.org/rss-feed/", "category": "Science", "age_min": 13, "age_max": 18},
+    {"name": "NPR Business", "url": "https://feeds.npr.org/1006/rss.xml", "category": "Business", "age_min": 13, "age_max": 18},
 ]
 
 # Cache for RSS feed results: {feed_url: {"articles": [...], "fetched_at": timestamp}}
@@ -1786,11 +1804,24 @@ def browse_articles():
     from bs4 import BeautifulSoup
 
     source_filter = request.args.get("source", "")
+    child_id = request.args.get("child_id", "")
     cache_ttl = 30 * 60  # 30 minutes
 
-    feeds_to_fetch = RSS_FEEDS
+    # Filter feeds by child's age if child_id is provided
+    available_feeds = RSS_FEEDS
+    if child_id:
+        conn = get_db()
+        child_row = conn.execute("SELECT grade_level FROM child WHERE id = ?", (child_id,)).fetchone()
+        conn.close()
+        if child_row and child_row["grade_level"]:
+            grade = child_row["grade_level"].lower().strip().replace(" grade", "")
+            child_age = GRADE_TO_AGE.get(grade)
+            if child_age:
+                available_feeds = [f for f in RSS_FEEDS if f["age_min"] <= child_age <= f["age_max"]]
+
+    feeds_to_fetch = available_feeds
     if source_filter:
-        feeds_to_fetch = [f for f in RSS_FEEDS if f["name"] == source_filter]
+        feeds_to_fetch = [f for f in available_feeds if f["name"] == source_filter]
 
     all_articles = []
     for feed_info in feeds_to_fetch:
@@ -1830,16 +1861,25 @@ def browse_articles():
         except Exception:
             continue
 
-    # Mark articles already imported by matching title
+    # Mark articles already imported — per-child if child_id provided, global otherwise
     conn = get_db()
-    existing_titles = set(
-        row[0] for row in conn.execute("SELECT title FROM reading_material").fetchall()
-    )
+    if child_id:
+        existing_titles = set(
+            row[0] for row in conn.execute(
+                "SELECT title FROM reading_material WHERE child_id = ?", (child_id,)
+            ).fetchall()
+        )
+    else:
+        existing_titles = set(
+            row[0] for row in conn.execute("SELECT title FROM reading_material").fetchall()
+        )
     conn.close()
     for article in all_articles:
         article["imported"] = article["title"] in existing_titles
 
-    return jsonify(all_articles)
+    # Return available feed names for the frontend source filter dropdown
+    feed_names = [f["name"] for f in available_feeds]
+    return jsonify({"articles": all_articles, "feed_names": feed_names})
 
 
 @app.route("/api/materials/import-article", methods=["POST"])
