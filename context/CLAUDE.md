@@ -1,0 +1,1 @@
+/Users/yfshao/kid-verbal/CLAUDE.md

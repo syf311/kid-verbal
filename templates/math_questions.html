@@ -53,6 +53,44 @@
         transform: translateY(10px); transition: opacity 0.3s, transform 0.3s; z-index: 1000;
     }
     .toast-notification.show { opacity: 1; transform: translateY(0); }
+
+    .modal-overlay {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.5); z-index: 900; display: none;
+        justify-content: center; align-items: flex-start; padding: 40px 16px;
+        overflow-y: auto;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+        background: #fff; border-radius: 12px; padding: 24px; width: 100%; max-width: 640px;
+        box-shadow: 0 8px 30px rgba(0,0,0,0.25); position: relative;
+    }
+    .modal-box h3 { margin-top: 0; margin-bottom: 16px; font-size: 18px; color: #333; }
+    .modal-close {
+        position: absolute; top: 12px; right: 16px; font-size: 22px; background: none;
+        border: none; cursor: pointer; color: #999; padding: 4px 8px;
+    }
+    .modal-close:hover { color: #333; }
+    .edit-radio-group { display: flex; gap: 12px; margin-bottom: 8px; }
+    .edit-radio-group label {
+        display: flex; align-items: center; gap: 4px; font-size: 14px; font-weight: 600;
+        cursor: pointer;
+    }
+    .edit-radio-group input[type="radio"] { cursor: pointer; }
+
+    .verify-results {
+        background: #fffbeb; border: 1px solid #f6e05e; border-radius: 10px;
+        padding: 16px; margin-bottom: 16px; display: none;
+    }
+    .verify-results.open { display: block; }
+    .verify-results h3 { margin-top: 0; font-size: 16px; color: #975a16; }
+    .verify-item {
+        background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+        padding: 12px; margin-bottom: 8px;
+    }
+    .verify-item-q { font-size: 14px; color: #333; font-weight: 600; margin-bottom: 4px; }
+    .verify-item-detail { font-size: 13px; color: #c53030; margin-bottom: 4px; }
+    .verify-item-suggested { font-size: 13px; color: #2b6cb0; margin-bottom: 6px; }
 </style>
 {% endblock %}
 
@@ -66,6 +104,7 @@
     <button class="btn btn-success" onclick="toggleSection('add')">+ Add Question</button>
     <button class="btn btn-primary" onclick="toggleSection('ai')">Generate by AI</button>
     <button class="btn btn-warning" onclick="toggleSection('paste')">Paste AI Response</button>
+    <button class="btn" style="background:#ed8936; color:#fff;" onclick="verifyAnswers()" id="verify-btn">Verify Answers</button>
 </div>
 
 <!-- Add Question section -->
@@ -210,6 +249,66 @@
     </div>
 </div>
 
+<!-- Edit Question Modal -->
+<div class="modal-overlay" id="edit-modal">
+    <div class="modal-box">
+        <button class="modal-close" onclick="closeEditModal()">&times;</button>
+        <h3>Edit Question</h3>
+        <input type="hidden" id="edit-q-id">
+        <div style="margin-bottom: 8px;">
+            <label style="font-weight: 600; font-size: 13px;">Question Text</label>
+            <textarea id="edit-q-text" rows="3" style="font-size: 14px;"></textarea>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+            <div><label style="font-size: 12px; font-weight: 600;">A.</label><input type="text" id="edit-choice-a"></div>
+            <div><label style="font-size: 12px; font-weight: 600;">B.</label><input type="text" id="edit-choice-b"></div>
+            <div><label style="font-size: 12px; font-weight: 600;">C.</label><input type="text" id="edit-choice-c"></div>
+            <div><label style="font-size: 12px; font-weight: 600;">D.</label><input type="text" id="edit-choice-d"></div>
+            <div><label style="font-size: 12px; font-weight: 600;">E.</label><input type="text" id="edit-choice-e"></div>
+        </div>
+        <div style="margin-bottom: 8px;">
+            <label style="font-size: 12px; font-weight: 600;">Correct Answer</label>
+            <div class="edit-radio-group">
+                <label><input type="radio" name="edit-correct" value="A"> A</label>
+                <label><input type="radio" name="edit-correct" value="B"> B</label>
+                <label><input type="radio" name="edit-correct" value="C"> C</label>
+                <label><input type="radio" name="edit-correct" value="D"> D</label>
+                <label><input type="radio" name="edit-correct" value="E"> E</label>
+            </div>
+        </div>
+        <div style="margin-bottom: 8px;">
+            <label style="font-size: 12px; font-weight: 600;">Solution Steps</label>
+            <textarea id="edit-steps" rows="4" style="font-size: 13px;"></textarea>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+            <div>
+                <label style="font-size: 12px; font-weight: 600;">Concepts (comma-separated)</label>
+                <input type="text" id="edit-concepts">
+            </div>
+            <div>
+                <label style="font-size: 12px; font-weight: 600;">Difficulty (1-5)</label>
+                <select id="edit-difficulty" style="width:100%; padding:6px; font-size:14px; border:1px solid #ccc; border-radius:6px;">
+                    <option value="1">1 (Easiest)</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5 (Hardest)</option>
+                </select>
+            </div>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <button class="btn btn-success" onclick="saveEditQuestion()">Save</button>
+            <button class="btn" style="background:#edf2f7; color:#4a5568;" onclick="closeEditModal()">Cancel</button>
+            <span id="edit-status" style="font-size: 13px;"></span>
+        </div>
+    </div>
+</div>
+
+<!-- Verify Results -->
+<div class="verify-results" id="verify-results">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 id="verify-title">Verification Results</h3>
+        <button class="modal-close" onclick="closeVerifyResults()" style="position:static; font-size:18px;">&times;</button>
+    </div>
+    <div id="verify-list"></div>
+</div>
+
 <!-- Filters -->
 <div style="margin-bottom: 10px;">
     <input type="text" id="search-input" placeholder="Search questions..." style="padding: 8px 12px; border: 2px solid #ddd; border-radius: 8px; width: 100%; max-width: 400px; box-sizing: border-box;" oninput="loadQuestions()">
@@ -342,6 +441,7 @@ function setDiffFilter(d) {
 function setMasteryFilter(m) { currentMastery = m; currentPage = 1; loadQuestions(); }
 
 function renderQuestions(questions) {
+    cacheQuestions(questions);
     const list = document.getElementById('question-list');
     if (questions.length === 0) {
         list.innerHTML = '<p style="color: #999;">No questions found. Add some or generate with AI!</p>';
@@ -429,24 +529,180 @@ async function addQuestion() {
     }
 }
 
-// ── Edit & Delete ──
+// ── Edit Modal ──
 
-async function editQuestion(id) {
-    const card = document.getElementById('q-' + id);
-    const newText = prompt('Edit question text:', card.querySelector('.q-text').textContent);
-    if (newText === null) return;
-    await fetch(`/api/math-questions/${id}`, {
+let allQuestionsCache = [];
+
+function cacheQuestions(questions) {
+    questions.forEach(q => {
+        const idx = allQuestionsCache.findIndex(c => c.id === q.id);
+        if (idx >= 0) allQuestionsCache[idx] = q;
+        else allQuestionsCache.push(q);
+    });
+}
+
+function openEditModal(questionData) {
+    document.getElementById('edit-q-id').value = questionData.id;
+    document.getElementById('edit-q-text').value = questionData.question_text || '';
+
+    const choices = questionData.choices || {};
+    for (const l of ['a','b','c','d','e']) {
+        document.getElementById('edit-choice-' + l).value = choices[l.toUpperCase()] || '';
+    }
+
+    const radios = document.querySelectorAll('input[name="edit-correct"]');
+    radios.forEach(r => { r.checked = r.value === questionData.correct_answer; });
+
+    document.getElementById('edit-steps').value = questionData.solution_steps || '';
+    const concepts = Array.isArray(questionData.concepts) ? questionData.concepts : [];
+    document.getElementById('edit-concepts').value = concepts.join(', ');
+    document.getElementById('edit-difficulty').value = questionData.difficulty || 3;
+    document.getElementById('edit-status').textContent = '';
+
+    document.getElementById('edit-modal').classList.add('open');
+}
+
+function closeEditModal() {
+    document.getElementById('edit-modal').classList.remove('open');
+}
+
+function editQuestion(id) {
+    const q = allQuestionsCache.find(c => c.id === id);
+    if (q) {
+        openEditModal(q);
+    } else {
+        fetch(`/api/children/${childId}/math-questions?search=&page=1&per_page=200`)
+            .then(r => r.json())
+            .then(data => {
+                cacheQuestions(data.questions || []);
+                const found = (data.questions || []).find(c => c.id === id);
+                if (found) openEditModal(found);
+                else alert('Question not found');
+            });
+    }
+}
+
+async function saveEditQuestion() {
+    const id = document.getElementById('edit-q-id').value;
+    const statusEl = document.getElementById('edit-status');
+    const qText = document.getElementById('edit-q-text').value.trim();
+    if (!qText) { statusEl.textContent = 'Question text is required'; statusEl.style.color = '#e53e3e'; return; }
+
+    const choices = {};
+    for (const l of ['a','b','c','d','e']) {
+        const v = document.getElementById('edit-choice-' + l).value.trim();
+        if (v) choices[l.toUpperCase()] = v;
+    }
+    if (Object.keys(choices).length < 2) { statusEl.textContent = 'At least 2 choices required'; statusEl.style.color = '#e53e3e'; return; }
+
+    const correctRadio = document.querySelector('input[name="edit-correct"]:checked');
+    if (!correctRadio) { statusEl.textContent = 'Select a correct answer'; statusEl.style.color = '#e53e3e'; return; }
+
+    const concepts = document.getElementById('edit-concepts').value.split(',').map(c => c.trim()).filter(c => c);
+
+    const res = await fetch(`/api/math-questions/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question_text: newText })
+        body: JSON.stringify({
+            question_text: qText,
+            choices,
+            correct_answer: correctRadio.value,
+            solution_steps: document.getElementById('edit-steps').value.trim(),
+            concepts,
+            difficulty: parseInt(document.getElementById('edit-difficulty').value)
+        })
     });
-    loadQuestions();
+
+    if (res.ok) {
+        closeEditModal();
+        showToast('Question updated!');
+        loadQuestions();
+    } else {
+        const data = await res.json();
+        statusEl.textContent = data.error || 'Save failed';
+        statusEl.style.color = '#e53e3e';
+    }
 }
+
+// Close modal on overlay click
+document.getElementById('edit-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeEditModal();
+});
 
 async function deleteQuestion(id) {
     if (!confirm('Delete this question?')) return;
     await fetch(`/api/math-questions/${id}`, { method: 'DELETE' });
     loadQuestions();
+}
+
+// ── Verify Answers ──
+
+let verifyFlagged = [];
+
+function fixFlagged(idx) {
+    if (idx >= 0 && idx < verifyFlagged.length) {
+        openEditModal(verifyFlagged[idx]);
+    }
+}
+
+async function verifyAnswers() {
+    const btn = document.getElementById('verify-btn');
+    btn.disabled = true;
+    btn.textContent = 'Verifying...';
+
+    try {
+        const res = await fetch(`/api/children/${childId}/math-questions/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question_ids: [] })
+        });
+
+        if (!res.ok) {
+            const data = await res.json();
+            alert(data.error || 'Verification failed');
+            return;
+        }
+
+        const data = await res.json();
+        const resultsEl = document.getElementById('verify-results');
+        const listEl = document.getElementById('verify-list');
+        const titleEl = document.getElementById('verify-title');
+
+        if (data.flagged.length === 0) {
+            titleEl.textContent = `All ${data.total_checked} questions verified -- no issues found!`;
+            titleEl.style.color = '#276749';
+            listEl.innerHTML = '';
+            resultsEl.style.borderColor = '#68d391';
+            resultsEl.style.background = '#f0fff4';
+        } else {
+            verifyFlagged = data.flagged;
+            titleEl.textContent = `${data.flagged.length} issue${data.flagged.length !== 1 ? 's' : ''} found (checked ${data.total_checked})`;
+            titleEl.style.color = '#975a16';
+            resultsEl.style.borderColor = '#f6e05e';
+            resultsEl.style.background = '#fffbeb';
+
+            listEl.innerHTML = data.flagged.map((f, idx) => {
+                const truncText = f.question_text.length > 120 ? f.question_text.substring(0, 120) + '...' : f.question_text;
+                const currentChoice = f.choices[f.correct_answer] || '';
+                return `<div class="verify-item">
+                    <div class="verify-item-q">${escHtml(truncText)}</div>
+                    <div class="verify-item-detail">Current answer: ${escHtml(f.correct_answer)}. ${escHtml(currentChoice)}</div>
+                    <div class="verify-item-detail">${escHtml(f.issue)}</div>
+                    ${f.suggested_answer ? `<div class="verify-item-suggested">Suggested: ${escHtml(f.suggested_answer)}</div>` : ''}
+                    <button class="btn btn-primary" style="padding:4px 12px; font-size:12px;" onclick="fixFlagged(${idx})">Fix</button>
+                </div>`;
+            }).join('');
+        }
+
+        resultsEl.classList.add('open');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Verify Answers';
+    }
+}
+
+function closeVerifyResults() {
+    document.getElementById('verify-results').classList.remove('open');
 }
 
 // ── AI Generation ──
