@@ -1,6 +1,6 @@
 # Current State
 
-*Last updated: 2026-03-22*
+*Last updated: 2026-04-04*
 
 ## What's Built and Working
 
@@ -90,7 +90,10 @@
 
 ## Recent Changes (latest commits)
 
-1. **Prevent copy/paste on math tests** (task_011) — Disable text selection, right-click, and Ctrl+C on math bank test page to deter cheating
+1. **Bulk fix for verified answers** (task_012) — Select multiple flagged questions with checkboxes, Select All toggle, "Bulk Fix Selected" applies AI-suggested answers in one click. Skips items with no valid suggestion.
+1. **Fix verify false positives** — Skip flagging questions where AI suggests the same answer that's already selected
+1. **Math question edit modal and batch verify** (task_012) — Full edit modal replacing prompt dialog (question text, choices A-E, correct answer radio, solution steps, concepts, difficulty). Batch verify button sends questions to OpenAI to flag answer inconsistencies with Fix buttons.
+2. **Prevent copy/paste on math tests** (task_011) — Disable text selection, right-click, and Ctrl+C on math bank test page to deter cheating
 2. **Math practice in learning plans** (task_010) — "+ Math Practice" button in learning plan management with concept/difficulty/mastery filters, plan completion detection
 3. **Math bank tests with auto-grading and progress tracking** (task_009) — Create tests from math question bank, child takes MC test with timer, auto-graded with solution steps in review, per-question mastery tracking, dashboard integration with Bank badge
 2. **Math question bank with AI generation** (task_008) — New math_question/math_question_progress tables, question bank page with search/filters (concept, difficulty 1-5, mastery), manual add, AI generate via OpenAI, copy prompt/paste response for ChatGPT, duplicate detection, difficulty control (mixed or focused)

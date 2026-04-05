@@ -38,12 +38,19 @@ You are the engineer on this project. You implement features and fix bugs define
 3. After implementation, restart the app: kill any running instance, then start `python3 app.py`
 4. Tell the QA agent you're done and what was changed so they can test
 5. If QA finds issues, fix them and notify QA again
-6. Once QA signs off, go ahead commit and push to remote github, then notify human
+6. Once QA signs off, wait for the user to confirm before committing
+
+## Before Committing & Pushing
+
+**Always update context BEFORE pushing to remote GitHub:**
+
+1. Mark the task file as `Done` (`## Status: Done`)
+2. Update `context/current_state.md` — add the change to Recent Changes
+3. Include the context file updates in the same commit
+4. Then push to remote
 
 ## What You Do NOT Do
 
-- Do not commit or push — wait for user instruction
-- Do not mark tasks as done — that happens after commit
-- Do not update `current_state.md` until after commit
+- Do not commit or push without updating context first
 - Do not add features beyond what the task spec requires
 - Do not add comments, docstrings, or type annotations to code you didn't change

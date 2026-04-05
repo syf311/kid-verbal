@@ -1,4 +1,4 @@
-## Status: Pending
+## Status: Done
 
 ## Objective
 
@@ -83,12 +83,35 @@ Output format:
 2. Add "Verify Answers" button to the toolbar
 3. Add verify results display with per-question "Fix" buttons
 
+### 3. Bulk Fix from Verify Results (NEW)
+
+When verify returns flagged questions, allow the parent to select multiple and apply the AI's suggested fix in one action.
+
+**UI:**
+- Each flagged question in the verify results gets a **checkbox**
+- A **"Select All"** checkbox at the top to toggle all
+- A **"Bulk Fix Selected"** button (disabled when none selected, shows count when some selected)
+- Clicking "Bulk Fix Selected" applies the suggested correct answer for each selected question via `PUT /api/math-questions/<id>`
+- After bulk fix completes, show a toast with how many were fixed (e.g., "Fixed 3 questions")
+- Refresh the question list and re-run verify (or close verify results)
+
+**Logic:**
+- Only apply fix if `suggested_answer` is a valid letter (A-E) and different from `correct_answer`
+- Skip items where `suggested_answer` is empty or "NONE"
+- Send PUT requests sequentially or in parallel for each selected question
+
 ## Acceptance Criteria
 
-1. Clicking "Edit" on a question opens a modal with all fields pre-populated
-2. Parent can change correct answer (A–E radio), choice text, solution steps, concepts, difficulty
-3. Save updates the question and refreshes the list
-4. "Verify Answers" button sends questions to AI for consistency checking
-5. Flagged questions are displayed with discrepancy details
-6. "Fix" button on flagged questions opens the edit modal for that question
-7. Works for both AI-generated and manually-added questions
+1. ~~Clicking "Edit" on a question opens a modal with all fields pre-populated~~ (done)
+2. ~~Parent can change correct answer (A–E radio), choice text, solution steps, concepts, difficulty~~ (done)
+3. ~~Save updates the question and refreshes the list~~ (done)
+4. ~~"Verify Answers" button sends questions to AI for consistency checking~~ (done)
+5. ~~Flagged questions are displayed with discrepancy details~~ (done)
+6. ~~"Fix" button on flagged questions opens the edit modal for that question~~ (done)
+7. ~~Works for both AI-generated and manually-added questions~~ (done)
+8. Each flagged question has a checkbox for selection
+9. "Select All" checkbox toggles all flagged question checkboxes
+10. "Bulk Fix Selected" button applies suggested_answer to all selected questions
+11. Bulk fix skips items with empty/NONE suggested_answer or where suggested matches current
+12. Toast shows count of fixed questions after bulk fix
+13. Question list refreshes after bulk fix

@@ -91,6 +91,21 @@
     .verify-item-q { font-size: 14px; color: #333; font-weight: 600; margin-bottom: 4px; }
     .verify-item-detail { font-size: 13px; color: #c53030; margin-bottom: 4px; }
     .verify-item-suggested { font-size: 13px; color: #2b6cb0; margin-bottom: 6px; }
+    .verify-toolbar {
+        display: flex; gap: 10px; align-items: center; margin-bottom: 10px;
+        padding: 8px 0; border-bottom: 1px solid #e2e8f0;
+    }
+    .verify-toolbar label { font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+    .verify-toolbar input[type="checkbox"] { cursor: pointer; width: 16px; height: 16px; }
+    .verify-item-check { display: flex; align-items: flex-start; gap: 10px; }
+    .verify-item-check input[type="checkbox"] { cursor: pointer; width: 16px; height: 16px; margin-top: 2px; flex-shrink: 0; }
+    .verify-item-content { flex: 1; }
+    .bulk-fix-btn {
+        padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: 8px;
+        border: none; cursor: pointer; background: #48bb78; color: #fff; transition: all 0.15s;
+    }
+    .bulk-fix-btn:disabled { background: #cbd5e0; color: #a0aec0; cursor: not-allowed; }
+    .bulk-fix-btn:not(:disabled):hover { background: #38a169; }
 </style>
 {% endblock %}
 
@@ -305,6 +320,10 @@
     <div style="display: flex; justify-content: space-between; align-items: center;">
         <h3 id="verify-title">Verification Results</h3>
         <button class="modal-close" onclick="closeVerifyResults()" style="position:static; font-size:18px;">&times;</button>
+    </div>
+    <div class="verify-toolbar" id="verify-toolbar" style="display:none;">
+        <label><input type="checkbox" id="verify-select-all" onchange="toggleSelectAll()"> Select All</label>
+        <button class="bulk-fix-btn" id="bulk-fix-btn" disabled onclick="bulkFixSelected()">Bulk Fix Selected</button>
     </div>
     <div id="verify-list"></div>
 </div>
@@ -668,10 +687,12 @@ async function verifyAnswers() {
         const listEl = document.getElementById('verify-list');
         const titleEl = document.getElementById('verify-title');
 
+        const toolbarEl = document.getElementById('verify-toolbar');
         if (data.flagged.length === 0) {
             titleEl.textContent = `All ${data.total_checked} questions verified -- no issues found!`;
             titleEl.style.color = '#276749';
             listEl.innerHTML = '';
+            toolbarEl.style.display = 'none';
             resultsEl.style.borderColor = '#68d391';
             resultsEl.style.background = '#f0fff4';
         } else {
@@ -681,15 +702,26 @@ async function verifyAnswers() {
             resultsEl.style.borderColor = '#f6e05e';
             resultsEl.style.background = '#fffbeb';
 
+            const hasBulkFixable = data.flagged.some(f => canBulkFix(f));
+            toolbarEl.style.display = hasBulkFixable ? 'flex' : 'none';
+            document.getElementById('verify-select-all').checked = false;
+            updateBulkFixBtn();
+
             listEl.innerHTML = data.flagged.map((f, idx) => {
                 const truncText = f.question_text.length > 120 ? f.question_text.substring(0, 120) + '...' : f.question_text;
                 const currentChoice = f.choices[f.correct_answer] || '';
+                const fixable = canBulkFix(f);
                 return `<div class="verify-item">
-                    <div class="verify-item-q">${escHtml(truncText)}</div>
-                    <div class="verify-item-detail">Current answer: ${escHtml(f.correct_answer)}. ${escHtml(currentChoice)}</div>
-                    <div class="verify-item-detail">${escHtml(f.issue)}</div>
-                    ${f.suggested_answer ? `<div class="verify-item-suggested">Suggested: ${escHtml(f.suggested_answer)}</div>` : ''}
-                    <button class="btn btn-primary" style="padding:4px 12px; font-size:12px;" onclick="fixFlagged(${idx})">Fix</button>
+                    <div class="verify-item-check">
+                        ${fixable ? `<input type="checkbox" class="verify-cb" data-idx="${idx}" onchange="updateBulkFixBtn()">` : ''}
+                        <div class="verify-item-content">
+                            <div class="verify-item-q">${escHtml(truncText)}</div>
+                            <div class="verify-item-detail">Current answer: ${escHtml(f.correct_answer)}. ${escHtml(currentChoice)}</div>
+                            <div class="verify-item-detail">${escHtml(f.issue)}</div>
+                            ${f.suggested_answer ? `<div class="verify-item-suggested">Suggested: ${escHtml(f.suggested_answer)}</div>` : ''}
+                            <button class="btn btn-primary" style="padding:4px 12px; font-size:12px;" onclick="fixFlagged(${idx})">Fix</button>
+                        </div>
+                    </div>
                 </div>`;
             }).join('');
         }
@@ -703,6 +735,70 @@ async function verifyAnswers() {
 
 function closeVerifyResults() {
     document.getElementById('verify-results').classList.remove('open');
+}
+
+function canBulkFix(f) {
+    const s = (f.suggested_answer || '').trim().toUpperCase();
+    if (!s || s === 'NONE') return false;
+    if (!['A','B','C','D','E'].includes(s)) return false;
+    if (s === (f.correct_answer || '').trim().toUpperCase()) return false;
+    return true;
+}
+
+function toggleSelectAll() {
+    const checked = document.getElementById('verify-select-all').checked;
+    document.querySelectorAll('.verify-cb').forEach(cb => { cb.checked = checked; });
+    updateBulkFixBtn();
+}
+
+function updateBulkFixBtn() {
+    const cbs = document.querySelectorAll('.verify-cb:checked');
+    const btn = document.getElementById('bulk-fix-btn');
+    btn.disabled = cbs.length === 0;
+    btn.textContent = cbs.length > 0 ? `Bulk Fix Selected (${cbs.length})` : 'Bulk Fix Selected';
+
+    const allCbs = document.querySelectorAll('.verify-cb');
+    const selectAll = document.getElementById('verify-select-all');
+    if (allCbs.length > 0) {
+        selectAll.checked = cbs.length === allCbs.length;
+    }
+}
+
+async function bulkFixSelected() {
+    const cbs = document.querySelectorAll('.verify-cb:checked');
+    if (cbs.length === 0) return;
+
+    const btn = document.getElementById('bulk-fix-btn');
+    btn.disabled = true;
+    btn.textContent = 'Fixing...';
+
+    let fixedCount = 0;
+    let errorCount = 0;
+
+    for (const cb of cbs) {
+        const idx = parseInt(cb.dataset.idx);
+        const f = verifyFlagged[idx];
+        if (!f || !canBulkFix(f)) continue;
+
+        try {
+            const res = await fetch(`/api/math-questions/${f.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ correct_answer: f.suggested_answer.trim().toUpperCase() })
+            });
+            if (res.ok) fixedCount++;
+            else errorCount++;
+        } catch (e) {
+            errorCount++;
+        }
+    }
+
+    let msg = `Fixed ${fixedCount} question${fixedCount !== 1 ? 's' : ''}`;
+    if (errorCount > 0) msg += `, ${errorCount} failed`;
+    showToast(msg);
+
+    closeVerifyResults();
+    loadQuestions();
 }
 
 // ── AI Generation ──

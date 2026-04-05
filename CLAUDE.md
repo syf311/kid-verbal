@@ -7,7 +7,10 @@ This directory provides context for AI assistants working on the kid-verbal proj
 1. Before working on each task or bug, read `goal.md`, `architecture_summary.md`, and `current_state.md` for essential context
 2. Do not implement until 0 ambiguity - if any ambiguity, stop for human guidance
 3. After implementation is done, restart the website and prompt for local testing
-4. After I ask to commit and push to remote git hub, mark task or bug done and refresh relevant context
+4. Before pushing to remote GitHub, ALWAYS update context first:
+   - Mark the task/bug file as `Done`
+   - Update `current_state.md` with the change in Recent Changes
+   - Include context updates in the same commit, then push
 
 ## Files
 
