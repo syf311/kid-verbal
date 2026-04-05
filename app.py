@@ -4517,7 +4517,9 @@ def verify_math_questions(child_id):
             if num < 0 or num >= len(batch):
                 continue
 
-            if "WRONG" not in entry.upper():
+            # Parse the Status line explicitly — don't just search for "WRONG" anywhere
+            status_match = re.search(r'Status:\s*(CORRECT|WRONG)', entry, re.IGNORECASE)
+            if not status_match or status_match.group(1).upper() == 'CORRECT':
                 correct_ids.append(batch[num]["id"])
                 continue
 
@@ -4658,7 +4660,9 @@ def verify_math_questions_batch(child_id):
         if num < 0 or num >= len(questions):
             continue
 
-        if "WRONG" not in entry.upper():
+        # Parse the Status line explicitly — don't just search for "WRONG" anywhere
+        status_match = re.search(r'Status:\s*(CORRECT|WRONG)', entry, re.IGNORECASE)
+        if not status_match or status_match.group(1).upper() == 'CORRECT':
             correct_ids.append(questions[num]["id"])
             continue
 

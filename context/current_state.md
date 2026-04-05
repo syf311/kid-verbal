@@ -90,6 +90,7 @@
 
 ## Recent Changes (latest commits)
 
+1. **Fix verify status parsing** — Parse `Status: CORRECT|WRONG` line explicitly instead of searching for "WRONG" anywhere in AI response text, reducing false positives
 1. **Real progress bar & single fix UX** (task_012) — Verify sends questions in batches of 5 with real progress bar (%). Single Fix from verify results removes question from flagged list after save. New verify-batch and unverified-ids endpoints.
 1. **Verified tracking & progress bar** (task_012) — Questions marked verified after AI confirms correct or after edit/bulk fix. Verify skips already-verified questions. Bulk fix stays on results panel, removes fixed items. Verified badge on question cards, unverified count on button.
 1. **Bulk fix for verified answers** (task_012) — Select multiple flagged questions with checkboxes, Select All toggle, "Bulk Fix Selected" applies AI-suggested answers in one click. Skips items with no valid suggestion.
