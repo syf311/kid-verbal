@@ -4525,6 +4525,12 @@ def verify_math_questions(child_id):
             issue_match = re.search(r'Issue:\s*(.+?)(?:\n|$)', entry, re.IGNORECASE)
             suggested_match = re.search(r'Suggested Answer:\s*(\S+)', entry, re.IGNORECASE)
 
+            # Skip false positive: suggested answer matches current answer
+            if suggested_match:
+                suggested = suggested_match.group(1).strip().rstrip('.').upper()
+                if suggested == q["correct_answer"].strip().upper():
+                    continue
+
             all_flagged.append({
                 "id": q["id"],
                 "question_text": q["question_text"],
