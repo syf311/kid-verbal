@@ -121,14 +121,9 @@
         width: 100%; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;
     }
     .verify-progress-bar-fill {
-        width: 30%; height: 100%; background: linear-gradient(90deg, #ed8936, #f6ad55, #ed8936);
-        background-size: 200% 100%;
+        width: 0%; height: 100%; background: #ed8936;
         border-radius: 4px;
-        animation: verifyProgressAnim 1.5s ease-in-out infinite;
-    }
-    @keyframes verifyProgressAnim {
-        0% { background-position: 200% 0; }
-        100% { background-position: -200% 0; }
+        transition: width 0.3s ease;
     }
     .verify-success {
         text-align: center; padding: 24px 16px;
@@ -627,9 +622,13 @@ function openEditModal(questionData) {
 
 function closeEditModal() {
     document.getElementById('edit-modal').classList.remove('open');
+    editingFromVerify = false;
+    editingVerifyIndex = -1;
 }
 
 function editQuestion(id) {
+    editingFromVerify = false;
+    editingVerifyIndex = -1;
     const q = allQuestionsCache.find(c => c.id === id);
     if (q) {
         openEditModal(q);
@@ -677,9 +676,26 @@ async function saveEditQuestion() {
     });
 
     if (res.ok) {
+        const wasFromVerify = editingFromVerify;
+        const verifyIdx = editingVerifyIndex;
         closeEditModal();
         showToast('Question updated!');
         loadQuestions();
+
+        if (wasFromVerify && verifyIdx >= 0 && verifyIdx < verifyFlagged.length) {
+            verifyFlagged.splice(verifyIdx, 1);
+            if (verifyFlagged.length === 0) {
+                showVerifySuccess();
+            } else {
+                updateVerifyTitle();
+                renderVerifyList();
+                const hasBulkFixable = verifyFlagged.some(f => canBulkFix(f));
+                const toolbarEl = document.getElementById('verify-toolbar');
+                toolbarEl.style.display = hasBulkFixable ? 'flex' : 'none';
+                document.getElementById('verify-select-all').checked = false;
+                updateBulkFixBtn();
+            }
+        }
     } else {
         const data = await res.json();
         statusEl.textContent = data.error || 'Save failed';
@@ -702,9 +718,13 @@ async function deleteQuestion(id) {
 
 let verifyFlagged = [];
 let verifyTotalChecked = 0;
+let editingFromVerify = false;
+let editingVerifyIndex = -1;
 
 function fixFlagged(idx) {
     if (idx >= 0 && idx < verifyFlagged.length) {
+        editingFromVerify = true;
+        editingVerifyIndex = idx;
         openEditModal(verifyFlagged[idx]);
     }
 }
@@ -756,6 +776,7 @@ async function verifyAnswers() {
     const resultsEl = document.getElementById('verify-results');
     const progressEl = document.getElementById('verify-progress');
     const progressTextEl = document.getElementById('verify-progress-text');
+    const progressFill = document.querySelector('.verify-progress-bar-fill');
     const listEl = document.getElementById('verify-list');
     const titleEl = document.getElementById('verify-title');
     const toolbarEl = document.getElementById('verify-toolbar');
@@ -763,7 +784,6 @@ async function verifyAnswers() {
     btn.disabled = true;
     btn.textContent = 'Verifying...';
 
-    // Show verify panel with progress bar
     titleEl.textContent = 'Verification in Progress';
     titleEl.style.color = '#975a16';
     resultsEl.style.borderColor = '#f6e05e';
@@ -772,64 +792,111 @@ async function verifyAnswers() {
     toolbarEl.style.display = 'none';
     resultsEl.classList.add('open');
 
-    // Count questions to show in progress text
-    const countUrl = `/api/children/${childId}/math-questions?page=1&per_page=1`;
-    let qCount = '...';
-    try {
-        const countRes = await fetch(countUrl);
-        if (countRes.ok) {
-            const countData = await countRes.json();
-            qCount = countData.total || '...';
-        }
-    } catch(e) {}
-    progressTextEl.textContent = `Verifying ${qCount} questions...`;
+    progressFill.style.width = '0%';
+    progressTextEl.textContent = 'Fetching unverified questions...';
     progressEl.classList.add('open');
 
+    let allIds = [];
     try {
-        const res = await fetch(`/api/children/${childId}/math-questions/verify`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ question_ids: [] })
-        });
-
-        progressEl.classList.remove('open');
-
-        if (!res.ok) {
-            const data = await res.json();
-            alert(data.error || 'Verification failed');
+        const idsRes = await fetch(`/api/children/${childId}/math-questions/unverified-ids`);
+        if (!idsRes.ok) {
+            const errData = await idsRes.json();
+            alert(errData.error || 'Failed to fetch unverified questions');
+            progressEl.classList.remove('open');
             resultsEl.classList.remove('open');
+            btn.disabled = false;
+            btn.textContent = 'Verify Answers';
             return;
         }
-
-        const data = await res.json();
-        verifyTotalChecked = data.total_checked;
-
-        if (data.flagged.length === 0) {
-            titleEl.textContent = `All ${data.total_checked} questions verified -- no issues found!`;
-            titleEl.style.color = '#276749';
-            listEl.innerHTML = '';
-            toolbarEl.style.display = 'none';
-            resultsEl.style.borderColor = '#68d391';
-            resultsEl.style.background = '#f0fff4';
-        } else {
-            verifyFlagged = data.flagged;
-            titleEl.textContent = `${data.flagged.length} issue${data.flagged.length !== 1 ? 's' : ''} found (checked ${data.total_checked})`;
-            titleEl.style.color = '#975a16';
-            resultsEl.style.borderColor = '#f6e05e';
-            resultsEl.style.background = '#fffbeb';
-
-            const hasBulkFixable = data.flagged.some(f => canBulkFix(f));
-            toolbarEl.style.display = hasBulkFixable ? 'flex' : 'none';
-            document.getElementById('verify-select-all').checked = false;
-            updateBulkFixBtn();
-
-            renderVerifyList();
-        }
-    } finally {
+        const idsData = await idsRes.json();
+        allIds = idsData.ids || [];
+    } catch (e) {
+        alert('Failed to fetch unverified questions');
         progressEl.classList.remove('open');
+        resultsEl.classList.remove('open');
+        btn.disabled = false;
+        btn.textContent = 'Verify Answers';
+        return;
+    }
+
+    if (allIds.length === 0) {
+        progressEl.classList.remove('open');
+        titleEl.textContent = 'All questions already verified -- no issues found!';
+        titleEl.style.color = '#276749';
+        resultsEl.style.borderColor = '#68d391';
+        resultsEl.style.background = '#f0fff4';
         btn.disabled = false;
         loadQuestions();
+        return;
     }
+
+    const totalCount = allIds.length;
+    const BATCH_SIZE = 5;
+    const batches = [];
+    for (let i = 0; i < allIds.length; i += BATCH_SIZE) {
+        batches.push(allIds.slice(i, i + BATCH_SIZE));
+    }
+
+    let verified = 0;
+    verifyFlagged = [];
+    verifyTotalChecked = 0;
+
+    progressTextEl.textContent = `Verified 0/${totalCount}...`;
+    progressFill.style.width = '0%';
+
+    for (const batch of batches) {
+        try {
+            const res = await fetch(`/api/children/${childId}/math-questions/verify-batch`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question_ids: batch })
+            });
+
+            if (!res.ok) {
+                const errData = await res.json();
+                alert(errData.error || 'Verification failed');
+                break;
+            }
+
+            const data = await res.json();
+            verifyTotalChecked += data.total_checked;
+            verifyFlagged = verifyFlagged.concat(data.flagged);
+        } catch (e) {
+            alert('Verification failed: ' + e.message);
+            break;
+        }
+
+        verified += batch.length;
+        const pct = Math.round((verified / totalCount) * 100);
+        progressFill.style.width = pct + '%';
+        progressTextEl.textContent = `Verified ${verified}/${totalCount}...`;
+    }
+
+    progressEl.classList.remove('open');
+
+    if (verifyFlagged.length === 0) {
+        titleEl.textContent = `All ${verifyTotalChecked} questions verified -- no issues found!`;
+        titleEl.style.color = '#276749';
+        listEl.innerHTML = '';
+        toolbarEl.style.display = 'none';
+        resultsEl.style.borderColor = '#68d391';
+        resultsEl.style.background = '#f0fff4';
+    } else {
+        titleEl.textContent = `${verifyFlagged.length} issue${verifyFlagged.length !== 1 ? 's' : ''} found (checked ${verifyTotalChecked})`;
+        titleEl.style.color = '#975a16';
+        resultsEl.style.borderColor = '#f6e05e';
+        resultsEl.style.background = '#fffbeb';
+
+        const hasBulkFixable = verifyFlagged.some(f => canBulkFix(f));
+        toolbarEl.style.display = hasBulkFixable ? 'flex' : 'none';
+        document.getElementById('verify-select-all').checked = false;
+        updateBulkFixBtn();
+
+        renderVerifyList();
+    }
+
+    btn.disabled = false;
+    loadQuestions();
 }
 
 function closeVerifyResults() {

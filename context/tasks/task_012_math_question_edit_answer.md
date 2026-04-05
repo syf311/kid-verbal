@@ -119,10 +119,15 @@ When verify returns flagged questions, allow the parent to select multiple and a
 15. ~~After bulk fix, stay on verify results panel — remove fixed questions from the list~~ (done)
 16. ~~Update the verify results title count after removing fixed items~~ (done)
 17. ~~If all flagged items are fixed, show success message~~ (done)
-18. Add `verified` column (integer, default 0) to `math_question` table via ALTER TABLE migration in `database.py`
-19. After AI verify confirms a question is CORRECT, mark it as `verified=1` in the database
-20. After bulk fix applies a suggested answer, mark the fixed question as `verified=1`
-21. After manual edit via the edit modal saves successfully, mark the question as `verified=1`
-22. The verify endpoint should skip questions where `verified=1` — only verify unverified questions
-23. Show verified status on question cards (e.g., a small checkmark or "Verified" badge)
-24. "Verify Answers" button label should indicate how many unverified remain (e.g., "Verify Answers (12 unverified)")
+18. ~~Add `verified` column to `math_question` table~~ (done)
+19. ~~AI verify marks CORRECT questions as verified=1~~ (done)
+20. ~~Bulk fix marks fixed questions as verified=1~~ (done)
+21. ~~Manual edit marks question as verified=1~~ (done)
+22. ~~Verify endpoint skips verified questions~~ (done)
+23. ~~Show verified badge on question cards~~ (done)
+24. ~~Verify button shows unverified count~~ (done)
+25. Real progress bar: send questions to AI in small batches from frontend (e.g., 5 per call), update progress bar after each batch returns (show "Verified 5/20..." with actual progress %)
+26. New backend endpoint `POST /api/children/<child_id>/math-questions/verify-batch` that accepts a small list of question IDs and returns results for just those questions (reuse existing AI prompt logic)
+27. Frontend orchestrates: split unverified questions into batches, call verify-batch sequentially, accumulate flagged results, update progress bar after each batch
+28. Single Fix button: after saving via the edit modal from the verify results, remove that question from the flagged list and mark verified (same behavior as bulk fix but for one question)
+29. Update verify title count and show success message if all resolved after single fix

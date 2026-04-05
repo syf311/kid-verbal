@@ -4569,6 +4569,146 @@ def verify_math_questions(child_id):
     return jsonify({"flagged": all_flagged, "total_checked": len(questions)})
 
 
+@app.route("/api/children/<int:child_id>/math-questions/unverified-ids", methods=["GET"])
+@parent_required
+def get_unverified_math_question_ids(child_id):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id FROM math_question WHERE child_id = ? AND verified = 0",
+        (child_id,)
+    ).fetchall()
+    conn.close()
+    return jsonify({"ids": [r["id"] for r in rows]})
+
+
+@app.route("/api/children/<int:child_id>/math-questions/verify-batch", methods=["POST"])
+@parent_required
+def verify_math_questions_batch(child_id):
+    api_key = get_config("openai_api_key")
+    if not api_key:
+        return jsonify({"error": "OpenAI API key not configured. Go to Settings to add it."}), 400
+
+    data = request.json
+    question_ids = data.get("question_ids", [])
+    if not question_ids:
+        return jsonify({"flagged": [], "total_checked": 0})
+
+    conn = get_db()
+    placeholders = ",".join("?" for _ in question_ids)
+    questions = conn.execute(
+        f"SELECT * FROM math_question WHERE child_id = ? AND verified = 0 AND id IN ({placeholders})",
+        [child_id] + question_ids
+    ).fetchall()
+
+    if not questions:
+        conn.close()
+        return jsonify({"flagged": [], "total_checked": 0})
+
+    all_flagged = []
+    correct_ids = []
+
+    prompt_lines = [
+        "For each math problem below, verify if the marked correct answer is actually correct.",
+        "Check the solution steps and the choices. Report any discrepancies.",
+        ""
+    ]
+    for idx, q in enumerate(questions):
+        choices = {}
+        try:
+            choices = json.loads(q["choices"]) if q["choices"] else {}
+        except (json.JSONDecodeError, TypeError):
+            pass
+        choices_str = " ".join(f'{k}. {v}' for k, v in sorted(choices.items()))
+        prompt_lines.append(f"Question {idx + 1}: {q['question_text']}")
+        prompt_lines.append(f"Choices: {choices_str}")
+        prompt_lines.append(f"Marked Answer: {q['correct_answer']}")
+        prompt_lines.append(f"Solution: {q['solution_steps'] or 'N/A'}")
+        prompt_lines.append("")
+
+    prompt_lines.append("Output format (one entry per question, no extra text):")
+    prompt_lines.append("1. Status: CORRECT | WRONG")
+    prompt_lines.append("   Issue: [if wrong, explain what the correct answer should be]")
+    prompt_lines.append("   Suggested Answer: [letter or NONE if no choice matches]")
+
+    prompt = "\n".join(prompt_lines)
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=4000,
+        )
+        result_text = response.choices[0].message.content.strip()
+    except Exception as e:
+        conn.close()
+        return jsonify({"error": f"AI verification failed: {str(e)}"}), 500
+
+    entries = re.split(r'\n(?=\d+\.)', result_text)
+    for entry in entries:
+        entry = entry.strip()
+        if not entry:
+            continue
+        num_match = re.match(r'^(\d+)\.', entry)
+        if not num_match:
+            continue
+        num = int(num_match.group(1)) - 1
+        if num < 0 or num >= len(questions):
+            continue
+
+        if "WRONG" not in entry.upper():
+            correct_ids.append(questions[num]["id"])
+            continue
+
+        q = questions[num]
+        choices = {}
+        try:
+            choices = json.loads(q["choices"]) if q["choices"] else {}
+        except (json.JSONDecodeError, TypeError):
+            pass
+        concepts = []
+        try:
+            concepts = json.loads(q["concepts"]) if q["concepts"] else []
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        issue_match = re.search(r'Issue:\s*(.+?)(?:\n|$)', entry, re.IGNORECASE)
+        suggested_match = re.search(r'Suggested Answer:\s*(\S+)', entry, re.IGNORECASE)
+
+        if suggested_match:
+            suggested = suggested_match.group(1).strip().rstrip('.').upper()
+            if suggested == q["correct_answer"].strip().upper():
+                correct_ids.append(q["id"])
+                continue
+
+        all_flagged.append({
+            "id": q["id"],
+            "question_text": q["question_text"],
+            "choices": choices,
+            "correct_answer": q["correct_answer"],
+            "solution_steps": q["solution_steps"],
+            "concepts": concepts,
+            "difficulty": q["difficulty"],
+            "grade_level": q["grade_level"],
+            "source": q["source"],
+            "issue": issue_match.group(1).strip() if issue_match else "Answer may be incorrect",
+            "suggested_answer": suggested_match.group(1).strip() if suggested_match else ""
+        })
+
+    if correct_ids:
+        placeholders = ",".join("?" for _ in correct_ids)
+        conn.execute(
+            f"UPDATE math_question SET verified = 1 WHERE id IN ({placeholders})",
+            correct_ids
+        )
+        conn.commit()
+    conn.close()
+
+    return jsonify({"flagged": all_flagged, "total_checked": len(questions)})
+
+
 @app.route("/api/children/<int:child_id>/math-questions/import-ai", methods=["POST"])
 @parent_required
 def import_math_questions_ai(child_id):

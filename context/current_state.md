@@ -90,7 +90,8 @@
 
 ## Recent Changes (latest commits)
 
-1. **Verified tracking & progress bar** (task_012) — Questions marked verified after AI confirms correct or after edit/bulk fix. Verify skips already-verified questions. Progress bar during verification. Bulk fix stays on results panel, removes fixed items. Verified badge on question cards, unverified count on button.
+1. **Real progress bar & single fix UX** (task_012) — Verify sends questions in batches of 5 with real progress bar (%). Single Fix from verify results removes question from flagged list after save. New verify-batch and unverified-ids endpoints.
+1. **Verified tracking & progress bar** (task_012) — Questions marked verified after AI confirms correct or after edit/bulk fix. Verify skips already-verified questions. Bulk fix stays on results panel, removes fixed items. Verified badge on question cards, unverified count on button.
 1. **Bulk fix for verified answers** (task_012) — Select multiple flagged questions with checkboxes, Select All toggle, "Bulk Fix Selected" applies AI-suggested answers in one click. Skips items with no valid suggestion.
 1. **Fix verify false positives** — Skip flagging questions where AI suggests the same answer that's already selected
 1. **Math question edit modal and batch verify** (task_012) — Full edit modal replacing prompt dialog (question text, choices A-E, correct answer radio, solution steps, concepts, difficulty). Batch verify button sends questions to OpenAI to flag answer inconsistencies with Fix buttons.
