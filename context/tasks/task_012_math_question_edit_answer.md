@@ -109,9 +109,20 @@ When verify returns flagged questions, allow the parent to select multiple and a
 5. ~~Flagged questions are displayed with discrepancy details~~ (done)
 6. ~~"Fix" button on flagged questions opens the edit modal for that question~~ (done)
 7. ~~Works for both AI-generated and manually-added questions~~ (done)
-8. Each flagged question has a checkbox for selection
-9. "Select All" checkbox toggles all flagged question checkboxes
-10. "Bulk Fix Selected" button applies suggested_answer to all selected questions
-11. Bulk fix skips items with empty/NONE suggested_answer or where suggested matches current
-12. Toast shows count of fixed questions after bulk fix
-13. Question list refreshes after bulk fix
+8. ~~Each flagged question has a checkbox for selection~~ (done)
+9. ~~"Select All" checkbox toggles all flagged question checkboxes~~ (done)
+10. ~~"Bulk Fix Selected" button applies suggested_answer to all selected questions~~ (done)
+11. ~~Bulk fix skips items with empty/NONE suggested_answer or where suggested matches current~~ (done)
+12. ~~Toast shows count of fixed questions after bulk fix~~ (done)
+13. ~~Question list refreshes after bulk fix~~ (done)
+14. ~~Progress bar shown during verification~~ (done)
+15. ~~After bulk fix, stay on verify results panel — remove fixed questions from the list~~ (done)
+16. ~~Update the verify results title count after removing fixed items~~ (done)
+17. ~~If all flagged items are fixed, show success message~~ (done)
+18. Add `verified` column (integer, default 0) to `math_question` table via ALTER TABLE migration in `database.py`
+19. After AI verify confirms a question is CORRECT, mark it as `verified=1` in the database
+20. After bulk fix applies a suggested answer, mark the fixed question as `verified=1`
+21. After manual edit via the edit modal saves successfully, mark the question as `verified=1`
+22. The verify endpoint should skip questions where `verified=1` — only verify unverified questions
+23. Show verified status on question cards (e.g., a small checkmark or "Verified" badge)
+24. "Verify Answers" button label should indicate how many unverified remain (e.g., "Verify Answers (12 unverified)")

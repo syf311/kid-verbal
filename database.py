@@ -591,6 +591,13 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # Migration: Add verified to math_question
+    try:
+        conn.execute("ALTER TABLE math_question ADD COLUMN verified INTEGER DEFAULT 0")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
     conn.close()
 
 

@@ -4240,6 +4240,11 @@ def list_math_questions(child_id):
                 all_concepts.add(c)
         except (json.JSONDecodeError, TypeError):
             pass
+
+    unverified_count = conn.execute(
+        "SELECT COUNT(*) FROM math_question WHERE child_id = ? AND verified = 0",
+        (child_id,)
+    ).fetchone()[0]
     conn.close()
 
     cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
@@ -4301,7 +4306,8 @@ def list_math_questions(child_id):
         "per_page": per_page,
         "total_pages": total_pages,
         "concepts": sorted(all_concepts),
-        "status_counts": status_counts
+        "status_counts": status_counts,
+        "unverified_count": unverified_count
     })
 
 
@@ -4339,7 +4345,8 @@ def update_math_question(question_id):
         return jsonify({"error": "Not found"}), 404
     conn.execute(
         """UPDATE math_question SET question_text = ?, choices = ?, correct_answer = ?,
-           solution_steps = ?, concepts = ?, grade_level = ?, difficulty = ?, source = ?
+           solution_steps = ?, concepts = ?, grade_level = ?, difficulty = ?, source = ?,
+           verified = 1
            WHERE id = ?""",
         (data.get("question_text", q["question_text"]),
          json.dumps(data.get("choices", json.loads(q["choices"]))),
@@ -4442,20 +4449,21 @@ def verify_math_questions(child_id):
     if question_ids:
         placeholders = ",".join("?" for _ in question_ids)
         questions = conn.execute(
-            f"SELECT * FROM math_question WHERE child_id = ? AND id IN ({placeholders})",
+            f"SELECT * FROM math_question WHERE child_id = ? AND verified = 0 AND id IN ({placeholders})",
             [child_id] + question_ids
         ).fetchall()
     else:
         questions = conn.execute(
-            "SELECT * FROM math_question WHERE child_id = ?", (child_id,)
+            "SELECT * FROM math_question WHERE child_id = ? AND verified = 0", (child_id,)
         ).fetchall()
-    conn.close()
 
     if not questions:
+        conn.close()
         return jsonify({"flagged": [], "total_checked": 0})
 
     batch_size = 20
     all_flagged = []
+    correct_ids = []
     for i in range(0, len(questions), batch_size):
         batch = questions[i:i + batch_size]
         prompt_lines = [
@@ -4494,6 +4502,7 @@ def verify_math_questions(child_id):
             )
             result_text = response.choices[0].message.content.strip()
         except Exception as e:
+            conn.close()
             return jsonify({"error": f"AI verification failed: {str(e)}"}), 500
 
         entries = re.split(r'\n(?=\d+\.)', result_text)
@@ -4507,7 +4516,9 @@ def verify_math_questions(child_id):
             num = int(num_match.group(1)) - 1
             if num < 0 or num >= len(batch):
                 continue
+
             if "WRONG" not in entry.upper():
+                correct_ids.append(batch[num]["id"])
                 continue
 
             q = batch[num]
@@ -4529,6 +4540,7 @@ def verify_math_questions(child_id):
             if suggested_match:
                 suggested = suggested_match.group(1).strip().rstrip('.').upper()
                 if suggested == q["correct_answer"].strip().upper():
+                    correct_ids.append(q["id"])
                     continue
 
             all_flagged.append({
@@ -4544,6 +4556,15 @@ def verify_math_questions(child_id):
                 "issue": issue_match.group(1).strip() if issue_match else "Answer may be incorrect",
                 "suggested_answer": suggested_match.group(1).strip() if suggested_match else ""
             })
+
+    if correct_ids:
+        placeholders = ",".join("?" for _ in correct_ids)
+        conn.execute(
+            f"UPDATE math_question SET verified = 1 WHERE id IN ({placeholders})",
+            correct_ids
+        )
+        conn.commit()
+    conn.close()
 
     return jsonify({"flagged": all_flagged, "total_checked": len(questions)})
 
