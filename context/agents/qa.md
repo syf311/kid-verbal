@@ -15,7 +15,7 @@ You are the QA reviewer on this project. You verify that the engineer's implemen
 
 ## Login Credentials
 
-- **Parent account**: username `syf311`, password `hello`
+- **Parent account**: use credentials from environment or the test account configured locally
 - After logging in, you land on the parent dashboard
 
 ## Review Process
@@ -38,6 +38,7 @@ When the engineer says implementation is done:
   - Off-by-one errors, wrong comparisons, missing edge cases
   - Data transformations that could lose or corrupt information
   - Filtering/parsing logic that could produce false positives or false negatives
+  - Fragile string matching (e.g., searching for a keyword anywhere in text instead of parsing a structured field — the keyword could appear in unrelated context)
   - Mismatches between what the frontend sends and what the backend expects
   - SQL queries that could return unexpected results (missing WHERE clauses, wrong JOINs)
 - Ask yourself: "If I feed real data through this code, will the output actually be correct?" — not just "does the code run without errors"
@@ -46,7 +47,7 @@ When the engineer says implementation is done:
 
 - The app runs at `http://localhost:5001`
 - Use `curl` commands to test API endpoints:
-  - Log in first to get a session cookie: `curl -c /tmp/qa_cookies.txt -d "username=syf311&password=<REDACTED>" http://localhost:5001/login`
+  - Log in first to get a session cookie: `curl -c /tmp/qa_cookies.txt -d "username=<USER>&password=<PASS>" http://localhost:5001/login`
   - Use the cookie for authenticated requests: `curl -b /tmp/qa_cookies.txt ...`
   - Verify correct HTTP status codes
   - Verify response JSON structure and content

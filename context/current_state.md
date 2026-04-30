@@ -86,7 +86,7 @@
 - Migrations are try/except ALTER TABLE blocks that accumulate over time
 - `database.py` `init_db()` is getting long with migrations
 - No error logging framework
-- Secret key is hardcoded (`REDACTED-SECRET`)
+- Secret key now uses `SECRET_KEY` env var (falls back to random key per restart)
 
 ## Recent Changes (latest commits)
 

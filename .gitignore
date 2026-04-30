@@ -2,3 +2,11 @@ verbal.db
 uploads/
 __pycache__/
 *.pyc
+.DS_Store
+.obsidian/
+.claude/
+.playwright-mcp/
+node_modules/
+*.pdf
+*.png
+.env

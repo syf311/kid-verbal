@@ -22,7 +22,7 @@ UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "REDACTED-SECRET"
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", os.urandom(24).hex())
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # Store active sessions

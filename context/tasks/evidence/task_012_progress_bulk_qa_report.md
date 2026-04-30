@@ -74,7 +74,7 @@ titleEl.textContent = `${count} issue${count !== 1 ? 's' : ''} remaining (checke
 
 ### Login
 ```
-curl -c /tmp/qa_cookies.txt -d "username=syf311&password=<REDACTED>" -L http://localhost:5001/login
+curl -c /tmp/qa_cookies.txt -d "username=<USER>&password=<PASS>" -L http://localhost:5001/login
 → HTTP 200 (success)
 ```
 

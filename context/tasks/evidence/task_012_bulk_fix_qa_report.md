@@ -41,7 +41,7 @@ All changes are confined to `templates/math_questions.html` — no backend chang
 
 ### Login
 ```
-curl -s -c /tmp/qa_cookies.txt -d "username=syf311&password=<REDACTED>" -L http://localhost:5001/login
+curl -s -c /tmp/qa_cookies.txt -d "username=<USER>&password=<PASS>" -L http://localhost:5001/login
 ```
 **Result:** HTTP 200 — PASS
 
