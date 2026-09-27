@@ -86,7 +86,7 @@ function render() {
             passageHtml = qbPassageHtml(data.passages[String(q.passage_id)]);
             lastPassage = q.passage_id;
         }
-        const hasSvg = q.options.some(o => o.svg);
+        const hasSvg = q.options.some(qbHasSvg);
         const opts = q.options.map((o, oi) => {
             let cls = '';
             if (String(oi) === q.correct_answer) cls = 'correct';
@@ -101,7 +101,7 @@ function render() {
             <div class="r-head"><span>Question ${i + 1}</span>${status}</div>
             ${qbStemHtml(q)}
             <div class="opts ${hasSvg ? 'has-svg' : ''}">${opts}</div>
-            ${q.explanation ? `<div class="explain"><strong>Why:</strong> ${qbEsc(q.explanation)}</div>` : ''}
+            ${q.explanation ? `<div class="explain"><strong>Why:</strong> ${qbRich(q.explanation)}</div>` : ''}
         </div>`;
     }).join('');
     document.getElementById('list').innerHTML = html || '<p style="color:#999; text-align:center;">Nothing here.</p>';

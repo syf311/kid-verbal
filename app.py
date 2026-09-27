@@ -6333,7 +6333,7 @@ def qb_list_questions():
     if passage_ids:
         for p in conn.execute(f"SELECT * FROM qb_passage WHERE id IN ({','.join('?' * len(passage_ids))})",
                               list(passage_ids)).fetchall():
-            passages[p["id"]] = dict(p)
+            passages[p["id"]] = qb.passage_to_dict(p)
     conn.close()
 
     items = []
@@ -6437,7 +6437,7 @@ def _qb_validate_passage(data, existing=None):
     if grade not in qb.GRADES:
         raise qb.QBValidationError(f"grade must be one of {list(qb.GRADES)}")
     section = (merged.get("section") or "").strip().lower()
-    body = (merged.get("body") or "").strip()
+    body = qb.sanitize_rich(merged.get("body")) or ""
     if not section or not body:
         raise qb.QBValidationError("section and body are required")
     return {"track": merged["track"], "grade": grade, "section": section,
@@ -6501,7 +6501,7 @@ def qb_get_passage(passage_id):
     qs = conn.execute("SELECT * FROM qb_question WHERE passage_id = ? ORDER BY passage_order, id",
                       (passage_id,)).fetchall()
     conn.close()
-    return jsonify({**dict(p), "questions": [qb.question_to_dict(q) for q in qs]})
+    return jsonify({**qb.passage_to_dict(p), "questions": [qb.question_to_dict(q) for q in qs]})
 
 
 @app.route("/api/question-bank/passages/<int:passage_id>", methods=["PUT"])
@@ -6616,7 +6616,7 @@ def _qb_load_test(conn, test_id):
     if pids:
         for p in conn.execute(f"SELECT id, title, body FROM qb_passage WHERE id IN ({','.join('?' * len(pids))})",
                               list(pids)).fetchall():
-            passages[str(p["id"])] = dict(p)
+            passages[str(p["id"])] = qb.passage_to_dict(p)
     return test, rows, answers, passages
 
 

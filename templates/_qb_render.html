@@ -3,13 +3,19 @@
     .qb-stem-svg { max-width: 360px; margin: 10px auto; }
     .qb-stem-svg svg { width: 100%; height: auto; }
     .qb-opt-svg { width: 90px; height: 90px; display: inline-block; vertical-align: middle; }
+    /* SVG embedded in rich text: respect its own width attr, otherwise give a sensible default */
+    .qb-rich svg { max-width: 100%; height: auto; color: #2d3748; vertical-align: middle; }
+    .qb-stem.qb-rich svg:not([width]) { width: 90px; margin: 4px; }            /* a row of figures */
+    .qb-stem.qb-rich svg:not([width]):only-of-type { width: 320px; }        /* a single figure */
+    .qb-opt-text.qb-rich svg:not([width]) { width: 90px; }
     .qb-img { max-width: 100%; max-height: 320px; border-radius: 10px; margin: 10px 0; display: block; }
     .qb-passage { background: #fffaf0; border: 2px solid #fbd38d; border-radius: 14px; padding: 16px 18px; margin-bottom: 16px;
                   font-size: 17px; line-height: 1.7; color: #2d3748; white-space: pre-wrap; max-height: 360px; overflow-y: auto; }
     .qb-passage h4 { margin: 0 0 8px; color: #c05621; }
 </style>
 <script>
-// Shared renderers for CogAT-style / i-Ready-style questions. SVG is sanitized server-side.
+// Shared renderers for CogAT-style / i-Ready-style questions.
+// stem / option text / explanation / passage body arrive as server-sanitized HTML (allow-listed tags only).
 const QB_LETTERS = 'ABCDEF';
 function qbEsc(str) {
     if (str === null || str === undefined) return '';
@@ -17,9 +23,15 @@ function qbEsc(str) {
     div.textContent = String(str);
     return div.innerHTML;
 }
+function qbRich(html) {
+    if (!html) return '';
+    // Plain text keeps its line breaks; markup is rendered as-is
+    return /<[a-z]/i.test(html) ? html : html.replace(/\n/g, '<br>');
+}
+function qbHasSvg(opt) { return !!(opt.svg || /<svg/i.test(opt.text || '')); }
 function qbStemHtml(q) {
     let html = '';
-    if (q.stem) html += `<div class="qb-stem">${qbEsc(q.stem).replace(/\n/g, '<br>')}</div>`;
+    if (q.stem) html += `<div class="qb-stem qb-rich">${qbRich(q.stem)}</div>`;
     if (q.stem_svg) html += `<div class="qb-svg qb-stem-svg">${q.stem_svg}</div>`;
     if (q.image_path) html += `<img class="qb-img" src="/uploads/${encodeURIComponent(q.image_path)}" alt="Question image">`;
     return html;
@@ -27,11 +39,11 @@ function qbStemHtml(q) {
 function qbOptionHtml(opt) {
     let html = '';
     if (opt.svg) html += `<span class="qb-svg qb-opt-svg">${opt.svg}</span>`;
-    if (opt.text) html += `<span class="qb-opt-text">${qbEsc(opt.text)}</span>`;
+    if (opt.text) html += `<span class="qb-opt-text qb-rich">${qbRich(opt.text)}</span>`;
     return html;
 }
 function qbPassageHtml(p) {
     if (!p) return '';
-    return `<div class="qb-passage">${p.title ? `<h4>${qbEsc(p.title)}</h4>` : ''}${qbEsc(p.body)}</div>`;
+    return `<div class="qb-passage">${p.title ? `<h4>${qbEsc(p.title)}</h4>` : ''}<div class="qb-rich">${p.body || ''}</div></div>`;
 }
 </script>

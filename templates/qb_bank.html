@@ -27,6 +27,9 @@
     .qb-opt-svg { width: 56px; height: 56px; }
     .qb-stem-svg { max-width: 240px; margin: 6px 0; }
     .qb-img { max-height: 180px; }
+    .qb-stem.qb-rich svg:not([width]) { width: 56px; }
+    .qb-stem.qb-rich svg:not([width]):only-of-type { width: 200px; }
+    .qb-opt-text.qb-rich svg:not([width]) { width: 56px; }
     .explain { font-size: 13px; color: #4a5568; margin-top: 8px; }
     .qb-passage { font-size: 14px; max-height: 160px; }
     .pager { display: flex; gap: 8px; justify-content: center; margin: 16px 0; }
@@ -220,7 +223,7 @@ async function load() {
                 </span>
             </div>
             ${qbStemHtml(q)}<div class="opts">${opts}</div>
-            ${q.explanation ? `<div class="explain"><strong>Why:</strong> ${qbEsc(q.explanation)}</div>` : ''}
+            ${q.explanation ? `<div class="explain"><strong>Why:</strong> ${qbRich(q.explanation)}</div>` : ''}
         </div>`;
     }).join('') || '<p style="color:#999; text-align:center; padding:30px;">No questions match.</p>';
     const pages = Math.ceil(data.total / data.per_page);

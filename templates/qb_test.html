@@ -95,7 +95,7 @@ function render() {
         return;
     }
     const q = questions[idx];
-    const hasSvg = q.options.some(o => o.svg);
+    const hasSvg = q.options.some(qbHasSvg);
     const passage = q.passage_id ? passages[String(q.passage_id)] : null;
     stage.innerHTML = `${qbPassageHtml(passage)}
         <div class="q-card">
@@ -143,7 +143,7 @@ function showFeedback(q, fb) {
     box.className = 'feedback ' + (fb.is_correct ? 'good' : 'bad');
     box.innerHTML = (fb.is_correct ? '<strong>Correct!</strong>' :
         `<strong>Not quite.</strong> The answer is ${QB_LETTERS[parseInt(fb.correct_answer)]}.`) +
-        (fb.explanation ? `<div class="why">${qbEsc(fb.explanation)}</div>` : '');
+        (fb.explanation ? `<div class="why">${qbRich(fb.explanation)}</div>` : '');
     const nextBtn = document.getElementById('nextBtn');
     nextBtn.style.display = '';
     nextBtn.textContent = idx === questions.length - 1 ? 'See my score' : 'Next →';

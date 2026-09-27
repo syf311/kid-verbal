@@ -46,27 +46,50 @@ _SVG_TAGS = {
 }
 
 
+# Simple inline formatting allowed in stems/options/explanations/passages (no attributes kept)
+_HTML_TAGS = {"br", "b", "i", "em", "strong", "u", "sub", "sup", "span", "p", "div", "small"}
+
+
+def _sanitize(markup, allowed):
+    soup = BeautifulSoup(str(markup), "html.parser")
+    for el in soup.find_all(True):
+        if getattr(el, "decomposed", False):
+            continue  # inside an element already removed
+        name = el.name.lower()
+        if name not in allowed:
+            el.decompose()
+            continue
+        if name in _HTML_TAGS:
+            el.attrs = {}
+            continue
+        for attr in list(el.attrs):
+            aname = attr.lower()
+            val = el.attrs[attr]
+            sval = (" ".join(val) if isinstance(val, list) else str(val)).lower()
+            if aname.startswith("on"):
+                del el.attrs[attr]
+            elif aname in ("href", "xlink:href") and not sval.startswith("#"):
+                del el.attrs[attr]
+            elif aname == "style" and ("url(" in sval or "expression" in sval):
+                del el.attrs[attr]
+    return str(soup).strip()
+
+
 def sanitize_svg(svg):
     """Whitelist-sanitize an SVG fragment. Returns None for empty input."""
     if not svg or not str(svg).strip():
         return None
-    soup = BeautifulSoup(str(svg), "html.parser")
-    for el in soup.find_all(True):
-        if el.name.lower() not in _SVG_TAGS:
-            el.decompose()
-            continue
-        for attr in list(el.attrs):
-            name = attr.lower()
-            val = el.attrs[attr]
-            sval = " ".join(val) if isinstance(val, list) else str(val)
-            if name.startswith("on"):
-                del el.attrs[attr]
-            elif name in ("href", "xlink:href") and not sval.startswith("#"):
-                del el.attrs[attr]
-            elif name == "style" and ("url(" in sval.lower() or "expression" in sval.lower()):
-                del el.attrs[attr]
-    out = str(soup).strip()
-    return out or None
+    return _sanitize(svg, _SVG_TAGS) or None
+
+
+def sanitize_rich(text):
+    """Stem/option/explanation/passage text → safe HTML (inline SVG + simple formatting allowed).
+
+    Plain text comes back HTML-escaped, so the client can always render the result with innerHTML.
+    """
+    if text is None or not str(text).strip():
+        return None
+    return _sanitize(text, _SVG_TAGS | _HTML_TAGS) or None
 
 
 # ── Validation ──
@@ -100,7 +123,7 @@ def normalize_options(options):
             o = {"text": o}
         if not isinstance(o, dict):
             raise QBValidationError("each option must be a string or {text, svg}")
-        text = (o.get("text") or "").strip() or None
+        text = sanitize_rich(o.get("text"))
         svg = sanitize_svg(o.get("svg"))
         if not text and not svg:
             raise QBValidationError("each option needs text or svg")
@@ -143,7 +166,7 @@ def validate_question(data, existing=None):
         raise QBValidationError(f"qtype must be one of {list(QTYPES)}")
     out["qtype"] = qtype
 
-    out["stem"] = (merged.get("stem") or "").strip() or None
+    out["stem"] = sanitize_rich(merged.get("stem"))
     out["stem_svg"] = sanitize_svg(merged.get("stem_svg"))
 
     options = normalize_options(merged.get("options"))
@@ -151,7 +174,7 @@ def validate_question(data, existing=None):
     answer_in = data.get("correct_answer", merged.get("correct_answer"))
     out["correct_answer"] = normalize_answer(answer_in, len(options))
 
-    out["explanation"] = (merged.get("explanation") or "").strip() or None
+    out["explanation"] = sanitize_rich(merged.get("explanation"))
     out["difficulty"] = _int_in(merged.get("difficulty", 3), range(1, 6), "difficulty")
 
     tags = merged.get("tags") or []
@@ -185,10 +208,27 @@ def validate_question(data, existing=None):
     return out
 
 
-def question_to_dict(row, include_answer=True):
+def passage_to_dict(row):
     d = dict(row)
-    d["options"] = json.loads(d["options"]) if d.get("options") else []
+    d["body"] = sanitize_rich(d.get("body")) or ""
+    return d
+
+
+def question_to_dict(row, include_answer=True):
+    """Row → API dict. Rich fields are re-sanitized on read so rows stored before sanitizing are safe too."""
+    d = dict(row)
+    raw_opts = json.loads(d["options"]) if d.get("options") else []
+    d["options"] = [
+        {"text": sanitize_rich(o.get("text")), "svg": sanitize_svg(o.get("svg"))} if isinstance(o, dict)
+        else {"text": sanitize_rich(o), "svg": None}
+        for o in raw_opts
+    ]
     d["tags"] = json.loads(d["tags"]) if d.get("tags") else []
+    for k in ("stem", "explanation"):
+        if k in d:
+            d[k] = sanitize_rich(d[k])
+    if "stem_svg" in d:
+        d["stem_svg"] = sanitize_svg(d["stem_svg"])
     if not include_answer:
         for k in ("correct_answer", "explanation", "answer_source"):
             d.pop(k, None)
