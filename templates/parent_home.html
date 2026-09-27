@@ -338,6 +338,7 @@
             <button class="tab-btn" data-tab="language-arts" onclick="switchTab('language-arts')">Language Arts</button>
             <button class="tab-btn" data-tab="math" onclick="switchTab('math')">Math</button>
             <button class="tab-btn" data-tab="science" onclick="switchTab('science')">Science</button>
+            <button class="tab-btn" data-tab="practice" onclick="switchTab('practice')">CogAT/i-Ready-style</button>
         </div>
 
         <!-- No child selected state -->
@@ -440,6 +441,20 @@
             </div>
         </div>
 
+        <!-- CogAT-style / i-Ready-style practice tab -->
+        <div class="tab-panel" data-panel="practice" id="panel-practice">
+            <div class="quick-links" id="practice-links"></div>
+            <div class="dash-card">
+                <h3>Pending Practice Tests</h3>
+                <div id="practice-pending-list"><span class="empty-msg">Loading...</span></div>
+            </div>
+            <div class="dash-card">
+                <h3>Completed Practice Tests</h3>
+                <div id="practice-completed-list"><span class="empty-msg">Loading...</span></div>
+            </div>
+            <div style="font-size:12px; color:#a0aec0; margin-top:6px;">Original practice questions. Not affiliated with or endorsed by the publishers of CogAT&reg; or i-Ready&reg;.</div>
+        </div>
+
         <!-- Science import modal -->
         <div id="science-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:999; overflow-y:auto;">
             <div style="max-width:900px; margin:30px auto; background:white; border-radius:16px; padding:30px; position:relative; max-height:90vh; overflow-y:auto;">
@@ -510,6 +525,7 @@ async function loadDashboard(childId) {
     renderPlansTab(childId, data);
     renderWritingTests(childId, data);
     loadScienceTab(childId);
+    loadPracticeTab(childId);
 }
 
 function updateQuickLinks(childId) {
@@ -533,9 +549,44 @@ function updateQuickLinks(childId) {
         <a href="/child/${childId}/science-progress" style="background:#2b6cb0;color:#fff;">Science Progress</a>
         <a href="#" class="btn" style="background:#718096;color:#fff;" onclick="event.preventDefault(); bulkImportNSB()">Bulk Import from NSB</a>
     `;
+    document.getElementById('practice-links').innerHTML = `
+        <a href="/parent/qb-tests/new?child_id=${childId}" class="btn-success">Create Practice Test</a>
+        <a href="/parent/question-bank" class="btn-primary">Question Bank</a>
+        <a href="/child/${childId}/qb-history" class="btn-warning">Practice History</a>
+    `;
     document.getElementById('plans-links').innerHTML = `
         <a href="/parent/child/${childId}/learning-plan/new" class="btn-success">Create Learning Plan</a>
     `;
+}
+
+// ── CogAT-style / i-Ready-style practice tab ──
+
+async function loadPracticeTab(childId) {
+    const res = await fetch(`/api/children/${childId}/qb-test-history`);
+    if (!res.ok || currentChildId !== childId) return;
+    const rows = await res.json();
+    const item = t => `
+        <div class="list-item">
+            <div class="info">
+                <strong>${escHtml(t.title)}</strong>
+                <div class="meta">${t.created_at.slice(0,10)} &middot; ${t.question_count} questions${t.status === 'completed'
+                    ? ` &middot; ${t.correct_count}/${t.total_count} (${t.score}%)` : ` &middot; ${t.answered_count} answered`}</div>
+            </div>
+            <div class="actions">
+                <a href="/child/${childId}/qb-test/${t.id}${t.status === 'completed' ? '/review' : ''}" class="btn btn-primary">${t.status === 'completed' ? 'Review' : 'Open'}</a>
+                <button class="btn btn-danger" onclick="deletePracticeTest(${t.id})">Delete</button>
+            </div>
+        </div>`;
+    const pending = rows.filter(t => t.status !== 'completed');
+    const done = rows.filter(t => t.status === 'completed').slice(0, 20);
+    document.getElementById('practice-pending-list').innerHTML = pending.length ? pending.map(item).join('') : '<span class="empty-msg">No pending practice tests.</span>';
+    document.getElementById('practice-completed-list').innerHTML = done.length ? done.map(item).join('') : '<span class="empty-msg">No completed practice tests.</span>';
+}
+
+async function deletePracticeTest(id) {
+    if (!confirm('Delete this practice test? Mastery progress already recorded is kept.')) return;
+    await fetch(`/api/qb-tests/${id}`, { method: 'DELETE' });
+    loadPracticeTab(currentChildId);
 }
 
 // ── Render language arts tab ──

@@ -24,6 +24,7 @@ kid-verbal/
 ├── dictionary.py           # Free Dictionary API client
 ├── ocr.py                  # Tesseract OCR wrapper
 ├── test_engine.py          # Test logic, scoring, badges, word selection
+├── qb_engine.py            # CogAT/i-Ready-style bank: validation, SVG sanitize, mastery, test assembly
 ├── pdf_parser.py           # Math answer key PDF parser (grid OCR)
 ├── science_parser.py       # Science Bowl PDF parser
 ├── requirements.txt        # Python dependencies
@@ -96,6 +97,13 @@ kid-verbal/
 - `science_test_submission` — graded test results
 - `science_question_progress` — per-question mastery tracking
 
+### CogAT-style / i-Ready-style Practice (shared bank, not per child)
+- `qb_passage` — reading passages for passage-set questions
+- `qb_question` — track, grade, section, qtype, stem/stem_svg, options JSON [{text, svg}], correct_answer (index), explanation, image_path, passage_id, difficulty, status (active/archived), source_ref
+- `qb_question_progress` — per child/question correct/wrong counts, last_tested, last_correct_at
+- `qb_test` / `qb_test_question` / `qb_test_answer` / `qb_test_submission` — assembled tests, per-question answers, final score
+- `qb_request_key` — Idempotency-Key → created resource
+
 ### Learning Plans
 - `learning_plan` — bundles of activities (draft → released → completed)
 - `learning_plan_item` — items in a plan (vocab study, reading, math test, writing test, science study/test)
@@ -114,4 +122,5 @@ kid-verbal/
 - **Auto-grading:** Math (answer key comparison), Science (exact match + ACCEPT patterns), Vocab (multiple choice)
 - **Manual grading:** Writing (parent scores + annotations), Reading (parent marks correct/incorrect)
 - **AI integration:** OpenAI API key stored in `site_config` DB table (never in code). Accessed via `get_config()` helper. Used for reading question generation; designed for reuse across future AI features.
+- **API token auth (question bank only):** `parent_or_token_required` accepts a parent session or `Authorization: Bearer <token>`; SHA-256 hash in `site_config.qb_api_token_hash`. Non-idempotent creates accept an `Idempotency-Key` header.
 - **Reading web proxy:** `GET /api/reading-proxy?url=...` fetches external pages, strips links/scripts/nav, converts relative URLs to absolute, serves sanitized HTML for safe kid reading. URL must belong to a known reading material (security check).

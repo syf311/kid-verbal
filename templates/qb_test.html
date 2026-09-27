@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block title %}{{ test.title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .container { max-width: 820px; -webkit-user-select: none; user-select: none; }
+    .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 10px; }
+    .track-pill { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 700;
+                  background: #ebf4ff; color: #5a67d8; }
+    .progress-bar-wrap { background: #e2e8f0; border-radius: 20px; height: 12px; overflow: hidden; }
+    .progress-bar-fill { background: linear-gradient(90deg, #667eea, #48bb78); height: 100%; transition: width 0.3s; }
+    .progress-text { display: flex; justify-content: space-between; font-size: 14px; color: #666; margin: 6px 0 18px; }
+    .q-card { background: #f7fafc; border-radius: 18px; padding: 22px; border: 2px solid #e2e8f0; }
+    .q-num { font-weight: 700; font-size: 14px; color: #a0aec0; margin-bottom: 8px; }
+    .qb-stem { font-size: 20px; color: #2d3748; line-height: 1.6; margin-bottom: 14px; }
+    .opts { display: grid; gap: 10px; margin-top: 14px; }
+    .opts.has-svg { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+    .opt { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 3px solid #e2e8f0; border-radius: 14px;
+           background: white; cursor: pointer; font-size: 18px; transition: all 0.15s; text-align: left; font-family: inherit; }
+    .opts.has-svg .opt { flex-direction: column; justify-content: center; }
+    .opt:hover:not(:disabled) { border-color: #667eea; background: #eef2ff; transform: translateY(-2px); }
+    .opt:disabled { cursor: default; color: #2d3748; opacity: 1; }
+    .opt .letter { font-weight: 800; color: #667eea; min-width: 22px; }
+    .opt.correct { border-color: #48bb78; background: #f0fff4; }
+    .opt.wrong { border-color: #f56565; background: #fff5f5; }
+    .feedback { margin-top: 16px; padding: 14px 18px; border-radius: 14px; font-size: 17px; display: none; }
+    .feedback.good { background: #f0fff4; color: #276749; display: block; }
+    .feedback.bad { background: #fff5f5; color: #9b2c2c; display: block; }
+    .feedback .why { margin-top: 6px; color: #4a5568; font-size: 15px; }
+    .nav { display: flex; justify-content: flex-end; margin-top: 18px; }
+    .nav .btn { padding: 12px 36px; }
+    .done-card { text-align: center; padding: 30px 10px; }
+    .done-card .big { font-size: 56px; font-weight: 800; color: #667eea; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% include "_qb_render.html" %}
+<div class="header-row">
+    <a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back</a>
+    <span class="track-pill">{{ track_label }} &middot; Grade {{ test.grade }}</span>
+</div>
+<h2 style="margin-bottom: 12px;">{{ test.title }}</h2>
+
+<div class="progress-bar-wrap"><div class="progress-bar-fill" id="progressBar" style="width: 0%"></div></div>
+<div class="progress-text"><span id="progressText">Loading...</span><span id="scoreText"></span></div>
+
+<div id="stage"><div style="text-align:center; padding:60px; color:#666; font-size:18px;">Loading questions...</div></div>
+
+{% include "_qb_disclaimer.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const testId = {{ test.id }};
+const childId = {{ child.id }};
+let questions = [];
+let passages = {};
+let idx = 0;
+let elapsed = 0;
+const startedAt = Date.now();
+
+async function loadTest() {
+    const res = await fetch(`/api/qb-tests/${testId}`);
+    if (!res.ok) { document.getElementById('stage').innerHTML = '<p>Could not load this test.</p>'; return; }
+    const data = await res.json();
+    questions = data.questions || [];
+    passages = data.passages || {};
+    // Resume at first unanswered question
+    idx = questions.findIndex(q => !q.answer);
+    if (idx === -1) idx = questions.length;
+    render();
+}
+
+function answeredCount() { return questions.filter(q => q.answer).length; }
+function correctCount() { return questions.filter(q => q.answer && q.answer.is_correct).length; }
+
+function updateProgress() {
+    const n = answeredCount(), total = questions.length;
+    document.getElementById('progressBar').style.width = total ? `${n / total * 100}%` : '0%';
+    document.getElementById('progressText').textContent = `Question ${Math.min(idx + 1, total)} of ${total}`;
+    document.getElementById('scoreText').textContent = n ? `${correctCount()} / ${n} correct` : '';
+}
+
+function render() {
+    updateProgress();
+    const stage = document.getElementById('stage');
+    if (idx >= questions.length) {
+        stage.innerHTML = `<div class="q-card done-card">
+            <div style="font-size:22px; margin-bottom:6px;">All done!</div>
+            <div class="big">${correctCount()} / ${questions.length}</div>
+            <div style="color:#666; margin:8px 0 20px;">Tap Finish to save your score.</div>
+            <button class="btn btn-success" id="finishBtn" onclick="finishTest()">Finish</button></div>`;
+        return;
+    }
+    const q = questions[idx];
+    const hasSvg = q.options.some(o => o.svg);
+    const passage = q.passage_id ? passages[String(q.passage_id)] : null;
+    stage.innerHTML = `${qbPassageHtml(passage)}
+        <div class="q-card">
+            <div class="q-num">Question ${idx + 1}</div>
+            ${qbStemHtml(q)}
+            <div class="opts ${hasSvg ? 'has-svg' : ''}">
+                ${q.options.map((o, i) => `<button class="opt" id="opt-${i}" onclick="choose(${i})">
+                    <span class="letter">${QB_LETTERS[i]}</span>${qbOptionHtml(o)}</button>`).join('')}
+            </div>
+            <div class="feedback" id="feedback"></div>
+            <div class="nav"><button class="btn btn-primary" id="nextBtn" style="display:none" onclick="next()">Next &rarr;</button></div>
+        </div>`;
+    if (q.answer) showFeedback(q, { choice: q.answer.choice, is_correct: q.answer.is_correct,
+                                    correct_answer: q.correct_answer, explanation: q.explanation });
+}
+
+async function choose(i) {
+    const q = questions[idx];
+    if (q.answer) return;
+    document.querySelectorAll('.opt').forEach(b => b.disabled = true);
+    const res = await fetch(`/api/qb-tests/${testId}/answer`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question_id: q.id, choice: String(i) })
+    });
+    if (!res.ok) {
+        document.querySelectorAll('.opt').forEach(b => b.disabled = false);
+        alert('Could not save your answer. Please try again.');
+        return;
+    }
+    const fb = await res.json();
+    q.answer = { choice: fb.choice, is_correct: fb.is_correct };
+    q.correct_answer = fb.correct_answer;
+    q.explanation = fb.explanation;
+    showFeedback(q, fb);
+    updateProgress();
+}
+
+function showFeedback(q, fb) {
+    document.querySelectorAll('.opt').forEach(b => b.disabled = true);
+    const chosen = document.getElementById(`opt-${fb.choice}`);
+    const right = document.getElementById(`opt-${fb.correct_answer}`);
+    if (right) right.classList.add('correct');
+    if (!fb.is_correct && chosen) chosen.classList.add('wrong');
+    const box = document.getElementById('feedback');
+    box.className = 'feedback ' + (fb.is_correct ? 'good' : 'bad');
+    box.innerHTML = (fb.is_correct ? '<strong>Correct!</strong>' :
+        `<strong>Not quite.</strong> The answer is ${QB_LETTERS[parseInt(fb.correct_answer)]}.`) +
+        (fb.explanation ? `<div class="why">${qbEsc(fb.explanation)}</div>` : '');
+    const nextBtn = document.getElementById('nextBtn');
+    nextBtn.style.display = '';
+    nextBtn.textContent = idx === questions.length - 1 ? 'See my score' : 'Next →';
+}
+
+function next() { idx++; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+
+async function finishTest() {
+    const btn = document.getElementById('finishBtn');
+    btn.disabled = true; btn.textContent = 'Saving...';
+    const res = await fetch(`/api/qb-tests/${testId}/submit`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ time_taken_seconds: Math.round((Date.now() - startedAt) / 1000) })
+    });
+    if (res.ok) window.location.href = `/child/${childId}/qb-test/${testId}/review`;
+    else { btn.disabled = false; btn.textContent = 'Finish'; alert('Could not save. Please try again.'); }
+}
+
+document.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('copy', e => e.preventDefault());
+loadTest();
+</script>
+{% endblock %}

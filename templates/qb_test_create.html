@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+
+{% block title %}New Practice Test{% endblock %}
+
+{% block extra_css %}
+<style>
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
+    .form-grid label { display: block; font-size: 14px; font-weight: 600; color: #4a5568; margin-bottom: 4px; }
+    .form-grid select, .form-grid input { width: 100%; padding: 10px; font-size: 16px; border: 2px solid #ddd; border-radius: 8px; margin: 0; }
+    .full { grid-column: 1 / -1; }
+    .mix-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .mix-row input { text-align: center; }
+    .pool { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 18px 0; }
+    .pool div { background: #f7fafc; border-radius: 12px; padding: 12px; text-align: center; }
+    .pool .n { font-size: 26px; font-weight: 800; }
+    .pool .l { font-size: 12px; color: #718096; text-transform: uppercase; letter-spacing: .5px; }
+    #result { margin-top: 16px; }
+    @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } .pool { grid-template-columns: repeat(2, 1fr); } }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="/parent" style="color: #667eea; text-decoration: none;">&larr; Parent dashboard</a>
+<h1 style="margin-top: 10px;">New Practice Test</h1>
+<p style="color:#666; margin: -10px 0 20px;">Questions are picked by mastery: new first, then needs work, then due for review. Mastered questions are skipped.</p>
+
+<div class="form-grid">
+    <div>
+        <label>Child</label>
+        <select id="child" onchange="onChildChange()">
+            {% for c in children %}
+            <option value="{{ c.id }}" data-grade="{{ c.grade_level or '' }}" {% if c.id == selected_child_id %}selected{% endif %}>{{ c.name }}{% if c.grade_level %} ({{ c.grade_level }}){% endif %}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div>
+        <label>Track</label>
+        <select id="track" onchange="onTrackChange()">
+            {% for key, label in track_labels.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+        </select>
+    </div>
+    <div>
+        <label>Grade</label>
+        <select id="grade" onchange="refreshPool()">
+            {% for g in grades %}<option value="{{ g }}">Grade {{ g }}</option>{% endfor %}
+        </select>
+    </div>
+    <div>
+        <label>Section</label>
+        <select id="section" onchange="refreshPool()"></select>
+    </div>
+    <div>
+        <label>Number of questions</label>
+        <input type="number" id="count" value="10" min="1" max="100">
+    </div>
+    <div>
+        <label>Title (optional)</label>
+        <input type="text" id="title" placeholder="Auto">
+    </div>
+    <div class="full">
+        <label>Mix (%) &mdash; new / needs work / due</label>
+        <div class="mix-row">
+            <input type="number" id="mix-new" value="50" min="0" max="100">
+            <input type="number" id="mix-needs_work" value="30" min="0" max="100">
+            <input type="number" id="mix-due" value="20" min="0" max="100">
+        </div>
+    </div>
+</div>
+
+<div class="pool" id="pool">
+    <div><div class="n" id="p-new" style="color:#5a67d8;">-</div><div class="l">New</div></div>
+    <div><div class="n" id="p-needs_work" style="color:#e53e3e;">-</div><div class="l">Needs work</div></div>
+    <div><div class="n" id="p-due" style="color:#dd6b20;">-</div><div class="l">Due</div></div>
+    <div><div class="n" id="p-mastered" style="color:#38a169;">-</div><div class="l">Mastered</div></div>
+</div>
+
+<button class="btn btn-success" id="createBtn" onclick="createTest()">Create Test</button>
+<div id="result"></div>
+{% include "_qb_disclaimer.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SECTIONS = {{ sections|tojson }};
+
+function onChildChange() {
+    const opt = document.getElementById('child').selectedOptions[0];
+    const m = (opt && opt.dataset.grade || '').match(/(\d+)/);
+    if (m && ['4', '5', '6'].includes(m[1])) document.getElementById('grade').value = m[1];
+    refreshPool();
+}
+
+function onTrackChange() {
+    const track = document.getElementById('track').value;
+    const sel = document.getElementById('section');
+    let html = '<option value="">All sections (mixed)</option>';
+    let group = null;
+    for (const [key, label, g] of SECTIONS[track]) {
+        if (g !== group) { if (group) html += '</optgroup>'; html += `<optgroup label="${g}">`; group = g; }
+        html += `<option value="${key}">${label}</option>`;
+    }
+    sel.innerHTML = html + (group ? '</optgroup>' : '');
+    refreshPool();
+}
+
+let poolSeq = 0;
+async function refreshPool() {
+    const seq = ++poolSeq;
+    const p = new URLSearchParams({
+        child_id: document.getElementById('child').value, track: document.getElementById('track').value,
+        grade: document.getElementById('grade').value, section: document.getElementById('section').value });
+    const res = await fetch(`/api/question-bank/pool?${p}`);
+    if (!res.ok || seq !== poolSeq) return;
+    const counts = await res.json();
+    for (const k of ['new', 'needs_work', 'due', 'mastered']) document.getElementById('p-' + k).textContent = counts[k];
+}
+
+async function createTest() {
+    const btn = document.getElementById('createBtn');
+    const childId = document.getElementById('child').value;
+    btn.disabled = true;
+    const res = await fetch('/api/qb-tests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) },
+        body: JSON.stringify({
+            child_id: parseInt(childId), track: document.getElementById('track').value,
+            grade: parseInt(document.getElementById('grade').value), section: document.getElementById('section').value || null,
+            count: parseInt(document.getElementById('count').value), title: document.getElementById('title').value,
+            mastery_mix: { new: +document.getElementById('mix-new').value, needs_work: +document.getElementById('mix-needs_work').value,
+                           due: +document.getElementById('mix-due').value } })
+    });
+    btn.disabled = false;
+    const data = await res.json();
+    const box = document.getElementById('result');
+    if (!res.ok) { box.innerHTML = `<div class="card" style="background:#fff5f5; color:#9b2c2c;">${data.error}</div>`; return; }
+    box.innerHTML = `<div class="card" style="background:#f0fff4;">
+        <strong>Created:</strong> ${data.title} &mdash; ${data.question_ids.length} questions
+        ${data.shortfall ? `<div style="color:#dd6b20; margin-top:4px;">Only ${data.question_ids.length} eligible questions available (${data.shortfall} short).</div>` : ''}
+        <div style="margin-top:10px;"><a class="btn btn-primary" style="padding:8px 18px; font-size:15px;" href="/child/${childId}/qb-test/${data.id}">Open test</a>
+        <a class="btn btn-warning" style="padding:8px 18px; font-size:15px;" href="/child/${childId}/qb-history">Practice history</a></div></div>`;
+    refreshPool();
+}
+
+onTrackChange();
+onChildChange();
+</script>
+{% endblock %}

@@ -1,0 +1,367 @@
+{% extends "base.html" %}
+
+{% block title %}Practice Question Bank{% endblock %}
+
+{% block extra_css %}
+<style>
+    .container { max-width: 1100px; }
+    .top-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; align-items: center; }
+    .filters select, .filters input { width: auto; padding: 8px 10px; font-size: 14px; border: 2px solid #ddd; border-radius: 8px; margin: 0; }
+    .filters input[type=search] { min-width: 180px; }
+    .summary { font-size: 14px; color: #666; margin-bottom: 10px; }
+    .q-card { background: #f7fafc; border-radius: 14px; padding: 16px; margin-bottom: 12px; border: 2px solid #e2e8f0; }
+    .q-card.archived { opacity: .55; }
+    .q-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; font-size: 12px; }
+    .tag { font-weight: 700; padding: 2px 8px; border-radius: 10px; background: #edf2f7; color: #4a5568; }
+    .tag.track { background: #ebf4ff; color: #5a67d8; }
+    .tag.m-new { background: #ebf4ff; color: #5a67d8; } .tag.m-needs_work { background: #fed7d7; color: #9b2c2c; }
+    .tag.m-due { background: #feebc8; color: #9c4221; } .tag.m-mastered { background: #c6f6d5; color: #276749; }
+    .q-actions { margin-left: auto; display: flex; gap: 6px; }
+    .q-actions button { padding: 4px 10px; font-size: 13px; border-radius: 6px; border: 1px solid #cbd5e0; background: white; cursor: pointer; }
+    .qb-stem { font-size: 16px; color: #2d3748; line-height: 1.5; }
+    .opts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .opt { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 2px solid #e2e8f0; border-radius: 8px; background: white; font-size: 14px; }
+    .opt.correct { border-color: #48bb78; background: #f0fff4; }
+    .opt .letter { font-weight: 800; color: #667eea; }
+    .qb-opt-svg { width: 56px; height: 56px; }
+    .qb-stem-svg { max-width: 240px; margin: 6px 0; }
+    .qb-img { max-height: 180px; }
+    .explain { font-size: 13px; color: #4a5568; margin-top: 8px; }
+    .qb-passage { font-size: 14px; max-height: 160px; }
+    .pager { display: flex; gap: 8px; justify-content: center; margin: 16px 0; }
+    /* modal */
+    .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 999; overflow-y: auto; }
+    .modal { max-width: 820px; margin: 30px auto; background: white; border-radius: 16px; padding: 26px; position: relative; }
+    .modal h2 { margin-bottom: 14px; }
+    .modal .close { position: absolute; top: 10px; right: 16px; background: none; border: none; font-size: 26px; cursor: pointer; }
+    .f-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px 14px; }
+    .f-grid label, .f-label { display: block; font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 3px; }
+    .f-grid select, .f-grid input, .modal textarea, .modal input[type=text] { width: 100%; padding: 8px; font-size: 14px; border: 2px solid #ddd; border-radius: 8px; margin: 0; }
+    .modal textarea { font-family: inherit; }
+    .modal textarea.code { font-family: Menlo, monospace; font-size: 12px; }
+    .span2 { grid-column: span 2; } .span4 { grid-column: 1 / -1; }
+    .opt-edit { display: grid; grid-template-columns: 34px 1fr 1fr 70px 30px; gap: 8px; align-items: start; margin-bottom: 8px; }
+    .opt-edit .prev { width: 60px; height: 60px; border: 1px dashed #cbd5e0; border-radius: 6px; }
+    .opt-edit .prev svg { width: 100%; height: 100%; }
+    .opt-edit input[type=radio] { width: auto; margin-top: 10px; transform: scale(1.3); }
+    .opt-edit .rm { background: none; border: none; color: #e53e3e; font-size: 20px; cursor: pointer; }
+    .section-block { margin-top: 14px; }
+    .error { color: #c53030; margin-top: 10px; font-size: 14px; }
+    @media (max-width: 700px) { .f-grid { grid-template-columns: 1fr 1fr; } .opt-edit { grid-template-columns: 30px 1fr 30px; } .opt-edit .svgcol, .opt-edit .prev { display: none; } }
+</style>
+{% endblock %}
+
+{% block content %}
+{% include "_qb_render.html" %}
+<div class="top-row">
+    <div>
+        <a href="/parent" style="color: #667eea; text-decoration: none;">&larr; Parent dashboard</a>
+        <h1 style="margin: 8px 0 0;">Practice Question Bank</h1>
+        <div style="color:#718096; font-size:14px;">CogAT-style &amp; i-Ready-style practice &middot; original questions</div>
+    </div>
+    <div>
+        <button class="btn btn-success" style="padding:10px 18px; font-size:15px;" onclick="openEditor()">+ Add Question</button>
+        <a class="btn btn-warning" style="padding:10px 18px; font-size:15px;" href="/parent/qb-tests/new">New Test</a>
+        <a class="btn" style="padding:10px 18px; font-size:15px; background:#718096; color:white;" href="/api/question-bank/export">Export JSON</a>
+    </div>
+</div>
+
+<div class="filters">
+    <select id="f-track" onchange="onFilterTrack()">
+        {% for key, label in track_labels.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+    </select>
+    <select id="f-grade" onchange="reload()"><option value="">All grades</option>{% for g in grades %}<option value="{{ g }}">Grade {{ g }}</option>{% endfor %}</select>
+    <select id="f-section" onchange="reload()"></select>
+    <select id="f-qtype" onchange="reload()">
+        <option value="">All types</option><option value="text-choice">Text choice</option>
+        <option value="figure-image">Figure / image</option><option value="passage-set">Passage set</option>
+    </select>
+    <select id="f-status" onchange="reload()"><option value="active">Active</option><option value="archived">Archived</option><option value="all">All</option></select>
+    <select id="f-child" onchange="onFilterChild()">
+        <option value="">Mastery for&hellip;</option>
+        {% for c in children %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+    </select>
+    <select id="f-mastery" onchange="reload()" style="display:none;">
+        <option value="">Any mastery</option><option value="new">New</option><option value="needs_work">Needs work</option>
+        <option value="due">Due</option><option value="mastered">Mastered</option>
+    </select>
+    <input type="search" id="f-q" placeholder="Search..." onkeydown="if(event.key==='Enter')reload()">
+</div>
+<div class="summary" id="summary"></div>
+<div id="list"></div>
+<div class="pager" id="pager"></div>
+
+<!-- Editor modal -->
+<div class="modal-bg" id="editor">
+  <div class="modal">
+    <button class="close" onclick="closeEditor()">&times;</button>
+    <h2 id="ed-title">Add Question</h2>
+    <div class="f-grid">
+        <div><label>Track</label><select id="e-track" onchange="fillSectionSelect('e-section', this.value, false); loadPassages()">
+            {% for key, label in track_labels.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
+        <div><label>Grade</label><select id="e-grade" onchange="loadPassages()">{% for g in grades %}<option value="{{ g }}">{{ g }}</option>{% endfor %}</select></div>
+        <div><label>Section</label><select id="e-section" onchange="loadPassages()"></select></div>
+        <div><label>Type</label><select id="e-qtype" onchange="onQtype()">
+            <option value="text-choice">Text choice</option><option value="figure-image">Figure / image</option><option value="passage-set">Passage set</option></select></div>
+        <div><label>Difficulty (1-5)</label><select id="e-difficulty">{% for d in range(1, 6) %}<option value="{{ d }}" {% if d == 3 %}selected{% endif %}>{{ d }}</option>{% endfor %}</select></div>
+        <div><label>Answer source</label><select id="e-answer_source"><option value="parent">parent</option><option value="milo">milo</option><option value="seed">seed</option></select></div>
+        <div class="span2"><label>Tags (comma separated)</label><input type="text" id="e-tags"></div>
+    </div>
+
+    <div class="section-block" id="passage-block" style="display:none;">
+        <label class="f-label">Passage</label>
+        <div style="display:flex; gap:8px; align-items:center;">
+            <select id="e-passage" style="flex:1; padding:8px; border:2px solid #ddd; border-radius:8px;"></select>
+            <input type="number" id="e-passage_order" min="0" value="0" title="Order within passage" style="width:80px; padding:8px; border:2px solid #ddd; border-radius:8px; margin:0;">
+            <button class="btn btn-primary" style="padding:6px 12px; font-size:13px;" onclick="toggleNewPassage()">New passage</button>
+        </div>
+        <div id="new-passage" style="display:none; margin-top:8px;">
+            <input type="text" id="np-title" placeholder="Passage title" style="margin-bottom:6px;">
+            <textarea id="np-body" rows="6" placeholder="Passage text"></textarea>
+            <button class="btn btn-success" style="padding:6px 14px; font-size:13px;" onclick="savePassage()">Save passage</button>
+        </div>
+    </div>
+
+    <div class="section-block"><label class="f-label">Question stem</label><textarea id="e-stem" rows="3"></textarea></div>
+    <div class="section-block" id="stem-svg-block">
+        <label class="f-label">Stem SVG (optional &mdash; use <code>currentColor</code> for strokes/fills)</label>
+        <textarea id="e-stem_svg" class="code" rows="3" oninput="previewStemSvg()"></textarea>
+        <div class="qb-svg qb-stem-svg" id="stem-svg-preview"></div>
+    </div>
+
+    <div class="section-block">
+        <label class="f-label">Options &mdash; select the correct one</label>
+        <div id="opts-edit"></div>
+        <button class="btn btn-primary" style="padding:4px 12px; font-size:13px;" onclick="addOption()">+ Option</button>
+    </div>
+    <div class="section-block"><label class="f-label">Explanation</label><textarea id="e-explanation" rows="2"></textarea></div>
+
+    <div class="section-block" id="image-block">
+        <label class="f-label">Image (photo or figure)</label>
+        <div id="image-current"></div>
+        <input type="file" id="e-image" accept="image/*" style="border:none; padding:4px 0;">
+        <div style="font-size:12px; color:#718096;" id="image-note">The image uploads when you save.</div>
+    </div>
+
+    <div class="error" id="ed-error"></div>
+    <div style="margin-top:16px; text-align:right;">
+        <button class="btn" style="background:#e2e8f0;" onclick="closeEditor()">Cancel</button>
+        <button class="btn btn-success" id="ed-save" onclick="saveQuestion()">Save</button>
+    </div>
+  </div>
+</div>
+{% include "_qb_disclaimer.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SECTIONS = {{ sections|tojson }};
+const TRACK_LABELS = {{ track_labels|tojson }};
+let page = 1;
+let loadSeq = 0;
+let current = [];      // questions on the page
+let editing = null;    // question being edited (null = new)
+let optsState = [];    // [{text, svg}]
+let correctIdx = 0;
+
+function sectionLabel(track, key) {
+    const s = (SECTIONS[track] || []).find(x => x[0] === key);
+    return s ? s[1] : key;
+}
+
+function fillSectionSelect(id, track, withAll) {
+    let html = withAll ? '<option value="">All sections</option>' : '';
+    let group = null;
+    for (const [key, label, g] of SECTIONS[track]) {
+        if (g !== group) { if (group) html += '</optgroup>'; html += `<optgroup label="${g}">`; group = g; }
+        html += `<option value="${key}">${label}</option>`;
+    }
+    document.getElementById(id).innerHTML = html + (group ? '</optgroup>' : '');
+}
+
+function onFilterTrack() { fillSectionSelect('f-section', document.getElementById('f-track').value, true); reload(); }
+function onFilterChild() {
+    document.getElementById('f-mastery').style.display = document.getElementById('f-child').value ? '' : 'none';
+    if (!document.getElementById('f-child').value) document.getElementById('f-mastery').value = '';
+    reload();
+}
+function reload() { page = 1; load(); }
+
+async function load() {
+    const p = new URLSearchParams({ page, per_page: 30 });
+    for (const k of ['track', 'grade', 'section', 'qtype', 'status', 'mastery', 'q']) {
+        const v = document.getElementById('f-' + k).value; if (v) p.set(k, v);
+    }
+    const child = document.getElementById('f-child').value; if (child) p.set('child_id', child);
+    const seq = ++loadSeq;
+    const res = await fetch(`/api/question-bank?${p}`);
+    const data = await res.json();
+    if (seq !== loadSeq) return;  // a newer load superseded this one
+    if (!res.ok) { document.getElementById('list').innerHTML = `<p>${qbEsc(data.error)}</p>`; return; }
+    current = data.questions;
+    document.getElementById('summary').textContent = `${data.total} question${data.total === 1 ? '' : 's'}`;
+    let lastPassage = null;
+    document.getElementById('list').innerHTML = current.map(q => {
+        let ph = '';
+        if (q.passage_id && q.passage_id !== lastPassage) { ph = qbPassageHtml(data.passages[String(q.passage_id)]); lastPassage = q.passage_id; }
+        const opts = q.options.map((o, i) => `<div class="opt ${String(i) === q.correct_answer ? 'correct' : ''}"><span class="letter">${QB_LETTERS[i]}</span>${qbOptionHtml(o)}</div>`).join('');
+        const m = q.mastery ? `<span class="tag m-${q.mastery}">${q.mastery.replace('_', ' ')}${q.progress ? ` ${q.progress.correct_count}✓ ${q.progress.wrong_count}✗` : ''}</span>` : '';
+        return `${ph}<div class="q-card ${q.status}">
+            <div class="q-meta">
+                <span class="tag track">${qbEsc(TRACK_LABELS[q.track])}</span><span class="tag">G${q.grade}</span>
+                <span class="tag">${qbEsc(sectionLabel(q.track, q.section))}</span><span class="tag">D${q.difficulty}</span>
+                <span class="tag">#${q.id}${q.source_ref ? ' · ' + qbEsc(q.source_ref) : ''}</span>
+                <span class="tag">by ${qbEsc(q.created_by)} / ans ${qbEsc(q.answer_source)}</span>${m}
+                ${q.status === 'archived' ? '<span class="tag" style="background:#fed7d7;">archived</span>' : ''}
+                <span class="q-actions">
+                    <button onclick="openEditor(${q.id})">Edit</button>
+                    ${q.status === 'archived' ? `<button onclick="restore(${q.id})">Restore</button>` : `<button onclick="archive(${q.id})">Archive</button>`}
+                </span>
+            </div>
+            ${qbStemHtml(q)}<div class="opts">${opts}</div>
+            ${q.explanation ? `<div class="explain"><strong>Why:</strong> ${qbEsc(q.explanation)}</div>` : ''}
+        </div>`;
+    }).join('') || '<p style="color:#999; text-align:center; padding:30px;">No questions match.</p>';
+    const pages = Math.ceil(data.total / data.per_page);
+    document.getElementById('pager').innerHTML = pages > 1
+        ? `<button class="btn btn-primary" style="padding:6px 14px;font-size:14px;" ${page <= 1 ? 'disabled' : ''} onclick="page--;load()">Prev</button>
+           <span style="align-self:center;">Page ${page} / ${pages}</span>
+           <button class="btn btn-primary" style="padding:6px 14px;font-size:14px;" ${page >= pages ? 'disabled' : ''} onclick="page++;load()">Next</button>` : '';
+}
+
+async function archive(id) {
+    if (!confirm('Archive this question? It will no longer be used in new tests.')) return;
+    await fetch(`/api/question-bank/questions/${id}`, { method: 'DELETE' });
+    load();
+}
+async function restore(id) {
+    await fetch(`/api/question-bank/questions/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'active' }) });
+    load();
+}
+
+// ── Editor ──
+
+function openEditor(id) {
+    editing = id ? current.find(q => q.id === id) : null;
+    const q = editing || { track: document.getElementById('f-track').value, grade: +(document.getElementById('f-grade').value || 4),
+        section: document.getElementById('f-section').value, qtype: 'text-choice', difficulty: 3, answer_source: 'parent',
+        options: [{ text: '' }, { text: '' }, { text: '' }, { text: '' }], correct_answer: '0', tags: [] };
+    document.getElementById('ed-title').textContent = editing ? `Edit Question #${editing.id}` : 'Add Question';
+    document.getElementById('e-track').value = q.track;
+    fillSectionSelect('e-section', q.track, false);
+    for (const k of ['grade', 'qtype', 'difficulty', 'answer_source']) document.getElementById('e-' + k).value = q[k];
+    if (q.section) {
+        const sel = document.getElementById('e-section');
+        if (![...sel.options].some(o => o.value === q.section)) sel.insertAdjacentHTML('beforeend', `<option value="${qbEsc(q.section)}">${qbEsc(q.section)}</option>`);
+        sel.value = q.section;
+    }
+    document.getElementById('e-tags').value = (q.tags || []).join(', ');
+    document.getElementById('e-stem').value = q.stem || '';
+    document.getElementById('e-stem_svg').value = q.stem_svg || '';
+    document.getElementById('e-explanation').value = q.explanation || '';
+    document.getElementById('e-passage_order').value = q.passage_order || 0;
+    document.getElementById('e-image').value = '';
+    document.getElementById('image-current').innerHTML = q.image_path
+        ? `<img class="qb-img" src="/uploads/${encodeURIComponent(q.image_path)}"><button class="btn btn-danger" style="padding:4px 10px;font-size:12px;" onclick="removeImage()">Remove image</button>` : '';
+    optsState = q.options.map(o => ({ text: o.text || '', svg: o.svg || '' }));
+    correctIdx = parseInt(q.correct_answer) || 0;
+    document.getElementById('ed-error').textContent = '';
+    document.getElementById('new-passage').style.display = 'none';
+    renderOptsEdit(); previewStemSvg(); onQtype();
+    loadPassages(q.passage_id);
+    document.getElementById('editor').style.display = 'block';
+}
+function closeEditor() { document.getElementById('editor').style.display = 'none'; }
+
+function onQtype() {
+    document.getElementById('passage-block').style.display = document.getElementById('e-qtype').value === 'passage-set' ? '' : 'none';
+}
+
+async function loadPassages(selectId) {
+    const p = new URLSearchParams({ track: document.getElementById('e-track').value, grade: document.getElementById('e-grade').value });
+    const res = await fetch(`/api/question-bank/passages?${p}`);
+    const rows = res.ok ? await res.json() : [];
+    const sel = document.getElementById('e-passage');
+    const keep = selectId || sel.value;
+    sel.innerHTML = '<option value="">Select passage...</option>' + rows.map(r =>
+        `<option value="${r.id}">#${r.id} ${qbEsc(r.title || r.body.slice(0, 40))} (${r.question_count} q)</option>`).join('');
+    if (keep) sel.value = keep;
+}
+function toggleNewPassage() { const b = document.getElementById('new-passage'); b.style.display = b.style.display === 'none' ? '' : 'none'; }
+async function savePassage() {
+    const body = { track: document.getElementById('e-track').value, grade: +document.getElementById('e-grade').value,
+        section: document.getElementById('e-section').value, title: document.getElementById('np-title').value, body: document.getElementById('np-body').value };
+    const res = await fetch('/api/question-bank/passages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) { document.getElementById('ed-error').textContent = data.error; return; }
+    document.getElementById('np-title').value = ''; document.getElementById('np-body').value = '';
+    toggleNewPassage();
+    loadPassages(data.id);
+}
+
+function renderOptsEdit() {
+    document.getElementById('opts-edit').innerHTML = optsState.map((o, i) => `
+        <div class="opt-edit">
+            <label style="display:flex;gap:4px;align-items:center;"><input type="radio" name="correct" ${i === correctIdx ? 'checked' : ''} onchange="correctIdx=${i}"><b>${QB_LETTERS[i]}</b></label>
+            <input type="text" placeholder="Option text" value="${qbEsc(o.text)}" oninput="optsState[${i}].text=this.value">
+            <textarea class="code svgcol" rows="2" placeholder="Option SVG (optional)" oninput="optsState[${i}].svg=this.value; document.getElementById('prev-${i}').innerHTML=this.value">${qbEsc(o.svg)}</textarea>
+            <div class="prev qb-svg" id="prev-${i}"></div>
+            <button class="rm" title="Remove" onclick="removeOption(${i})">&times;</button>
+        </div>`).join('');
+    // Preview only; the server sanitizes SVG on save
+    optsState.forEach((o, i) => { document.getElementById(`prev-${i}`).innerHTML = o.svg || ''; });
+}
+function addOption() { if (optsState.length < 6) { optsState.push({ text: '', svg: '' }); renderOptsEdit(); } }
+function removeOption(i) {
+    if (optsState.length <= 2) return;
+    optsState.splice(i, 1);
+    if (correctIdx >= optsState.length) correctIdx = 0;
+    renderOptsEdit();
+}
+function previewStemSvg() { document.getElementById('stem-svg-preview').innerHTML = document.getElementById('e-stem_svg').value; }
+
+async function saveQuestion() {
+    const qtype = document.getElementById('e-qtype').value;
+    const payload = {
+        track: document.getElementById('e-track').value, grade: +document.getElementById('e-grade').value,
+        section: document.getElementById('e-section').value, qtype,
+        stem: document.getElementById('e-stem').value, stem_svg: document.getElementById('e-stem_svg').value,
+        options: optsState.map(o => ({ text: o.text, svg: o.svg })), correct_answer: String(correctIdx),
+        explanation: document.getElementById('e-explanation').value, difficulty: +document.getElementById('e-difficulty').value,
+        answer_source: document.getElementById('e-answer_source').value,
+        tags: document.getElementById('e-tags').value.split(',').map(s => s.trim()).filter(Boolean),
+        passage_id: qtype === 'passage-set' ? (document.getElementById('e-passage').value || null) : null,
+        passage_order: +document.getElementById('e-passage_order').value,
+    };
+    if (!editing) payload.created_by = 'parent';
+    const btn = document.getElementById('ed-save'); btn.disabled = true;
+    const res = editing
+        ? await fetch(`/api/question-bank/questions/${editing.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+        : await fetch('/api/question-bank/questions', { method: 'POST', headers: { 'Content-Type': 'application/json',
+              'Idempotency-Key': crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) }, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (!res.ok) { btn.disabled = false; document.getElementById('ed-error').textContent = data.error || 'Save failed'; return; }
+    const qid = editing ? editing.id : data.id;
+    const file = document.getElementById('e-image').files[0];
+    if (file) {
+        const fd = new FormData(); fd.append('image', file);
+        const r = await fetch(`/api/question-bank/questions/${qid}/image`, { method: 'POST', body: fd });
+        if (!r.ok) { btn.disabled = false; document.getElementById('ed-error').textContent = 'Saved, but image upload failed: ' + ((await r.json()).error || ''); return; }
+    }
+    btn.disabled = false;
+    closeEditor();
+    load();
+}
+
+async function removeImage() {
+    if (!editing) return;
+    await fetch(`/api/question-bank/questions/${editing.id}/image`, { method: 'DELETE' });
+    editing.image_path = null;
+    document.getElementById('image-current').innerHTML = '';
+    load();
+}
+
+onFilterTrack();
+</script>
+{% endblock %}

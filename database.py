@@ -598,7 +598,117 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    init_question_bank_tables(conn)
+
     conn.close()
+
+
+def init_question_bank_tables(conn):
+    """CogAT-style / i-Ready-style question bank (task_014). Shared across children."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS qb_passage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            track TEXT NOT NULL,
+            grade INTEGER NOT NULL,
+            section TEXT NOT NULL,
+            title TEXT,
+            body TEXT NOT NULL,
+            source_ref TEXT UNIQUE,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS qb_question (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            track TEXT NOT NULL,
+            grade INTEGER NOT NULL,
+            section TEXT NOT NULL,
+            qtype TEXT NOT NULL DEFAULT 'text-choice',
+            stem TEXT,
+            stem_svg TEXT,
+            options TEXT NOT NULL,
+            correct_answer TEXT NOT NULL,
+            explanation TEXT,
+            image_path TEXT,
+            passage_id INTEGER,
+            passage_order INTEGER DEFAULT 0,
+            difficulty INTEGER DEFAULT 3,
+            tags TEXT,
+            created_by TEXT DEFAULT 'parent',
+            answer_source TEXT DEFAULT 'parent',
+            source_ref TEXT UNIQUE,
+            status TEXT DEFAULT 'active',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (passage_id) REFERENCES qb_passage(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_qb_question_filter ON qb_question(track, grade, section, status);
+
+        CREATE TABLE IF NOT EXISTS qb_question_progress (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id INTEGER NOT NULL,
+            question_id INTEGER NOT NULL,
+            correct_count INTEGER DEFAULT 0,
+            wrong_count INTEGER DEFAULT 0,
+            last_tested DATETIME,
+            last_correct_at DATETIME,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE,
+            FOREIGN KEY (question_id) REFERENCES qb_question(id) ON DELETE CASCADE,
+            UNIQUE(child_id, question_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS qb_test (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id INTEGER NOT NULL,
+            track TEXT NOT NULL,
+            grade INTEGER NOT NULL,
+            section TEXT,
+            title TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS qb_test_question (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            test_id INTEGER NOT NULL,
+            question_id INTEGER NOT NULL,
+            position INTEGER NOT NULL,
+            FOREIGN KEY (test_id) REFERENCES qb_test(id) ON DELETE CASCADE,
+            FOREIGN KEY (question_id) REFERENCES qb_question(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS qb_test_answer (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            test_id INTEGER NOT NULL,
+            question_id INTEGER NOT NULL,
+            choice TEXT NOT NULL,
+            is_correct INTEGER NOT NULL,
+            answered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (test_id) REFERENCES qb_test(id) ON DELETE CASCADE,
+            UNIQUE(test_id, question_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS qb_test_submission (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            test_id INTEGER NOT NULL UNIQUE,
+            child_id INTEGER NOT NULL,
+            correct_count INTEGER NOT NULL,
+            total_count INTEGER NOT NULL,
+            score INTEGER NOT NULL,
+            time_taken_seconds INTEGER DEFAULT 0,
+            submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (test_id) REFERENCES qb_test(id) ON DELETE CASCADE,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS qb_request_key (
+            key TEXT PRIMARY KEY,
+            resource_type TEXT NOT NULL,
+            resource_id INTEGER NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    conn.commit()
 
 
 if __name__ == "__main__":

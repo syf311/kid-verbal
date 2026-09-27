@@ -33,6 +33,14 @@
 </div>
 {% endif %}
 
+<div id="practice-tests" style="margin-bottom: 30px; display: none;">
+    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+        <h2>Practice Tests</h2>
+        <a href="/child/{{ child.id }}/qb-history" style="color: #667eea; text-decoration: none; font-size: 14px;">History &rarr;</a>
+    </div>
+    <div id="practice-tests-list"></div>
+</div>
+
 {% if role != 'parent' %}
 <div id="active-reading-sessions" style="margin-bottom: 30px; display: none;">
     <h2>Active Reading Sessions</h2>
@@ -330,6 +338,23 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+// CogAT-style / i-Ready-style practice tests (task_014)
+fetch('/api/children/{{ child.id }}/qb-test-history?status=pending').then(r => r.ok ? r.json() : []).then(rows => {
+    if (!rows.length) return;
+    const esc = s => { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; };
+    document.getElementById('practice-tests-list').innerHTML = rows.map(t => `
+        <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <strong style="font-size: 18px;">${esc(t.title)}</strong>
+                <div style="font-size: 14px; color: #666;">${t.question_count} questions${t.answered_count ? ` | ${t.answered_count} answered` : ''} | ${t.created_at.slice(0, 10)}</div>
+            </div>
+            <a href="/child/{{ child.id }}/qb-test/${t.id}" class="btn btn-success" style="padding: 10px 25px;">${t.answered_count ? 'Continue' : 'Start'}</a>
+        </div>`).join('');
+    document.getElementById('practice-tests').style.display = '';
+});
+</script>
+
 <script>
 async function deleteAssignment(id) {
     if (!confirm('Delete this reading assignment?')) return;

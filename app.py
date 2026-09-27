@@ -1,7 +1,11 @@
+import hashlib
+import hmac
 import json
 import math
 import os
 import re
+import secrets
+import sqlite3
 import time
 import threading
 import tempfile
@@ -17,6 +21,7 @@ from test_engine import get_test_words, generate_choices, generate_word_choices,
 from ocr import extract_text
 from pdf_parser import parse_answer_pdf, parse_grid_answer_pdf, extract_row_answers, pdf_page_to_png
 from science_parser import parse_science_bowl_pdf
+import qb_engine as qb
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -5849,6 +5854,7 @@ def settings_page():
         "settings.html",
         masked_key=masked_key,
         has_key=bool(api_key),
+        qb_token_hint=config.get("qb_api_token_hint", "") if config.get("qb_api_token_hash") else "",
         children=[dict(c) for c in children],
     )
 
@@ -5982,6 +5988,794 @@ def generate_ai_questions(material_id):
         return jsonify({"questions": questions_text, "answers": answers_text})
     except Exception as e:
         return jsonify({"error": f"AI generation failed: {str(e)}"}), 500
+
+
+# ── CogAT-style / i-Ready-style Question Bank (task_014) ──
+# Original practice questions. Not affiliated with or endorsed by the publishers of CogAT or i-Ready.
+
+QB_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic"}
+
+
+def _qb_token_valid():
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return False
+    token = auth[len("Bearer "):].strip()
+    stored = get_config("qb_api_token_hash")
+    if not token or not stored:
+        return False
+    return hmac.compare_digest(stored, hashlib.sha256(token.encode()).hexdigest())
+
+
+def _qb_is_parent():
+    return session.get("role") == "parent" or _qb_token_valid()
+
+
+def _qb_can_access_child(child_id):
+    if _qb_is_parent():
+        return True
+    return "account_id" in session and session.get("child_id") == child_id
+
+
+def login_required_json(f):
+    """Any logged-in session or a valid API token; JSON 401 instead of a login redirect."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if "account_id" not in session and not _qb_token_valid():
+            return jsonify({"error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+
+def parent_or_token_required(f):
+    """Parent session OR `Authorization: Bearer <token>` (token hash in site_config.qb_api_token_hash)."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not _qb_is_parent():
+            return jsonify({"error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+
+def _qb_idem_key(resource_type):
+    key = (request.headers.get("Idempotency-Key") or "").strip()
+    return f"{resource_type}:{key}" if key else None
+
+
+def _qb_idem_lookup(conn, key):
+    if not key:
+        return None
+    row = conn.execute("SELECT resource_id FROM qb_request_key WHERE key = ?", (key,)).fetchone()
+    return row["resource_id"] if row else None
+
+
+def _qb_idem_store(conn, key, resource_type, resource_id):
+    if key:
+        conn.execute(
+            "INSERT OR IGNORE INTO qb_request_key (key, resource_type, resource_id) VALUES (?, ?, ?)",
+            (key, resource_type, resource_id),
+        )
+
+
+def _qb_get_question(conn, question_id):
+    return conn.execute("SELECT * FROM qb_question WHERE id = ?", (question_id,)).fetchone()
+
+
+def _qb_section_label(track, section):
+    for key, label, _group in qb.SECTIONS.get(track, []):
+        if key == section:
+            return label
+    return (section or "").replace("-", " ").title()
+
+
+# ── Pages ──
+
+@app.route("/parent/question-bank")
+@parent_required
+def qb_bank_page():
+    conn = get_db()
+    children = conn.execute("SELECT id, name, grade_level FROM child ORDER BY name").fetchall()
+    conn.close()
+    return render_template("qb_bank.html", children=[dict(c) for c in children],
+                           sections=qb.SECTIONS, track_labels=qb.TRACK_LABELS, grades=qb.GRADES)
+
+
+@app.route("/parent/qb-tests/new")
+@parent_required
+def qb_test_create_page():
+    conn = get_db()
+    children = conn.execute("SELECT id, name, grade_level FROM child ORDER BY name").fetchall()
+    conn.close()
+    return render_template("qb_test_create.html", children=[dict(c) for c in children],
+                           selected_child_id=request.args.get("child_id", type=int),
+                           sections=qb.SECTIONS, track_labels=qb.TRACK_LABELS, grades=qb.GRADES)
+
+
+def _qb_child_and_test(child_id, test_id):
+    if not _qb_can_access_child(child_id):
+        return None, None, ("Access denied", 403)
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    test = conn.execute("SELECT * FROM qb_test WHERE id = ? AND child_id = ?", (test_id, child_id)).fetchone()
+    conn.close()
+    if not child or not test:
+        return None, None, ("Not found", 404)
+    return dict(child), dict(test), None
+
+
+@app.route("/child/<int:child_id>/qb-test/<int:test_id>")
+@login_required
+def qb_take_test_page(child_id, test_id):
+    child, test, err = _qb_child_and_test(child_id, test_id)
+    if err:
+        return err
+    if test["status"] == "completed":
+        return redirect(f"/child/{child_id}/qb-test/{test_id}/review")
+    return render_template("qb_test.html", child=child, test=test,
+                           track_label=qb.TRACK_LABELS.get(test["track"], test["track"]))
+
+
+@app.route("/child/<int:child_id>/qb-test/<int:test_id>/review")
+@login_required
+def qb_review_test_page(child_id, test_id):
+    child, test, err = _qb_child_and_test(child_id, test_id)
+    if err:
+        return err
+    return render_template("qb_test_review.html", child=child, test=test,
+                           track_label=qb.TRACK_LABELS.get(test["track"], test["track"]))
+
+
+@app.route("/child/<int:child_id>/qb-history")
+@login_required
+def qb_history_page(child_id):
+    if not _qb_can_access_child(child_id):
+        return "Access denied", 403
+    conn = get_db()
+    child = conn.execute("SELECT * FROM child WHERE id = ?", (child_id,)).fetchone()
+    conn.close()
+    if not child:
+        return "Not found", 404
+    return render_template("qb_history.html", child=dict(child), track_labels=qb.TRACK_LABELS)
+
+
+# ── API token (Settings) ──
+
+@app.route("/api/question-bank/token", methods=["POST"])
+@parent_required
+def qb_generate_token():
+    """Generate / rotate the API token. The plain token is returned once; only its hash is stored."""
+    token = "kv_" + secrets.token_urlsafe(32)
+    conn = get_db()
+    for key, value in (("qb_api_token_hash", hashlib.sha256(token.encode()).hexdigest()),
+                       ("qb_api_token_hint", token[-4:])):
+        conn.execute(
+            "INSERT INTO site_config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP",
+            (key, value),
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({"token": token})
+
+
+# ── Questions ──
+
+@app.route("/api/question-bank/questions", methods=["POST"])
+@parent_or_token_required
+def qb_create_question():
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    key = _qb_idem_key("question")
+    existing_id = _qb_idem_lookup(conn, key)
+    if existing_id:
+        row = _qb_get_question(conn, existing_id)
+        conn.close()
+        return jsonify({"id": existing_id, "duplicate_request": True, "question": qb.question_to_dict(row)}), 200
+    try:
+        v = qb.validate_question(data)
+    except qb.QBValidationError as e:
+        conn.close()
+        return jsonify({"error": str(e)}), 400
+    if v["passage_id"] and not conn.execute("SELECT 1 FROM qb_passage WHERE id = ?", (v["passage_id"],)).fetchone():
+        conn.close()
+        return jsonify({"error": "passage_id not found"}), 400
+    cols = list(v.keys())
+    try:
+        cur = conn.execute(
+            f"INSERT INTO qb_question ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})",
+            [v[c] for c in cols],
+        )
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"error": "source_ref already exists"}), 409
+    qid = cur.lastrowid
+    _qb_idem_store(conn, key, "question", qid)
+    conn.commit()
+    conn.close()
+    return jsonify({"id": qid}), 201
+
+
+@app.route("/api/question-bank/questions/<int:question_id>", methods=["GET"])
+@parent_or_token_required
+def qb_get_question(question_id):
+    conn = get_db()
+    row = _qb_get_question(conn, question_id)
+    conn.close()
+    if not row:
+        return jsonify({"error": "Question not found"}), 404
+    return jsonify(qb.question_to_dict(row))
+
+
+@app.route("/api/question-bank/questions/<int:question_id>", methods=["PUT"])
+@parent_or_token_required
+def qb_update_question(question_id):
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    row = _qb_get_question(conn, question_id)
+    if not row:
+        conn.close()
+        return jsonify({"error": "Question not found"}), 404
+    data.pop("source_ref", None)
+    try:
+        v = qb.validate_question(data, existing=dict(row))
+    except qb.QBValidationError as e:
+        conn.close()
+        return jsonify({"error": str(e)}), 400
+    v.pop("source_ref", None)
+    sets = ", ".join(f"{c} = ?" for c in v)
+    conn.execute(f"UPDATE qb_question SET {sets}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                 [*v.values(), question_id])
+    conn.commit()
+    row = _qb_get_question(conn, question_id)
+    conn.close()
+    return jsonify(qb.question_to_dict(row))
+
+
+@app.route("/api/question-bank/questions/<int:question_id>", methods=["DELETE"])
+@parent_or_token_required
+def qb_archive_question(question_id):
+    """Soft delete (status=archived) so test history stays intact."""
+    conn = get_db()
+    cur = conn.execute("UPDATE qb_question SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                       (question_id,))
+    conn.commit()
+    conn.close()
+    if cur.rowcount == 0:
+        return jsonify({"error": "Question not found"}), 404
+    return jsonify({"id": question_id, "status": "archived"})
+
+
+@app.route("/api/question-bank/questions/<int:question_id>/image", methods=["POST"])
+@parent_or_token_required
+def qb_upload_question_image(question_id):
+    file = request.files.get("image")
+    if not file or not file.filename:
+        return jsonify({"error": "No image provided (multipart field 'image')"}), 400
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in QB_IMAGE_EXTS:
+        return jsonify({"error": f"Unsupported image type {ext}"}), 400
+    conn = get_db()
+    row = _qb_get_question(conn, question_id)
+    if not row:
+        conn.close()
+        return jsonify({"error": "Question not found"}), 404
+    filename = f"qb_{question_id}_{int(time.time())}_{secure_filename(file.filename)}"
+    file.save(os.path.join(UPLOAD_FOLDER, filename))
+    old = row["image_path"]
+    conn.execute("UPDATE qb_question SET image_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                 (filename, question_id))
+    conn.commit()
+    conn.close()
+    if old and old != filename:
+        old_path = os.path.join(UPLOAD_FOLDER, old)
+        if os.path.exists(old_path):
+            os.remove(old_path)
+    return jsonify({"image_path": filename})
+
+
+@app.route("/api/question-bank/questions/<int:question_id>/image", methods=["DELETE"])
+@parent_or_token_required
+def qb_delete_question_image(question_id):
+    conn = get_db()
+    row = _qb_get_question(conn, question_id)
+    if not row:
+        conn.close()
+        return jsonify({"error": "Question not found"}), 404
+    if row["image_path"]:
+        path = os.path.join(UPLOAD_FOLDER, row["image_path"])
+        if os.path.exists(path):
+            os.remove(path)
+        conn.execute("UPDATE qb_question SET image_path = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                     (question_id,))
+        conn.commit()
+    conn.close()
+    return "", 204
+
+
+@app.route("/api/question-bank", methods=["GET"])
+@parent_or_token_required
+def qb_list_questions():
+    track = request.args.get("track")
+    grade = request.args.get("grade", type=int)
+    section = request.args.get("section")
+    qtype = request.args.get("qtype")
+    status = request.args.get("status", "active")
+    child_id = request.args.get("child_id", type=int)
+    mastery = request.args.get("mastery")
+    search = (request.args.get("q") or "").strip()
+    page = max(1, request.args.get("page", 1, type=int))
+    per_page = min(200, max(1, request.args.get("per_page", 50, type=int)))
+    if mastery and not child_id:
+        return jsonify({"error": "mastery filter needs child_id"}), 400
+
+    sql = """SELECT q.*, p.correct_count AS m_correct, p.wrong_count AS m_wrong,
+                    p.last_tested AS m_last_tested, p.last_correct_at AS m_last_correct_at
+             FROM qb_question q
+             LEFT JOIN qb_question_progress p ON p.question_id = q.id AND p.child_id = ?
+             WHERE 1 = 1"""
+    params = [child_id or 0]
+    for col, val in (("track", track), ("grade", grade), ("section", section), ("qtype", qtype)):
+        if val:
+            sql += f" AND q.{col} = ?"
+            params.append(val)
+    if status != "all":
+        sql += " AND q.status = ?"
+        params.append(status)
+    if search:
+        sql += " AND (q.stem LIKE ? OR q.explanation LIKE ? OR q.source_ref LIKE ?)"
+        params += [f"%{search}%"] * 3
+    sql += " ORDER BY q.track, q.grade, q.section, q.passage_id, q.passage_order, q.id"
+
+    conn = get_db()
+    rows = conn.execute(sql, params).fetchall()
+    passage_ids = {r["passage_id"] for r in rows if r["passage_id"]}
+    passages = {}
+    if passage_ids:
+        for p in conn.execute(f"SELECT * FROM qb_passage WHERE id IN ({','.join('?' * len(passage_ids))})",
+                              list(passage_ids)).fetchall():
+            passages[p["id"]] = dict(p)
+    conn.close()
+
+    items = []
+    for r in rows:
+        d = qb.question_to_dict(r)
+        prog = None
+        if child_id and r["m_correct"] is not None:
+            prog = {"correct_count": r["m_correct"], "wrong_count": r["m_wrong"],
+                    "last_correct_at": r["m_last_correct_at"]}
+        for k in ("m_correct", "m_wrong", "m_last_tested", "m_last_correct_at"):
+            d.pop(k, None)
+        if child_id:
+            d["mastery"] = qb.mastery_bucket(prog)
+            d["progress"] = {**prog, "last_tested": r["m_last_tested"]} if prog else None
+            if mastery and d["mastery"] != mastery:
+                continue
+        items.append(d)
+    total = len(items)
+    start = (page - 1) * per_page
+    page_items = items[start:start + per_page]
+    used_passages = {q["passage_id"] for q in page_items if q["passage_id"]}
+    return jsonify({
+        "total": total, "page": page, "per_page": per_page, "questions": page_items,
+        "passages": {str(k): v for k, v in passages.items() if k in used_passages},
+    })
+
+
+@app.route("/api/question-bank/sections", methods=["GET"])
+@parent_or_token_required
+def qb_sections():
+    """Known sections per track plus active-question counts per grade (and any extra sections in the DB)."""
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT track, section, grade, COUNT(*) AS n FROM qb_question
+           WHERE status = 'active' GROUP BY track, section, grade"""
+    ).fetchall()
+    conn.close()
+    counts = {}
+    for r in rows:
+        counts.setdefault((r["track"], r["section"]), {})[str(r["grade"])] = r["n"]
+    result = {}
+    for track in qb.TRACKS:
+        known = [s for s, _, _ in qb.SECTIONS[track]]
+        extra = sorted({s for (t, s) in counts if t == track and s not in known})
+        result[track] = [
+            {"section": s, "label": _qb_section_label(track, s),
+             "group": next((g for k, _, g in qb.SECTIONS[track] if k == s), "Other"),
+             "counts": counts.get((track, s), {})}
+            for s in known + extra
+        ]
+    return jsonify({"tracks": result, "track_labels": qb.TRACK_LABELS})
+
+
+@app.route("/api/question-bank/pool", methods=["GET"])
+@parent_or_token_required
+def qb_pool_preview():
+    """Mastery bucket counts available for a test filter (used by the test builder)."""
+    child_id = request.args.get("child_id", type=int)
+    track = request.args.get("track")
+    grade = request.args.get("grade", type=int)
+    section = request.args.get("section") or None
+    if not child_id or track not in qb.TRACKS or grade not in qb.GRADES:
+        return jsonify({"error": "child_id, track and grade are required"}), 400
+    conn = get_db()
+    pool = qb.load_pool(conn, child_id, track, grade, section)
+    conn.close()
+    return jsonify(qb.bucket_counts(pool))
+
+
+@app.route("/api/question-bank/export", methods=["GET"])
+@parent_or_token_required
+def qb_export():
+    track = request.args.get("track")
+    conn = get_db()
+    qsql, psql, params = "SELECT * FROM qb_question", "SELECT * FROM qb_passage", []
+    if track:
+        qsql += " WHERE track = ?"
+        psql += " WHERE track = ?"
+        params = [track]
+    questions = [qb.question_to_dict(r) for r in conn.execute(qsql + " ORDER BY id", params).fetchall()]
+    passages = [dict(r) for r in conn.execute(psql + " ORDER BY id", params).fetchall()]
+    conn.close()
+    payload = {"exported_at": datetime.now().isoformat(timespec="seconds"),
+               "note": "Original practice questions. Not affiliated with or endorsed by the publishers of CogAT or i-Ready.",
+               "passages": passages, "questions": questions}
+    resp = jsonify(payload)
+    resp.headers["Content-Disposition"] = f"attachment; filename=question_bank_{datetime.now():%Y%m%d}.json"
+    return resp
+
+
+# ── Passages ──
+
+def _qb_validate_passage(data, existing=None):
+    merged = {**(existing or {}), **{k: v for k, v in data.items() if v is not None}}
+    if merged.get("track") not in qb.TRACKS:
+        raise qb.QBValidationError(f"track must be one of {list(qb.TRACKS)}")
+    try:
+        grade = int(merged.get("grade"))
+    except (TypeError, ValueError):
+        grade = None
+    if grade not in qb.GRADES:
+        raise qb.QBValidationError(f"grade must be one of {list(qb.GRADES)}")
+    section = (merged.get("section") or "").strip().lower()
+    body = (merged.get("body") or "").strip()
+    if not section or not body:
+        raise qb.QBValidationError("section and body are required")
+    return {"track": merged["track"], "grade": grade, "section": section,
+            "title": (merged.get("title") or "").strip() or None, "body": body}
+
+
+@app.route("/api/question-bank/passages", methods=["POST"])
+@parent_or_token_required
+def qb_create_passage():
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    key = _qb_idem_key("passage")
+    existing_id = _qb_idem_lookup(conn, key)
+    if existing_id:
+        conn.close()
+        return jsonify({"id": existing_id, "duplicate_request": True}), 200
+    try:
+        v = _qb_validate_passage(data)
+    except qb.QBValidationError as e:
+        conn.close()
+        return jsonify({"error": str(e)}), 400
+    cur = conn.execute("INSERT INTO qb_passage (track, grade, section, title, body) VALUES (?, ?, ?, ?, ?)",
+                       (v["track"], v["grade"], v["section"], v["title"], v["body"]))
+    pid = cur.lastrowid
+    _qb_idem_store(conn, key, "passage", pid)
+    conn.commit()
+    conn.close()
+    return jsonify({"id": pid}), 201
+
+
+@app.route("/api/question-bank/passages", methods=["GET"])
+@parent_or_token_required
+def qb_list_passages():
+    sql, params = "SELECT * FROM qb_passage WHERE 1 = 1", []
+    for col in ("track", "grade", "section"):
+        val = request.args.get(col)
+        if val:
+            sql += f" AND {col} = ?"
+            params.append(val)
+    conn = get_db()
+    rows = conn.execute(sql + " ORDER BY id DESC", params).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["question_count"] = conn.execute(
+            "SELECT COUNT(*) FROM qb_question WHERE passage_id = ? AND status = 'active'", (r["id"],)
+        ).fetchone()[0]
+        result.append(d)
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/question-bank/passages/<int:passage_id>", methods=["GET"])
+@parent_or_token_required
+def qb_get_passage(passage_id):
+    conn = get_db()
+    p = conn.execute("SELECT * FROM qb_passage WHERE id = ?", (passage_id,)).fetchone()
+    if not p:
+        conn.close()
+        return jsonify({"error": "Passage not found"}), 404
+    qs = conn.execute("SELECT * FROM qb_question WHERE passage_id = ? ORDER BY passage_order, id",
+                      (passage_id,)).fetchall()
+    conn.close()
+    return jsonify({**dict(p), "questions": [qb.question_to_dict(q) for q in qs]})
+
+
+@app.route("/api/question-bank/passages/<int:passage_id>", methods=["PUT"])
+@parent_or_token_required
+def qb_update_passage(passage_id):
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    p = conn.execute("SELECT * FROM qb_passage WHERE id = ?", (passage_id,)).fetchone()
+    if not p:
+        conn.close()
+        return jsonify({"error": "Passage not found"}), 404
+    try:
+        v = _qb_validate_passage(data, existing=dict(p))
+    except qb.QBValidationError as e:
+        conn.close()
+        return jsonify({"error": str(e)}), 400
+    conn.execute("UPDATE qb_passage SET track = ?, grade = ?, section = ?, title = ?, body = ? WHERE id = ?",
+                 (v["track"], v["grade"], v["section"], v["title"], v["body"], passage_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"id": passage_id, **v})
+
+
+@app.route("/api/question-bank/passages/<int:passage_id>", methods=["DELETE"])
+@parent_or_token_required
+def qb_delete_passage(passage_id):
+    conn = get_db()
+    n = conn.execute("SELECT COUNT(*) FROM qb_question WHERE passage_id = ? AND status = 'active'",
+                     (passage_id,)).fetchone()[0]
+    if n:
+        conn.close()
+        return jsonify({"error": f"Passage still has {n} active question(s); archive them first"}), 409
+    cur = conn.execute("DELETE FROM qb_passage WHERE id = ?", (passage_id,))
+    conn.commit()
+    conn.close()
+    if cur.rowcount == 0:
+        return jsonify({"error": "Passage not found"}), 404
+    return "", 204
+
+
+# ── Tests ──
+
+@app.route("/api/qb-tests", methods=["POST"])
+@parent_or_token_required
+def qb_create_test():
+    data = request.get_json(silent=True) or {}
+    child_id = data.get("child_id")
+    track = data.get("track")
+    section = (data.get("section") or "").strip().lower() or None
+    try:
+        grade = int(data.get("grade"))
+        count = int(data.get("count", 10))
+    except (TypeError, ValueError):
+        return jsonify({"error": "grade and count must be integers"}), 400
+    if track not in qb.TRACKS or grade not in qb.GRADES:
+        return jsonify({"error": f"track must be one of {list(qb.TRACKS)}, grade one of {list(qb.GRADES)}"}), 400
+    if not 1 <= count <= 100:
+        return jsonify({"error": "count must be 1-100"}), 400
+    try:
+        mix = qb.parse_mix(data.get("mastery_mix"))
+    except qb.QBValidationError as e:
+        return jsonify({"error": str(e)}), 400
+
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM child WHERE id = ?", (child_id,)).fetchone():
+        conn.close()
+        return jsonify({"error": "child not found"}), 404
+    key = _qb_idem_key("test")
+    existing_id = _qb_idem_lookup(conn, key)
+    if existing_id:
+        ids = [r["question_id"] for r in conn.execute(
+            "SELECT question_id FROM qb_test_question WHERE test_id = ? ORDER BY position", (existing_id,))]
+        conn.close()
+        return jsonify({"id": existing_id, "question_ids": ids, "shortfall": 0, "duplicate_request": True}), 200
+
+    pool = qb.load_pool(conn, child_id, track, grade, section)
+    question_ids, shortfall = qb.assemble_test(pool, count, mix)
+    if not question_ids:
+        conn.close()
+        return jsonify({"error": "No eligible questions (all mastered or bank empty)",
+                        "pool": qb.bucket_counts(pool)}), 409
+
+    title = (data.get("title") or "").strip()
+    if not title:
+        title = f"{qb.TRACK_LABELS[track]} · Grade {grade}"
+        if section:
+            title += f" · {_qb_section_label(track, section)}"
+    cur = conn.execute("INSERT INTO qb_test (child_id, track, grade, section, title) VALUES (?, ?, ?, ?, ?)",
+                       (child_id, track, grade, section, title))
+    test_id = cur.lastrowid
+    for pos, qid in enumerate(question_ids):
+        conn.execute("INSERT INTO qb_test_question (test_id, question_id, position) VALUES (?, ?, ?)",
+                     (test_id, qid, pos))
+    _qb_idem_store(conn, key, "test", test_id)
+    conn.commit()
+    conn.close()
+    return jsonify({"id": test_id, "title": title, "question_ids": question_ids, "shortfall": shortfall}), 201
+
+
+def _qb_load_test(conn, test_id):
+    test = conn.execute("SELECT * FROM qb_test WHERE id = ?", (test_id,)).fetchone()
+    if not test:
+        return None, None, None, None
+    rows = conn.execute(
+        """SELECT q.* FROM qb_question q JOIN qb_test_question tq ON tq.question_id = q.id
+           WHERE tq.test_id = ? ORDER BY tq.position""", (test_id,)
+    ).fetchall()
+    answers = {r["question_id"]: dict(r) for r in conn.execute(
+        "SELECT * FROM qb_test_answer WHERE test_id = ?", (test_id,)).fetchall()}
+    pids = {r["passage_id"] for r in rows if r["passage_id"]}
+    passages = {}
+    if pids:
+        for p in conn.execute(f"SELECT id, title, body FROM qb_passage WHERE id IN ({','.join('?' * len(pids))})",
+                              list(pids)).fetchall():
+            passages[str(p["id"])] = dict(p)
+    return test, rows, answers, passages
+
+
+@app.route("/api/qb-tests/<int:test_id>", methods=["GET"])
+@login_required_json
+def qb_get_test(test_id):
+    """Answers/explanations are only revealed for questions already answered (or once completed)."""
+    conn = get_db()
+    test, rows, answers, passages = _qb_load_test(conn, test_id)
+    if not test:
+        conn.close()
+        return jsonify({"error": "Test not found"}), 404
+    if not _qb_can_access_child(test["child_id"]):
+        conn.close()
+        return jsonify({"error": "Access denied"}), 403
+    sub = conn.execute("SELECT * FROM qb_test_submission WHERE test_id = ?", (test_id,)).fetchone()
+    conn.close()
+    completed = test["status"] == "completed"
+    questions = []
+    for r in rows:
+        ans = answers.get(r["id"])
+        d = qb.question_to_dict(r, include_answer=completed or ans is not None or _qb_is_parent())
+        d["answer"] = {"choice": ans["choice"], "is_correct": bool(ans["is_correct"])} if ans else None
+        questions.append(d)
+    return jsonify({**dict(test), "questions": questions, "passages": passages,
+                    "submission": dict(sub) if sub else None,
+                    "track_label": qb.TRACK_LABELS.get(test["track"], test["track"]),
+                    "section_label": _qb_section_label(test["track"], test["section"]) if test["section"] else None})
+
+
+@app.route("/api/qb-tests/<int:test_id>/answer", methods=["POST"])
+@login_required_json
+def qb_answer_question(test_id):
+    """Record one answer (first answer is final) and return immediate feedback."""
+    data = request.get_json(silent=True) or {}
+    qid = data.get("question_id")
+    choice = str(data.get("choice", "")).strip()
+    conn = get_db()
+    test = conn.execute("SELECT * FROM qb_test WHERE id = ?", (test_id,)).fetchone()
+    if not test:
+        conn.close()
+        return jsonify({"error": "Test not found"}), 404
+    if not _qb_can_access_child(test["child_id"]):
+        conn.close()
+        return jsonify({"error": "Access denied"}), 403
+    if test["status"] == "completed":
+        conn.close()
+        return jsonify({"error": "Test already submitted"}), 409
+    q = conn.execute(
+        """SELECT q.* FROM qb_question q JOIN qb_test_question tq ON tq.question_id = q.id
+           WHERE tq.test_id = ? AND q.id = ?""", (test_id, qid)).fetchone()
+    if not q:
+        conn.close()
+        return jsonify({"error": "Question not in this test"}), 400
+    existing = conn.execute("SELECT * FROM qb_test_answer WHERE test_id = ? AND question_id = ?",
+                            (test_id, q["id"])).fetchone()
+    if existing:
+        choice, is_correct = existing["choice"], bool(existing["is_correct"])
+    else:
+        n_opts = len(json.loads(q["options"]))
+        if not choice.isdigit() or not 0 <= int(choice) < n_opts:
+            conn.close()
+            return jsonify({"error": "choice must be a valid option index"}), 400
+        is_correct = choice == q["correct_answer"]
+        conn.execute("INSERT INTO qb_test_answer (test_id, question_id, choice, is_correct) VALUES (?, ?, ?, ?)",
+                     (test_id, q["id"], choice, int(is_correct)))
+        conn.commit()
+    conn.close()
+    return jsonify({"question_id": q["id"], "choice": choice, "is_correct": is_correct,
+                    "correct_answer": q["correct_answer"], "explanation": q["explanation"],
+                    "already_answered": bool(existing)})
+
+
+@app.route("/api/qb-tests/<int:test_id>/submit", methods=["POST"])
+@login_required_json
+def qb_submit_test(test_id):
+    """Score from recorded answers; unanswered count as wrong. Idempotent: re-submit returns the stored result."""
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    test, rows, answers, _ = _qb_load_test(conn, test_id)
+    if not test:
+        conn.close()
+        return jsonify({"error": "Test not found"}), 404
+    if not _qb_can_access_child(test["child_id"]):
+        conn.close()
+        return jsonify({"error": "Access denied"}), 403
+    sub = conn.execute("SELECT * FROM qb_test_submission WHERE test_id = ?", (test_id,)).fetchone()
+    if sub:
+        conn.close()
+        return jsonify({**dict(sub), "already_submitted": True})
+
+    correct = 0
+    for r in rows:
+        ans = answers.get(r["id"])
+        is_correct = bool(ans and ans["is_correct"])
+        correct += is_correct
+        qb.update_progress(conn, test["child_id"], r["id"], is_correct)
+    total = len(rows)
+    score = round(correct * 100 / total) if total else 0
+    try:
+        time_taken = max(0, int(data.get("time_taken_seconds") or 0))
+    except (TypeError, ValueError):
+        time_taken = 0
+    conn.execute(
+        """INSERT INTO qb_test_submission (test_id, child_id, correct_count, total_count, score, time_taken_seconds)
+           VALUES (?, ?, ?, ?, ?, ?)""", (test_id, test["child_id"], correct, total, score, time_taken))
+    conn.execute("UPDATE qb_test SET status = 'completed' WHERE id = ?", (test_id,))
+    conn.commit()
+    sub = conn.execute("SELECT * FROM qb_test_submission WHERE test_id = ?", (test_id,)).fetchone()
+    conn.close()
+    return jsonify(dict(sub))
+
+
+@app.route("/api/qb-tests/<int:test_id>", methods=["DELETE"])
+@parent_or_token_required
+def qb_delete_test(test_id):
+    """Deleting a test does not roll back mastery progress already recorded."""
+    conn = get_db()
+    cur = conn.execute("DELETE FROM qb_test WHERE id = ?", (test_id,))
+    conn.execute("DELETE FROM qb_test_question WHERE test_id = ?", (test_id,))
+    conn.execute("DELETE FROM qb_test_answer WHERE test_id = ?", (test_id,))
+    conn.execute("DELETE FROM qb_test_submission WHERE test_id = ?", (test_id,))
+    conn.commit()
+    conn.close()
+    if cur.rowcount == 0:
+        return jsonify({"error": "Test not found"}), 404
+    return "", 204
+
+
+@app.route("/api/children/<int:child_id>/qb-test-history", methods=["GET"])
+@login_required_json
+def qb_test_history(child_id):
+    if not _qb_can_access_child(child_id):
+        return jsonify({"error": "Access denied"}), 403
+    track = request.args.get("track")
+    status = request.args.get("status")
+    sql = """SELECT t.*, s.correct_count, s.total_count, s.score, s.time_taken_seconds, s.submitted_at,
+                    (SELECT COUNT(*) FROM qb_test_question WHERE test_id = t.id) AS question_count,
+                    (SELECT COUNT(*) FROM qb_test_answer WHERE test_id = t.id) AS answered_count
+             FROM qb_test t LEFT JOIN qb_test_submission s ON s.test_id = t.id
+             WHERE t.child_id = ?"""
+    params = [child_id]
+    if track:
+        sql += " AND t.track = ?"
+        params.append(track)
+    if status:
+        sql += " AND t.status = ?"
+        params.append(status)
+    sql += " ORDER BY t.created_at DESC, t.id DESC"
+    conn = get_db()
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["track_label"] = qb.TRACK_LABELS.get(r["track"], r["track"])
+        d["section_label"] = _qb_section_label(r["track"], r["section"]) if r["section"] else "Mixed"
+        result.append(d)
+    return jsonify(result)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}Review - {{ test.title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .container { max-width: 860px; }
+    .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 10px; }
+    .track-pill { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; background: #ebf4ff; color: #5a67d8; }
+    .score-card { text-align: center; background: linear-gradient(135deg, #ebf4ff, #f0fff4); border-radius: 18px; padding: 22px; margin-bottom: 20px; }
+    .score-card .big { font-size: 52px; font-weight: 800; color: #667eea; }
+    .filter-row { display: flex; gap: 8px; margin-bottom: 14px; }
+    .filter-row button { padding: 6px 14px; border-radius: 16px; border: 2px solid #e2e8f0; background: white; cursor: pointer; font-size: 14px; }
+    .filter-row button.active { border-color: #667eea; background: #ebf4ff; color: #5a67d8; font-weight: 600; }
+    .r-card { background: #f7fafc; border-radius: 16px; padding: 18px; margin-bottom: 14px; border-left: 6px solid #cbd5e0; }
+    .r-card.right { border-left-color: #48bb78; }
+    .r-card.wrong { border-left-color: #f56565; }
+    .r-head { display: flex; justify-content: space-between; font-size: 14px; font-weight: 700; color: #a0aec0; margin-bottom: 6px; }
+    .qb-stem { font-size: 17px; color: #2d3748; line-height: 1.6; }
+    .opts { display: grid; gap: 8px; margin-top: 10px; }
+    .opts.has-svg { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+    .opt { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 2px solid #e2e8f0; border-radius: 10px; background: white; font-size: 16px; }
+    .opts.has-svg .opt { flex-direction: column; }
+    .opt .letter { font-weight: 800; color: #667eea; }
+    .opt.correct { border-color: #48bb78; background: #f0fff4; }
+    .opt.chosen-wrong { border-color: #f56565; background: #fff5f5; }
+    .tag { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; }
+    .explain { margin-top: 10px; background: #fffff0; border-radius: 10px; padding: 10px 14px; color: #4a5568; font-size: 15px; }
+    .qb-opt-svg { width: 70px; height: 70px; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% include "_qb_render.html" %}
+<div class="header-row">
+    <a href="/child/{{ child.id }}/qb-history" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Practice history</a>
+    <span class="track-pill">{{ track_label }} &middot; Grade {{ test.grade }}</span>
+</div>
+<h2 style="margin-bottom: 12px;">{{ test.title }}</h2>
+<div id="scoreArea"></div>
+<div class="filter-row" id="filterRow" style="display:none;">
+    <button class="active" data-f="all" onclick="setFilter('all')">All</button>
+    <button data-f="wrong" onclick="setFilter('wrong')">Missed</button>
+    <button data-f="right" onclick="setFilter('right')">Correct</button>
+</div>
+<div id="list"><div style="text-align:center; padding:40px; color:#666;">Loading...</div></div>
+{% include "_qb_disclaimer.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const testId = {{ test.id }};
+let data = null;
+let filter = 'all';
+
+async function load() {
+    const res = await fetch(`/api/qb-tests/${testId}`);
+    if (!res.ok) { document.getElementById('list').innerHTML = '<p>Could not load.</p>'; return; }
+    data = await res.json();
+    const s = data.submission;
+    document.getElementById('scoreArea').innerHTML = s
+        ? `<div class="score-card"><div class="big">${s.score}%</div>
+             <div>${s.correct_count} of ${s.total_count} correct${s.time_taken_seconds ? ` &middot; ${s.time_taken_seconds >= 60 ? Math.floor(s.time_taken_seconds / 60) + ' min ' : ''}${s.time_taken_seconds % 60} sec` : ''}</div>
+             <div style="color:#718096; font-size:13px; margin-top:4px;">${(s.submitted_at || '').slice(0, 16)}</div></div>`
+        : `<div class="score-card"><div>Not finished yet.</div>
+             <a class="btn btn-success" href="/child/${data.child_id}/qb-test/${testId}">Continue</a></div>`;
+    document.getElementById('filterRow').style.display = s ? 'flex' : 'none';
+    render();
+}
+
+function setFilter(f) {
+    filter = f;
+    document.querySelectorAll('#filterRow button').forEach(b => b.classList.toggle('active', b.dataset.f === f));
+    render();
+}
+
+function render() {
+    let lastPassage = null;
+    const html = data.questions.map((q, i) => {
+        const ans = q.answer;
+        const right = ans && ans.is_correct;
+        if (filter === 'wrong' && right) return '';
+        if (filter === 'right' && !right) return '';
+        let passageHtml = '';
+        if (q.passage_id && q.passage_id !== lastPassage) {
+            passageHtml = qbPassageHtml(data.passages[String(q.passage_id)]);
+            lastPassage = q.passage_id;
+        }
+        const hasSvg = q.options.some(o => o.svg);
+        const opts = q.options.map((o, oi) => {
+            let cls = '';
+            if (String(oi) === q.correct_answer) cls = 'correct';
+            else if (ans && String(oi) === ans.choice) cls = 'chosen-wrong';
+            const mark = ans && String(oi) === ans.choice ? ' <span class="tag" style="background:#e2e8f0;">your answer</span>' : '';
+            return `<div class="opt ${cls}"><span class="letter">${QB_LETTERS[oi]}</span>${qbOptionHtml(o)}${mark}</div>`;
+        }).join('');
+        const status = !ans ? '<span class="tag" style="background:#edf2f7;color:#718096;">skipped</span>'
+            : right ? '<span class="tag" style="background:#c6f6d5;color:#276749;">correct</span>'
+                    : '<span class="tag" style="background:#fed7d7;color:#9b2c2c;">missed</span>';
+        return `${passageHtml}<div class="r-card ${right ? 'right' : 'wrong'}">
+            <div class="r-head"><span>Question ${i + 1}</span>${status}</div>
+            ${qbStemHtml(q)}
+            <div class="opts ${hasSvg ? 'has-svg' : ''}">${opts}</div>
+            ${q.explanation ? `<div class="explain"><strong>Why:</strong> ${qbEsc(q.explanation)}</div>` : ''}
+        </div>`;
+    }).join('');
+    document.getElementById('list').innerHTML = html || '<p style="color:#999; text-align:center;">Nothing here.</p>';
+}
+
+load();
+</script>
+{% endblock %}

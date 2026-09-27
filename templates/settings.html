@@ -73,6 +73,24 @@
 </div>
 
 <div class="settings-section">
+    <h3>Question Bank API Token</h3>
+    <p style="color: #666; font-size: 14px; margin-bottom: 15px;">
+        Lets an assistant add CogAT-style / i-Ready-style practice questions and build tests via the API
+        (<code>Authorization: Bearer &lt;token&gt;</code>). The token is shown once; only a hash is stored. Generating a new one revokes the old one.
+    </p>
+    <div style="margin-bottom: 10px;">
+        <span class="key-status {{ 'configured' if qb_token_hint else 'missing' }}">
+            {{ 'Active: kv_...' + qb_token_hint if qb_token_hint else 'Not configured' }}
+        </span>
+    </div>
+    <button class="btn btn-warning" style="padding: 8px 20px;" onclick="generateQbToken()">{{ 'Rotate token' if qb_token_hint else 'Generate token' }}</button>
+    <div id="qb-token-out" style="display:none; margin-top: 12px;">
+        <div style="font-size: 13px; color: #c05621; margin-bottom: 4px;">Copy this now &mdash; it won't be shown again:</div>
+        <input type="text" id="qb-token-value" readonly style="font-family: monospace;" onclick="this.select()">
+    </div>
+</div>
+
+<div class="settings-section">
     <h3>Child Grade Levels</h3>
     <p style="color: #666; font-size: 14px; margin-bottom: 15px;">
         Set each child's grade level. This is used by AI features to adjust question complexity.
@@ -119,6 +137,15 @@ async function saveApiKey() {
     } else {
         alert('Failed to save API key');
     }
+}
+
+async function generateQbToken() {
+    if (!confirm('Generate a new API token? Any existing token stops working immediately.')) return;
+    const res = await fetch('/api/question-bank/token', { method: 'POST' });
+    if (!res.ok) { alert('Failed to generate token'); return; }
+    const data = await res.json();
+    document.getElementById('qb-token-value').value = data.token;
+    document.getElementById('qb-token-out').style.display = 'block';
 }
 
 async function saveGrade(childId) {

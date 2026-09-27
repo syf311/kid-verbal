@@ -1,6 +1,6 @@
 # Current State
 
-*Last updated: 2026-04-04*
+*Last updated: 2026-09-27*
 
 ## What's Built and Working
 
@@ -56,6 +56,16 @@
 - Category rollup statistics
 - Mastery filters + pagination
 
+### CogAT-style / i-Ready-style Practice (task_014, in progress)
+- Shared question bank (not per child) with two separate tracks (`cogat-style`, `iready-style`), grades 4/5/6, sections (9 CogAT-style + vocabulary/reading-comprehension)
+- Question types: text choice, figure (inline sanitized SVG in stem/options + optional photo), passage sets (shared passage + sub-questions)
+- Parent bank page (`/parent/question-bank`): filters incl. per-child mastery, add/edit modal with SVG preview + image upload, archive/restore, passage editor, JSON export
+- Mastery-based test builder (`/parent/qb-tests/new`): new → needs_work → due (7 days) buckets, default 50/30/20 mix, mastered excluded, passage sets picked whole, shortfall reported
+- Child test page with immediate per-question feedback (answers recorded server-side, first answer final), review page, practice history
+- API token (Settings) for an external assistant: `Authorization: Bearer`, hash stored; `Idempotency-Key` header on creates
+- Not in learning plans (v1). Seed import of the 113 existing questions pending source files
+- Disclaimer on every page: original practice questions, not affiliated with or endorsed by the publishers of CogAT/i-Ready
+
 ### Learning Plans
 - Bundle activities across subjects into daily plans
 - Supports all activity types: vocab study, vocab test, reading, math test, math bank test, writing test, science study, science test
@@ -90,6 +100,8 @@
 
 ## Recent Changes (latest commits)
 
+1. **Fix local login 500** — `start.sh` now uses Python 3.14; the Command Line Tools Python 3.9 (LibreSSL) lacks `hashlib.scrypt` and crashed verifying scrypt password hashes.
+1. **CogAT-style / i-Ready-style question bank & tests** (task_014, phases 1–3) — new `qb_*` tables, `qb_engine.py` (validation, SVG sanitizing, mastery, assembly), token-auth API under `/api/question-bank/...` and `/api/qb-tests/...`, parent bank + test builder pages, child test/review/history pages, dashboard + settings integration. Seed import pending.
 1. **Age-based RSS feeds** (task_013) — 13 curated RSS feeds (up from 4) with age_min/age_max filtering per child. Lang (age 10) sees 5 age-appropriate feeds, Qian (age 14) sees 9 feeds covering science, technology, engineering, health, business. Per-child "Imported" badge so same article can be imported for both kids with grade-appropriate AI questions. Dynamic source filter dropdown.
 1. **Fix verify status parsing** — Parse `Status: CORRECT|WRONG` line explicitly instead of searching for "WRONG" anywhere in AI response text, reducing false positives
 1. **Real progress bar & single fix UX** (task_012) — Verify sends questions in batches of 5 with real progress bar (%). Single Fix from verify results removes question from flagged list after save. New verify-batch and unverified-ids endpoints.

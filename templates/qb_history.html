@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}{{ child.name }} - Practice History{% endblock %}
+
+{% block extra_css %}
+<style>
+    .tabs { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+    .tabs button { padding: 8px 16px; border-radius: 18px; border: 2px solid #e2e8f0; background: white; cursor: pointer; font-size: 15px; }
+    .tabs button.active { border-color: #667eea; background: #ebf4ff; color: #5a67d8; font-weight: 600; }
+    .h-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .h-row .meta { font-size: 14px; color: #666; margin-top: 3px; }
+    .score { font-size: 22px; font-weight: 800; min-width: 64px; text-align: right; }
+    .pill { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: #ebf4ff; color: #5a67d8; }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="/child/{{ child.id }}" style="color: #667eea; text-decoration: none;">&larr; Back</a>
+<h1 style="margin-top: 10px;">{{ child.name }}'s Practice History</h1>
+<div class="tabs" id="tabs">
+    <button class="active" data-t="" onclick="setTrack('')">All</button>
+    {% for key, label in track_labels.items() %}
+    <button data-t="{{ key }}" onclick="setTrack('{{ key }}')">{{ label }}</button>
+    {% endfor %}
+</div>
+<div id="list"><div style="text-align:center; padding:40px; color:#666;">Loading...</div></div>
+{% include "_qb_disclaimer.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const childId = {{ child.id }};
+let track = '';
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+
+function setTrack(t) {
+    track = t;
+    document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.t === t));
+    load();
+}
+
+async function load() {
+    const res = await fetch(`/api/children/${childId}/qb-test-history${track ? `?track=${track}` : ''}`);
+    const rows = res.ok ? await res.json() : [];
+    const list = document.getElementById('list');
+    if (!rows.length) { list.innerHTML = '<p style="color:#999; text-align:center; padding:30px;">No practice tests yet.</p>'; return; }
+    list.innerHTML = rows.map(t => {
+        const done = t.status === 'completed';
+        const color = !done ? '#a0aec0' : t.score >= 80 ? '#38a169' : t.score >= 60 ? '#dd6b20' : '#e53e3e';
+        const href = done ? `/child/${childId}/qb-test/${t.id}/review` : `/child/${childId}/qb-test/${t.id}`;
+        return `<a class="card" href="${href}" style="display:block; text-decoration:none; color:inherit;">
+            <div class="h-row">
+                <div>
+                    <strong style="font-size:17px;">${esc(t.title)}</strong>
+                    <div class="meta"><span class="pill">${esc(t.track_label)}</span> Grade ${t.grade} &middot; ${esc(t.section_label)}
+                        &middot; ${t.question_count} questions &middot; ${(done ? t.submitted_at : t.created_at || '').slice(0, 10)}</div>
+                </div>
+                <div class="score" style="color:${color};">${done ? t.score + '%' : `${t.answered_count}/${t.question_count}`}</div>
+            </div></a>`;
+    }).join('');
+}
+
+load();
+</script>
+{% endblock %}
