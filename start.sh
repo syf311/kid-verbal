@@ -1,8 +1,9 @@
 #!/bin/bash
 # Start Kid Verbal server
 
-# Use the Python version with Flask installed
-PYTHON="/Library/Developer/CommandLineTools/usr/bin/python3"
+# Use Python 3.14 (see context/coding_rules.md). The Command Line Tools Python 3.9 is built
+# against LibreSSL without hashlib.scrypt, so it can't verify scrypt password hashes (login 500).
+PYTHON="/Library/Frameworks/Python.framework/Versions/3.14/bin/python3"
 
 # Check if the port is already in use
 if lsof -ti:5001 > /dev/null 2>&1; then
