@@ -100,6 +100,7 @@
 
 ## Recent Changes (latest commits)
 
+1. **Smaller practice figures** (task_014) — figure SVGs capped regardless of their own width attr: test page 64px per figure in a row / 200px for a single figure; bank 44px / 140px; photos max 240px tall.
 1. **Fix figure questions showing raw SVG code** (task_014) — stem, option text, explanation and passage body are now allow-list sanitized HTML (inline SVG + basic formatting) on write and on read, rendered as HTML; seeded rows with SVG in `stem`/option text display as figures. Plain-string options tolerated.
 1. **Fix local login 500** — `start.sh` now uses Python 3.14; the Command Line Tools Python 3.9 (LibreSSL) lacks `hashlib.scrypt` and crashed verifying scrypt password hashes.
 1. **CogAT-style / i-Ready-style question bank & tests** (task_014, phases 1–3) — new `qb_*` tables, `qb_engine.py` (validation, SVG sanitizing, mastery, assembly), token-auth API under `/api/question-bank/...` and `/api/qb-tests/...`, parent bank + test builder pages, child test/review/history pages, dashboard + settings integration. Seed import pending.
