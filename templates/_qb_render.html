@@ -1,7 +1,10 @@
 <style>
     .qb-svg svg { width: 100%; height: 100%; color: #2d3748; }
-    .qb-stem-svg { max-width: 200px; max-height: 180px; margin: 10px auto; }
-    .qb-stem-svg svg { width: 100%; height: auto; }
+    /* stem_svg may hold one figure or a row of figures */
+    .qb-stem-svg { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
+    .qb-stem-svg svg { width: 64px; height: 64px; flex: none; }
+    .qb-stem-svg.one-fig { justify-content: center; }
+    .qb-stem-svg.one-fig svg { width: 200px; height: auto; max-height: 180px; }
     .qb-opt-svg { width: 64px; height: 64px; display: inline-block; vertical-align: middle; }
     /* SVG embedded in rich text. CSS width overrides any width attr, so sizes are always capped. */
     .qb-rich svg { max-width: 100%; height: auto; color: #2d3748; vertical-align: middle; }
@@ -35,7 +38,10 @@ function qbStemHtml(q) {
         const figs = (q.stem.match(/<svg/gi) || []).length;
         html += `<div class="qb-stem qb-rich${figs === 1 ? ' one-fig' : ''}">${qbRich(q.stem)}</div>`;
     }
-    if (q.stem_svg) html += `<div class="qb-svg qb-stem-svg">${q.stem_svg}</div>`;
+    if (q.stem_svg) {
+        const figs = (q.stem_svg.match(/<svg/gi) || []).length;
+        html += `<div class="qb-svg qb-stem-svg${figs === 1 ? ' one-fig' : ''}">${q.stem_svg}</div>`;
+    }
     if (q.image_path) html += `<img class="qb-img" src="/uploads/${encodeURIComponent(q.image_path)}" alt="Question image">`;
     return html;
 }
