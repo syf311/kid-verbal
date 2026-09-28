@@ -100,6 +100,7 @@
 
 ## Recent Changes (latest commits)
 
+1. **Question source: AI generated vs human** (task_014) — new required `qb_question.source` (`ai_generated`|`human`); existing rows backfilled `ai_generated`; bank badge + filter + editor field; test builder can build from one source only; `source` filter on list/pool/test-create APIs; hidden from kids.
 1. **Fix stacked/overlapping figures in `stem_svg`** (task_014) — `stem_svg` holding several SVGs now lays them out in a row (64px test / 44px bank; single figure 200px / 140px) instead of each taking full width and spilling over the next card.
 1. **Smaller practice figures** (task_014) — figure SVGs capped regardless of their own width attr: test page 64px per figure in a row / 200px for a single figure; bank 44px / 140px; photos max 240px tall.
 1. **Fix figure questions showing raw SVG code** (task_014) — stem, option text, explanation and passage body are now allow-list sanitized HTML (inline SVG + basic formatting) on write and on read, rendered as HTML; seeded rows with SVG in `stem`/option text display as figures. Plain-string options tolerated.

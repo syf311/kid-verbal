@@ -50,6 +50,13 @@
         <select id="section" onchange="refreshPool()"></select>
     </div>
     <div>
+        <label>Question source</label>
+        <select id="source" onchange="refreshPool()">
+            <option value="">All (AI generated + human)</option>
+            {% for key, label in source_labels.items() %}<option value="{{ key }}">{{ label }} only</option>{% endfor %}
+        </select>
+    </div>
+    <div>
         <label>Number of questions</label>
         <input type="number" id="count" value="10" min="1" max="100">
     </div>
@@ -108,7 +115,8 @@ async function refreshPool() {
     const seq = ++poolSeq;
     const p = new URLSearchParams({
         child_id: document.getElementById('child').value, track: document.getElementById('track').value,
-        grade: document.getElementById('grade').value, section: document.getElementById('section').value });
+        grade: document.getElementById('grade').value, section: document.getElementById('section').value,
+        source: document.getElementById('source').value });
     const res = await fetch(`/api/question-bank/pool?${p}`);
     if (!res.ok || seq !== poolSeq) return;
     const counts = await res.json();
@@ -125,6 +133,7 @@ async function createTest() {
         body: JSON.stringify({
             child_id: parseInt(childId), track: document.getElementById('track').value,
             grade: parseInt(document.getElementById('grade').value), section: document.getElementById('section').value || null,
+            source: document.getElementById('source').value || null,
             count: parseInt(document.getElementById('count').value), title: document.getElementById('title').value,
             mastery_mix: { new: +document.getElementById('mix-new').value, needs_work: +document.getElementById('mix-needs_work').value,
                            due: +document.getElementById('mix-due').value } })

@@ -6077,7 +6077,7 @@ def qb_bank_page():
     children = conn.execute("SELECT id, name, grade_level FROM child ORDER BY name").fetchall()
     conn.close()
     return render_template("qb_bank.html", children=[dict(c) for c in children],
-                           sections=qb.SECTIONS, track_labels=qb.TRACK_LABELS, grades=qb.GRADES)
+                           source_labels=qb.SOURCE_LABELS, sections=qb.SECTIONS, track_labels=qb.TRACK_LABELS, grades=qb.GRADES)
 
 
 @app.route("/parent/qb-tests/new")
@@ -6088,6 +6088,7 @@ def qb_test_create_page():
     conn.close()
     return render_template("qb_test_create.html", children=[dict(c) for c in children],
                            selected_child_id=request.args.get("child_id", type=int),
+                           source_labels=qb.SOURCE_LABELS,
                            sections=qb.SECTIONS, track_labels=qb.TRACK_LABELS, grades=qb.GRADES)
 
 
@@ -6314,7 +6315,8 @@ def qb_list_questions():
              LEFT JOIN qb_question_progress p ON p.question_id = q.id AND p.child_id = ?
              WHERE 1 = 1"""
     params = [child_id or 0]
-    for col, val in (("track", track), ("grade", grade), ("section", section), ("qtype", qtype)):
+    for col, val in (("track", track), ("grade", grade), ("section", section), ("qtype", qtype),
+                     ("source", request.args.get("source"))):
         if val:
             sql += f" AND q.{col} = ?"
             params.append(val)
@@ -6395,10 +6397,13 @@ def qb_pool_preview():
     track = request.args.get("track")
     grade = request.args.get("grade", type=int)
     section = request.args.get("section") or None
+    source = request.args.get("source") or None
     if not child_id or track not in qb.TRACKS or grade not in qb.GRADES:
         return jsonify({"error": "child_id, track and grade are required"}), 400
+    if source and source not in qb.SOURCES:
+        return jsonify({"error": f"source must be one of {list(qb.SOURCES)}"}), 400
     conn = get_db()
-    pool = qb.load_pool(conn, child_id, track, grade, section)
+    pool = qb.load_pool(conn, child_id, track, grade, section, source)
     conn.close()
     return jsonify(qb.bucket_counts(pool))
 
@@ -6551,6 +6556,9 @@ def qb_create_test():
     child_id = data.get("child_id")
     track = data.get("track")
     section = (data.get("section") or "").strip().lower() or None
+    source = data.get("source") or None
+    if source and source not in qb.SOURCES:
+        return jsonify({"error": f"source must be one of {list(qb.SOURCES)} (omit for all)"}), 400
     try:
         grade = int(data.get("grade"))
         count = int(data.get("count", 10))
@@ -6577,7 +6585,7 @@ def qb_create_test():
         conn.close()
         return jsonify({"id": existing_id, "question_ids": ids, "shortfall": 0, "duplicate_request": True}), 200
 
-    pool = qb.load_pool(conn, child_id, track, grade, section)
+    pool = qb.load_pool(conn, child_id, track, grade, section, source)
     question_ids, shortfall = qb.assemble_test(pool, count, mix)
     if not question_ids:
         conn.close()
@@ -6639,6 +6647,8 @@ def qb_get_test(test_id):
     for r in rows:
         ans = answers.get(r["id"])
         d = qb.question_to_dict(r, include_answer=completed or ans is not None or _qb_is_parent())
+        if not _qb_is_parent():
+            d.pop("source", None)
         d["answer"] = {"choice": ans["choice"], "is_correct": bool(ans["is_correct"])} if ans else None
         questions.append(d)
     return jsonify({**dict(test), "questions": questions, "passages": passages,

@@ -17,6 +17,7 @@
 | D7 | Default test mix 50% new / 30% needs_work / 20% due |
 | D8 | Answers recorded per question via `POST /api/qb-tests/{id}/answer` (first answer final) so the child gets immediate feedback without the test GET leaking answers; submit scores from recorded answers |
 | D9 | Only the SHA-256 hash of the API token is stored (`site_config.qb_api_token_hash`, plus last-4 hint) |
+| D11 | Every question has a required `source`: `ai_generated` or `human` (where the question came from). Pre-existing rows backfilled as `ai_generated` (Milo's originals). Shown as bank badge/filter and test-builder filter; hidden from kids |
 | D10 | Routes stay in `app.py` per coding rules; pure logic lives in `qb_engine.py` (like `test_engine.py`) |
 
 ## Naming & compliance (hard rule)
@@ -33,6 +34,7 @@ qb_question       id, track, grade, section, qtype ('text-choice'|'figure-image'
                   passage_id → qb_passage, passage_order, difficulty (1–5), tags (JSON),
                   created_by ('milo'|'parent'|'seed'), answer_source ('milo'|'parent'|'seed'),
                   source_ref (seed id e.g. 'g5-va-1', UNIQUE when not null),
+                  source ('ai_generated'|'human', required on create),
                   status ('active'|'archived'), created_at, updated_at
 qb_question_progress  child_id, question_id, correct_count, wrong_count,
                       last_tested, last_correct_at    UNIQUE(child_id, question_id)

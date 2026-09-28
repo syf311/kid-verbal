@@ -11,6 +11,8 @@ from bs4 import BeautifulSoup
 TRACKS = ("cogat-style", "iready-style")
 GRADES = (4, 5, 6)
 QTYPES = ("text-choice", "figure-image", "passage-set")
+SOURCES = ("ai_generated", "human")  # where the question itself came from
+SOURCE_LABELS = {"ai_generated": "AI generated", "human": "Human"}
 
 # Known sections per track (display order). Unknown sections are allowed so new ones can be added later.
 SECTIONS = {
@@ -197,6 +199,10 @@ def validate_question(data, existing=None):
             raise QBValidationError(f"{field} must be one of {list(allowed)}")
         out[field] = val
 
+    if merged.get("source") not in SOURCES:
+        raise QBValidationError(f"source is required: one of {list(SOURCES)}")
+    out["source"] = merged["source"]
+
     status = merged.get("status") or "active"
     if status not in ("active", "archived"):
         raise QBValidationError("status must be active or archived")
@@ -270,7 +276,7 @@ def update_progress(conn, child_id, question_id, is_correct):
         )
 
 
-def load_pool(conn, child_id, track, grade, section=None):
+def load_pool(conn, child_id, track, grade, section=None, source=None):
     """Active questions for a filter, each annotated with its mastery bucket for child_id."""
     sql = """SELECT q.id, q.passage_id, q.passage_order,
                     p.correct_count, p.wrong_count, p.last_tested, p.last_correct_at
@@ -281,6 +287,9 @@ def load_pool(conn, child_id, track, grade, section=None):
     if section:
         sql += " AND q.section = ?"
         params.append(section)
+    if source:
+        sql += " AND q.source = ?"
+        params.append(source)
     rows = conn.execute(sql, params).fetchall()
     now = datetime.now()
     pool = []

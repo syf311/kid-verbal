@@ -15,6 +15,9 @@
     .q-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; font-size: 12px; }
     .tag { font-weight: 700; padding: 2px 8px; border-radius: 10px; background: #edf2f7; color: #4a5568; }
     .tag.track { background: #ebf4ff; color: #5a67d8; }
+    .tag.src-ai_generated { background: #faf5ff; color: #6b46c1; border: 1px solid #d6bcfa; }
+    .tag.src-human { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
+    .tag.src-missing { background: #fff5f5; color: #c53030; }
     .tag.m-new { background: #ebf4ff; color: #5a67d8; } .tag.m-needs_work { background: #fed7d7; color: #9b2c2c; }
     .tag.m-due { background: #feebc8; color: #9c4221; } .tag.m-mastered { background: #c6f6d5; color: #276749; }
     .q-actions { margin-left: auto; display: flex; gap: 6px; }
@@ -83,6 +86,10 @@
         <option value="">All types</option><option value="text-choice">Text choice</option>
         <option value="figure-image">Figure / image</option><option value="passage-set">Passage set</option>
     </select>
+    <select id="f-source" onchange="reload()">
+        <option value="">Any source</option>
+        {% for key, label in source_labels.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+    </select>
     <select id="f-status" onchange="reload()"><option value="active">Active</option><option value="archived">Archived</option><option value="all">All</option></select>
     <select id="f-child" onchange="onFilterChild()">
         <option value="">Mastery for&hellip;</option>
@@ -111,6 +118,9 @@
         <div><label>Type</label><select id="e-qtype" onchange="onQtype()">
             <option value="text-choice">Text choice</option><option value="figure-image">Figure / image</option><option value="passage-set">Passage set</option></select></div>
         <div><label>Difficulty (1-5)</label><select id="e-difficulty">{% for d in range(1, 6) %}<option value="{{ d }}" {% if d == 3 %}selected{% endif %}>{{ d }}</option>{% endfor %}</select></div>
+        <div><label>Question source *</label><select id="e-source">
+            <option value="">Select...</option>
+            {% for key, label in source_labels.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
         <div><label>Answer source</label><select id="e-answer_source"><option value="parent">parent</option><option value="milo">milo</option><option value="seed">seed</option></select></div>
         <div class="span2"><label>Tags (comma separated)</label><input type="text" id="e-tags"></div>
     </div>
@@ -164,6 +174,7 @@
 <script>
 const SECTIONS = {{ sections|tojson }};
 const TRACK_LABELS = {{ track_labels|tojson }};
+const SOURCE_LABELS = {{ source_labels|tojson }};
 let page = 1;
 let loadSeq = 0;
 let current = [];      // questions on the page
@@ -196,7 +207,7 @@ function reload() { page = 1; load(); }
 
 async function load() {
     const p = new URLSearchParams({ page, per_page: 30 });
-    for (const k of ['track', 'grade', 'section', 'qtype', 'status', 'mastery', 'q']) {
+    for (const k of ['track', 'grade', 'section', 'qtype', 'source', 'status', 'mastery', 'q']) {
         const v = document.getElementById('f-' + k).value; if (v) p.set(k, v);
     }
     const child = document.getElementById('f-child').value; if (child) p.set('child_id', child);
@@ -215,7 +226,8 @@ async function load() {
         const m = q.mastery ? `<span class="tag m-${q.mastery}">${q.mastery.replace('_', ' ')}${q.progress ? ` ${q.progress.correct_count}✓ ${q.progress.wrong_count}✗` : ''}</span>` : '';
         return `${ph}<div class="q-card ${q.status}">
             <div class="q-meta">
-                <span class="tag track">${qbEsc(TRACK_LABELS[q.track])}</span><span class="tag">G${q.grade}</span>
+                <span class="tag track">${qbEsc(TRACK_LABELS[q.track])}</span>
+                <span class="tag src-${q.source || 'missing'}">${qbEsc(SOURCE_LABELS[q.source] || 'no source')}</span><span class="tag">G${q.grade}</span>
                 <span class="tag">${qbEsc(sectionLabel(q.track, q.section))}</span><span class="tag">D${q.difficulty}</span>
                 <span class="tag">#${q.id}${q.source_ref ? ' · ' + qbEsc(q.source_ref) : ''}</span>
                 <span class="tag">by ${qbEsc(q.created_by)} / ans ${qbEsc(q.answer_source)}</span>${m}
@@ -257,6 +269,7 @@ function openEditor(id) {
     document.getElementById('e-track').value = q.track;
     fillSectionSelect('e-section', q.track, false);
     for (const k of ['grade', 'qtype', 'difficulty', 'answer_source']) document.getElementById('e-' + k).value = q[k];
+    document.getElementById('e-source').value = q.source || '';
     if (q.section) {
         const sel = document.getElementById('e-section');
         if (![...sel.options].some(o => o.value === q.section)) sel.insertAdjacentHTML('beforeend', `<option value="${qbEsc(q.section)}">${qbEsc(q.section)}</option>`);
@@ -336,6 +349,7 @@ async function saveQuestion() {
         options: optsState.map(o => ({ text: o.text, svg: o.svg })), correct_answer: String(correctIdx),
         explanation: document.getElementById('e-explanation').value, difficulty: +document.getElementById('e-difficulty').value,
         answer_source: document.getElementById('e-answer_source').value,
+        source: document.getElementById('e-source').value || null,
         tags: document.getElementById('e-tags').value.split(',').map(s => s.trim()).filter(Boolean),
         passage_id: qtype === 'passage-set' ? (document.getElementById('e-passage').value || null) : null,
         passage_order: +document.getElementById('e-passage_order').value,

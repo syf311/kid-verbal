@@ -636,6 +636,7 @@ def init_question_bank_tables(conn):
             created_by TEXT DEFAULT 'parent',
             answer_source TEXT DEFAULT 'parent',
             source_ref TEXT UNIQUE,
+            source TEXT,
             status TEXT DEFAULT 'active',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -708,6 +709,16 @@ def init_question_bank_tables(conn):
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
     """)
+    conn.commit()
+
+    # Migration: question source (ai_generated | human). Everything created before this column
+    # existed was written by Milo (AI), so backfill those rows as ai_generated.
+    try:
+        conn.execute("ALTER TABLE qb_question ADD COLUMN source TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+    conn.execute("UPDATE qb_question SET source = 'ai_generated' WHERE source IS NULL")
     conn.commit()
 
 
