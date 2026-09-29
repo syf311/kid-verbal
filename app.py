@@ -6090,7 +6090,8 @@ def qb_bank_page():
     children = conn.execute("SELECT id, name, grade_level FROM child ORDER BY name").fetchall()
     conn.close()
     return render_template("qb_bank.html", children=[dict(c) for c in children],
-                           source_labels=qb.SOURCE_LABELS, sections=_qb_sections_with_db(), track_labels=qb.TRACK_LABELS, grades=qb.GRADES)
+                           source_labels=qb.SOURCE_LABELS, mastery_labels=qb.MASTERY_LABELS,
+                           sections=_qb_sections_with_db(), track_labels=qb.TRACK_LABELS, grades=qb.GRADES)
 
 
 @app.route("/parent/qb-tests/new")
@@ -6101,7 +6102,7 @@ def qb_test_create_page():
     conn.close()
     return render_template("qb_test_create.html", children=[dict(c) for c in children],
                            selected_child_id=request.args.get("child_id", type=int),
-                           source_labels=qb.SOURCE_LABELS,
+                           source_labels=qb.SOURCE_LABELS, mastery_labels=qb.MASTERY_LABELS,
                            sections=_qb_sections_with_db(), track_labels=qb.TRACK_LABELS, grades=qb.GRADES)
 
 
@@ -6310,20 +6311,27 @@ def qb_delete_question_image(question_id):
 @app.route("/api/question-bank/questions", methods=["GET"])  # alias: same list, REST-style path
 @parent_or_token_required
 def qb_list_questions():
+    """Filterable question list. With child_id each question carries its mastery status, progress and
+    recent history, and `mastery_counts` covers the whole filtered set (before the mastery filter).
+    `mastery` accepts a comma list, e.g. mastery=new,needs_improvement."""
     track = request.args.get("track")
     grade = request.args.get("grade", type=int)
     section = request.args.get("section")
     qtype = request.args.get("qtype")
     status = request.args.get("status", "active")
     child_id = request.args.get("child_id", type=int)
-    mastery = request.args.get("mastery")
     search = (request.args.get("q") or "").strip()
     page = max(1, request.args.get("page", 1, type=int))
-    per_page = min(200, max(1, request.args.get("per_page", 50, type=int)))
+    per_page = min(1000, max(1, request.args.get("per_page", 50, type=int)))
+    try:
+        mastery = qb.parse_mastery_filter(request.args.get("mastery"))
+    except qb.QBValidationError as e:
+        return jsonify({"error": str(e)}), 400
     if mastery and not child_id:
         return jsonify({"error": "mastery filter needs child_id"}), 400
 
-    sql = """SELECT q.*, p.correct_count AS m_correct, p.wrong_count AS m_wrong,
+    sql = """SELECT q.*, p.correct_count AS m_correct_count, p.wrong_count AS m_wrong_count,
+                    p.streak AS m_streak, p.difficulty_level AS m_difficulty_level,
                     p.last_tested AS m_last_tested, p.last_correct_at AS m_last_correct_at
              FROM qb_question q
              LEFT JOIN qb_question_progress p ON p.question_id = q.id AND p.child_id = ?
@@ -6344,37 +6352,77 @@ def qb_list_questions():
 
     conn = get_db()
     rows = conn.execute(sql, params).fetchall()
-    passage_ids = {r["passage_id"] for r in rows if r["passage_id"]}
+
+    # Mastery first on raw rows (cheap), then sanitize/serialize only the page
+    now = datetime.now()
+    counts = {m: 0 for m in qb.MASTERY_STATUSES}
+    kept = []
+    for r in rows:
+        m = None
+        if child_id:
+            prog = {k: r["m_" + k] for k in ("correct_count", "wrong_count", "streak", "difficulty_level",
+                                             "last_tested", "last_correct_at")}
+            m = qb.mastery_status(prog if prog["last_tested"] else None, now)
+            counts[m] += 1
+            if mastery and m not in mastery:
+                continue
+        kept.append((r, m))
+    total = len(kept)
+    page_rows = kept[(page - 1) * per_page:(page - 1) * per_page + per_page]
+
+    history = {}
+    if child_id and page_rows:
+        qids = [r["id"] for r, _ in page_rows]
+        for a in conn.execute(
+            f"""SELECT question_id, is_correct, attempted_at, test_id FROM qb_question_attempt
+                WHERE child_id = ? AND question_id IN ({','.join('?' * len(qids))})
+                ORDER BY attempted_at DESC, id DESC""", [child_id, *qids]).fetchall():
+            h = history.setdefault(a["question_id"], [])
+            if len(h) < 10:
+                h.append({"is_correct": bool(a["is_correct"]), "attempted_at": a["attempted_at"], "test_id": a["test_id"]})
+    passage_ids = {r["passage_id"] for r, _ in page_rows if r["passage_id"]}
     passages = {}
     if passage_ids:
         for p in conn.execute(f"SELECT * FROM qb_passage WHERE id IN ({','.join('?' * len(passage_ids))})",
                               list(passage_ids)).fetchall():
-            passages[p["id"]] = qb.passage_to_dict(p)
+            passages[str(p["id"])] = qb.passage_to_dict(p)
     conn.close()
 
     items = []
-    for r in rows:
+    for r, m in page_rows:
         d = qb.question_to_dict(r)
-        prog = None
-        if child_id and r["m_correct"] is not None:
-            prog = {"correct_count": r["m_correct"], "wrong_count": r["m_wrong"],
-                    "last_correct_at": r["m_last_correct_at"]}
-        for k in ("m_correct", "m_wrong", "m_last_tested", "m_last_correct_at"):
-            d.pop(k, None)
+        for k in list(d):
+            if k.startswith("m_"):
+                d.pop(k)
         if child_id:
-            d["mastery"] = qb.mastery_bucket(prog)
-            d["progress"] = {**prog, "last_tested": r["m_last_tested"]} if prog else None
-            if mastery and d["mastery"] != mastery:
-                continue
+            d["mastery"] = m
+            d["progress"] = None if m == "new" else {
+                "correct_count": r["m_correct_count"], "wrong_count": r["m_wrong_count"],
+                "streak": r["m_streak"], "level": r["m_difficulty_level"],
+                "last_tested": r["m_last_tested"], "last_correct_at": r["m_last_correct_at"]}
+            d["history"] = history.get(r["id"], [])  # newest first, up to 10
         items.append(d)
-    total = len(items)
-    start = (page - 1) * per_page
-    page_items = items[start:start + per_page]
-    used_passages = {q["passage_id"] for q in page_items if q["passage_id"]}
-    return jsonify({
-        "total": total, "page": page, "per_page": per_page, "questions": page_items,
-        "passages": {str(k): v for k, v in passages.items() if k in used_passages},
-    })
+    result = {"total": total, "page": page, "per_page": per_page, "questions": items, "passages": passages}
+    if child_id:
+        result["mastery_counts"] = counts
+    return jsonify(result)
+
+
+@app.route("/api/question-bank/questions/<int:question_id>/history", methods=["GET"])
+@parent_or_token_required
+def qb_question_history(question_id):
+    """Every attempt at one question (optionally for one child), newest first."""
+    child_id = request.args.get("child_id", type=int)
+    sql = """SELECT a.*, c.name AS child_name FROM qb_question_attempt a JOIN child c ON c.id = a.child_id
+             WHERE a.question_id = ?"""
+    params = [question_id]
+    if child_id:
+        sql += " AND a.child_id = ?"
+        params.append(child_id)
+    conn = get_db()
+    rows = conn.execute(sql + " ORDER BY a.attempted_at DESC, a.id DESC", params).fetchall()
+    conn.close()
+    return jsonify([{**dict(r), "is_correct": bool(r["is_correct"])} for r in rows])
 
 
 @app.route("/api/question-bank/sections", methods=["GET"])
@@ -6401,25 +6449,6 @@ def qb_sections():
             for s in known + extra
         ]
     return jsonify({"tracks": result, "track_labels": qb.TRACK_LABELS})
-
-
-@app.route("/api/question-bank/pool", methods=["GET"])
-@parent_or_token_required
-def qb_pool_preview():
-    """Mastery bucket counts available for a test filter (used by the test builder)."""
-    child_id = request.args.get("child_id", type=int)
-    track = request.args.get("track")
-    grade = request.args.get("grade", type=int)
-    section = request.args.get("section") or None
-    source = request.args.get("source") or None
-    if not child_id or track not in qb.TRACKS or grade not in qb.GRADES:
-        return jsonify({"error": "child_id, track and grade are required"}), 400
-    if source and source not in qb.SOURCES:
-        return jsonify({"error": f"source must be one of {list(qb.SOURCES)}"}), 400
-    conn = get_db()
-    pool = qb.load_pool(conn, child_id, track, grade, section, source)
-    conn.close()
-    return jsonify(qb.bucket_counts(pool))
 
 
 @app.route("/api/question-bank/export", methods=["GET"])
@@ -6574,26 +6603,20 @@ def qb_delete_passage(passage_id):
 @app.route("/api/qb-tests", methods=["POST"])
 @parent_or_token_required
 def qb_create_test():
+    """Create a test from hand-picked questions: {child_id, question_ids, title?}.
+    All questions must be active and share one track and grade. Order follows question_ids,
+    except passage sub-questions are kept together (in passage order) at their first position."""
     data = request.get_json(silent=True) or {}
     child_id = data.get("child_id")
-    track = data.get("track")
-    section = (data.get("section") or "").strip().lower() or None
-    source = data.get("source") or None
-    if source and source not in qb.SOURCES:
-        return jsonify({"error": f"source must be one of {list(qb.SOURCES)} (omit for all)"}), 400
+    raw_ids = data.get("question_ids")
+    if not isinstance(raw_ids, list) or not raw_ids:
+        return jsonify({"error": "question_ids (non-empty list) is required; tests are built from hand-picked questions"}), 400
     try:
-        grade = int(data.get("grade"))
-        count = int(data.get("count", 10))
+        question_ids = list(dict.fromkeys(int(q) for q in raw_ids))  # de-dupe, keep order
     except (TypeError, ValueError):
-        return jsonify({"error": "grade and count must be integers"}), 400
-    if track not in qb.TRACKS or grade not in qb.GRADES:
-        return jsonify({"error": f"track must be one of {list(qb.TRACKS)}, grade one of {list(qb.GRADES)}"}), 400
-    if not 1 <= count <= 100:
-        return jsonify({"error": "count must be 1-100"}), 400
-    try:
-        mix = qb.parse_mix(data.get("mastery_mix"))
-    except qb.QBValidationError as e:
-        return jsonify({"error": str(e)}), 400
+        return jsonify({"error": "question_ids must be integers"}), 400
+    if len(question_ids) > 200:
+        return jsonify({"error": "at most 200 questions per test"}), 400
 
     conn = get_db()
     if not conn.execute("SELECT 1 FROM child WHERE id = ?", (child_id,)).fetchone():
@@ -6605,14 +6628,36 @@ def qb_create_test():
         ids = [r["question_id"] for r in conn.execute(
             "SELECT question_id FROM qb_test_question WHERE test_id = ? ORDER BY position", (existing_id,))]
         conn.close()
-        return jsonify({"id": existing_id, "question_ids": ids, "shortfall": 0, "duplicate_request": True}), 200
+        return jsonify({"id": existing_id, "question_ids": ids, "duplicate_request": True}), 200
 
-    pool = qb.load_pool(conn, child_id, track, grade, section, source)
-    question_ids, shortfall = qb.assemble_test(pool, count, mix)
-    if not question_ids:
+    rows = {r["id"]: r for r in conn.execute(
+        f"SELECT id, track, grade, section, status, passage_id, passage_order FROM qb_question WHERE id IN ({','.join('?' * len(question_ids))})",
+        question_ids).fetchall()}
+    missing = [q for q in question_ids if q not in rows]
+    inactive = [q for q in question_ids if q in rows and rows[q]["status"] != "active"]
+    if missing or inactive:
         conn.close()
-        return jsonify({"error": "No eligible questions (all mastered or bank empty)",
-                        "pool": qb.bucket_counts(pool)}), 409
+        return jsonify({"error": "some questions are missing or archived", "missing": missing, "archived": inactive}), 400
+    tracks = {rows[q]["track"] for q in question_ids}
+    grades = {rows[q]["grade"] for q in question_ids}
+    if len(tracks) > 1 or len(grades) > 1:
+        conn.close()
+        return jsonify({"error": "all questions in a test must share one track and one grade",
+                        "tracks": sorted(tracks), "grades": sorted(grades)}), 400
+    track, grade = tracks.pop(), grades.pop()
+    sections = {rows[q]["section"] for q in question_ids}
+    section = sections.pop() if len(sections) == 1 else None
+
+    # Keep each passage's sub-questions contiguous
+    ordered, seen_passages = [], set()
+    for q in question_ids:
+        pid = rows[q]["passage_id"]
+        if not pid:
+            ordered.append(q)
+        elif pid not in seen_passages:
+            seen_passages.add(pid)
+            group = [x for x in question_ids if rows[x]["passage_id"] == pid]
+            ordered += sorted(group, key=lambda x: (rows[x]["passage_order"] or 0, x))
 
     title = (data.get("title") or "").strip()
     if not title:
@@ -6622,13 +6667,13 @@ def qb_create_test():
     cur = conn.execute("INSERT INTO qb_test (child_id, track, grade, section, title) VALUES (?, ?, ?, ?, ?)",
                        (child_id, track, grade, section, title))
     test_id = cur.lastrowid
-    for pos, qid in enumerate(question_ids):
+    for pos, qid in enumerate(ordered):
         conn.execute("INSERT INTO qb_test_question (test_id, question_id, position) VALUES (?, ?, ?)",
                      (test_id, qid, pos))
     _qb_idem_store(conn, key, "test", test_id)
     conn.commit()
     conn.close()
-    return jsonify({"id": test_id, "title": title, "question_ids": question_ids, "shortfall": shortfall}), 201
+    return jsonify({"id": test_id, "title": title, "question_ids": ordered}), 201
 
 
 def _qb_load_test(conn, test_id):
@@ -6741,11 +6786,12 @@ def qb_submit_test(test_id):
         return jsonify({**dict(sub), "already_submitted": True})
 
     correct = 0
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     for r in rows:
         ans = answers.get(r["id"])
         is_correct = bool(ans and ans["is_correct"])
         correct += is_correct
-        qb.update_progress(conn, test["child_id"], r["id"], is_correct)
+        qb.record_attempt(conn, test["child_id"], r["id"], test_id, ans["choice"] if ans else None, is_correct, now)
     total = len(rows)
     score = round(correct * 100 / total) if total else 0
     try:
@@ -6765,7 +6811,7 @@ def qb_submit_test(test_id):
 @app.route("/api/qb-tests/<int:test_id>", methods=["DELETE"])
 @parent_or_token_required
 def qb_delete_test(test_id):
-    """Deleting a test does not roll back mastery progress already recorded."""
+    """Deleting a test keeps the attempt history and mastery progress already recorded."""
     conn = get_db()
     cur = conn.execute("DELETE FROM qb_test WHERE id = ?", (test_id,))
     conn.execute("DELETE FROM qb_test_question WHERE test_id = ?", (test_id,))

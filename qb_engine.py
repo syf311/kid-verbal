@@ -3,7 +3,6 @@
 Original practice questions only — not affiliated with or endorsed by the publishers of CogAT or i-Ready.
 """
 import json
-import random
 from datetime import datetime, timedelta
 
 from bs4 import BeautifulSoup
@@ -35,8 +34,6 @@ SECTIONS = {
 
 TRACK_LABELS = {"cogat-style": "CogAT-style practice", "iready-style": "i-Ready-style practice"}
 
-DEFAULT_MIX = {"new": 0.5, "needs_work": 0.3, "due": 0.2}
-BUCKET_ORDER = ("new", "needs_work", "due")
 DUE_DAYS = 7
 
 # ── SVG sanitizing ──
@@ -242,22 +239,44 @@ def question_to_dict(row, include_answer=True):
 
 
 # ── Mastery ──
+# Same rules as the math/science banks: each right answer raises level by 1 (max 5), each wrong
+# answer lowers it by 1 (min 1) and resets the streak.
 
-def mastery_bucket(progress, now=None):
-    """progress: row/dict with correct_count, wrong_count, last_correct_at, or None."""
-    if not progress or (progress["correct_count"] or 0) + (progress["wrong_count"] or 0) == 0:
+MASTERY_STATUSES = ("new", "needs_improvement", "due", "good", "mastered")
+MASTERY_LABELS = {"new": "New", "needs_improvement": "Needs improvement", "due": "Due",
+                  "good": "Good", "mastered": "Mastered"}
+
+
+def mastery_status(progress, now=None):
+    """progress: row/dict with correct_count, wrong_count, streak, difficulty_level,
+    last_tested, last_correct_at — or None when the child never answered the question."""
+    if not progress or not progress["last_tested"]:
         return "new"
     if (progress["wrong_count"] or 0) > (progress["correct_count"] or 0):
-        return "needs_work"
+        return "needs_improvement"
+    if (progress["streak"] or 0) == 0:
+        return "needs_improvement"  # last answer was wrong
+    if (progress["difficulty_level"] or 1) >= 4:
+        return "mastered"
     now = now or datetime.now()
     cutoff = (now - timedelta(days=DUE_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
     if not progress["last_correct_at"] or progress["last_correct_at"] < cutoff:
         return "due"
-    return "mastered"
+    return "good"
 
 
-def update_progress(conn, child_id, question_id, is_correct):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def parse_mastery_filter(raw):
+    """'new,needs_improvement' → {'new', 'needs_improvement'}; None/'' → None (no filter)."""
+    if not raw:
+        return None
+    wanted = {m.strip() for m in str(raw).split(",") if m.strip()}
+    bad = wanted - set(MASTERY_STATUSES)
+    if bad:
+        raise QBValidationError(f"mastery must be a comma list of {list(MASTERY_STATUSES)}")
+    return wanted
+
+
+def _apply_attempt(conn, child_id, question_id, is_correct, when):
     conn.execute(
         "INSERT OR IGNORE INTO qb_question_progress (child_id, question_id) VALUES (?, ?)",
         (child_id, question_id),
@@ -265,131 +284,53 @@ def update_progress(conn, child_id, question_id, is_correct):
     if is_correct:
         conn.execute(
             """UPDATE qb_question_progress SET correct_count = correct_count + 1,
-               last_tested = ?, last_correct_at = ? WHERE child_id = ? AND question_id = ?""",
-            (now, now, child_id, question_id),
+                   streak = COALESCE(streak, 0) + 1, difficulty_level = MIN(5, COALESCE(difficulty_level, 1) + 1),
+                   last_tested = ?, last_correct_at = ?
+               WHERE child_id = ? AND question_id = ?""",
+            (when, when, child_id, question_id),
         )
     else:
         conn.execute(
             """UPDATE qb_question_progress SET wrong_count = wrong_count + 1,
-               last_tested = ? WHERE child_id = ? AND question_id = ?""",
-            (now, child_id, question_id),
+                   streak = 0, difficulty_level = MAX(1, COALESCE(difficulty_level, 1) - 1),
+                   last_tested = ?
+               WHERE child_id = ? AND question_id = ?""",
+            (when, child_id, question_id),
         )
 
 
-def load_pool(conn, child_id, track, grade, section=None, source=None):
-    """Active questions for a filter, each annotated with its mastery bucket for child_id."""
-    sql = """SELECT q.id, q.passage_id, q.passage_order,
-                    p.correct_count, p.wrong_count, p.last_tested, p.last_correct_at
-             FROM qb_question q
-             LEFT JOIN qb_question_progress p ON p.question_id = q.id AND p.child_id = ?
-             WHERE q.status = 'active' AND q.track = ? AND q.grade = ?"""
-    params = [child_id, track, grade]
-    if section:
-        sql += " AND q.section = ?"
-        params.append(section)
-    if source:
-        sql += " AND q.source = ?"
-        params.append(source)
-    rows = conn.execute(sql, params).fetchall()
-    now = datetime.now()
-    pool = []
-    for r in rows:
-        prog = r if r["correct_count"] is not None else None
-        pool.append({
-            "id": r["id"], "passage_id": r["passage_id"], "passage_order": r["passage_order"] or 0,
-            "last_tested": r["last_tested"] or "", "bucket": mastery_bucket(prog, now),
-        })
-    return pool
+def record_attempt(conn, child_id, question_id, test_id, choice, is_correct, when=None):
+    """Append to the per-question history and update the child's mastery progress."""
+    when = when or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        """INSERT INTO qb_question_attempt (child_id, question_id, test_id, choice, is_correct, attempted_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (child_id, question_id, test_id, choice, int(bool(is_correct)), when),
+    )
+    _apply_attempt(conn, child_id, question_id, is_correct, when)
 
 
-def _units(pool):
-    """Group questions into selection units: a passage set is one unit, other questions stand alone."""
-    rank = {b: i for i, b in enumerate(BUCKET_ORDER + ("mastered",))}
-    by_passage, units = {}, []
-    for q in pool:
-        if q["passage_id"]:
-            by_passage.setdefault(q["passage_id"], []).append(q)
-        else:
-            units.append({"questions": [q], "bucket": q["bucket"], "last_tested": q["last_tested"]})
-    for qs in by_passage.values():
-        qs.sort(key=lambda q: (q["passage_order"], q["id"]))
-        # A passage set's bucket is its weakest non-mastered sub-question's bucket
-        live = [q for q in qs if q["bucket"] != "mastered"]
-        bucket = min((q["bucket"] for q in live), key=lambda b: rank[b]) if live else "mastered"
-        units.append({"questions": qs, "bucket": bucket, "last_tested": min(q["last_tested"] for q in qs)})
-    return units
-
-
-def bucket_counts(pool):
-    counts = {"new": 0, "needs_work": 0, "due": 0, "mastered": 0}
-    for q in pool:
-        counts[q["bucket"]] += 1
-    return counts
-
-
-def assemble_test(pool, count, mix=None, rng=None):
-    """Pick question ids by mastery. Returns (question_ids, shortfall).
-
-    Targets per bucket from mix; shortfalls backfilled in order new → needs_work → due.
-    Mastered questions are never picked. Passage sets are picked whole and may overshoot count by ≤ 2.
-    """
-    rng = rng or random.Random()
-    mix = mix or DEFAULT_MIX
-    total_pct = sum(mix.get(b, 0) for b in BUCKET_ORDER) or 1
-    targets = {b: round(count * mix.get(b, 0) / total_pct) for b in BUCKET_ORDER}
-    # Fix rounding drift so targets sum to count
-    drift = count - sum(targets.values())
-    targets[BUCKET_ORDER[0]] += drift
-
-    buckets = {b: [] for b in BUCKET_ORDER}
-    for u in _units(pool):
-        if u["bucket"] in buckets:
-            buckets[u["bucket"]].append(u)
-    for b in BUCKET_ORDER:
-        rng.shuffle(buckets[b])
-        buckets[b].sort(key=lambda u: u["last_tested"])  # least recently tested first (stable over shuffle)
-
-    chosen, picked = [], 0
-
-    def take(bucket, limit):
-        nonlocal picked
-        got = 0
-        remaining = []
-        for u in buckets[bucket]:
-            size = len(u["questions"])
-            if got < limit and picked < count and picked + size <= count + 2 and (size == 1 or got + size <= limit + 2):
-                chosen.append(u)
-                got += size
-                picked += size
-            else:
-                remaining.append(u)
-        buckets[bucket] = remaining
-
-    for b in BUCKET_ORDER:
-        take(b, targets[b])
-    for b in BUCKET_ORDER:  # backfill
-        if picked >= count:
-            break
-        take(b, count - picked)
-
-    # Keep passage units contiguous; interleave order otherwise random
-    rng.shuffle(chosen)
-    ids = [q["id"] for u in chosen for q in u["questions"]]
-    return ids, max(0, count - len(ids))
-
-
-def parse_mix(raw):
-    """mastery_mix as {"new":50,"needs_work":30,"due":20} (percent or fraction). None → default."""
-    if not raw:
-        return dict(DEFAULT_MIX)
-    if not isinstance(raw, dict):
-        raise QBValidationError("mastery_mix must be an object like {new, needs_work, due}")
-    mix = {}
-    for b in BUCKET_ORDER:
-        try:
-            mix[b] = max(0.0, float(raw.get(b, 0)))
-        except (TypeError, ValueError):
-            raise QBValidationError(f"mastery_mix.{b} must be a number")
-    if sum(mix.values()) <= 0:
-        raise QBValidationError("mastery_mix must have at least one positive value")
-    return mix
+def rebuild_history(conn):
+    """One-time migration: build attempt history from already-submitted tests, then recompute
+    every progress row from that history (adds streak/level to pre-existing progress)."""
+    # submitted_at is SQLite CURRENT_TIMESTAMP (UTC); progress uses local time like the rest of the app
+    subs = conn.execute(
+        """SELECT s.test_id, s.child_id, datetime(s.submitted_at, 'localtime') AS submitted_at
+           FROM qb_test_submission s ORDER BY s.submitted_at, s.id"""
+    ).fetchall()
+    for sub in subs:
+        qids = [r["question_id"] for r in conn.execute(
+            "SELECT question_id FROM qb_test_question WHERE test_id = ? ORDER BY position", (sub["test_id"],))]
+        answers = {r["question_id"]: r for r in conn.execute(
+            "SELECT * FROM qb_test_answer WHERE test_id = ?", (sub["test_id"],))}
+        for qid in qids:
+            a = answers.get(qid)
+            conn.execute(
+                """INSERT INTO qb_question_attempt (child_id, question_id, test_id, choice, is_correct, attempted_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (sub["child_id"], qid, sub["test_id"], a["choice"] if a else None,
+                 int(bool(a and a["is_correct"])), sub["submitted_at"]),
+            )
+    conn.execute("DELETE FROM qb_question_progress")
+    for a in conn.execute("SELECT * FROM qb_question_attempt ORDER BY attempted_at, id").fetchall():
+        _apply_attempt(conn, a["child_id"], a["question_id"], bool(a["is_correct"]), a["attempted_at"])

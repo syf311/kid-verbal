@@ -721,6 +721,34 @@ def init_question_bank_tables(conn):
     conn.execute("UPDATE qb_question SET source = 'ai_generated' WHERE source IS NULL")
     conn.commit()
 
+    # Per-question attempt history + math/science-style mastery (streak, level 1-5)
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS qb_question_attempt (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id INTEGER NOT NULL,
+            question_id INTEGER NOT NULL,
+            test_id INTEGER,
+            choice TEXT,
+            is_correct INTEGER NOT NULL,
+            attempted_at DATETIME NOT NULL,
+            FOREIGN KEY (child_id) REFERENCES child(id) ON DELETE CASCADE,
+            FOREIGN KEY (question_id) REFERENCES qb_question(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_qb_attempt_child_q ON qb_question_attempt(child_id, question_id, attempted_at);
+    """)
+    for col in ("streak INTEGER DEFAULT 0", "difficulty_level INTEGER DEFAULT 1"):
+        try:
+            conn.execute(f"ALTER TABLE qb_question_progress ADD COLUMN {col}")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
+    # One-time: backfill history from submitted tests and recompute progress from it
+    if not conn.execute("SELECT 1 FROM site_config WHERE key = 'qb_migration_attempt_history_v1'").fetchone():
+        import qb_engine
+        qb_engine.rebuild_history(conn)
+        conn.execute("INSERT INTO site_config (key, value) VALUES ('qb_migration_attempt_history_v1', 'done')")
+        conn.commit()
+
 
 if __name__ == "__main__":
     init_db()

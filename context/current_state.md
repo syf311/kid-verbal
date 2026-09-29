@@ -100,6 +100,7 @@
 
 ## Recent Changes (latest commits)
 
+1. **Hand-picked practice tests with 5 mastery levels and answer history** (task_014) — test builder filters by child/track/grade/section/source/search plus multi-select mastery (New / Needs improvement / Due / Good / Mastered, with counts) and you tick questions (select all shown / random N). Auto assembly removed (API requires `question_ids`). New `qb_question_attempt` history (backfilled from submitted tests); progress gains streak + level with math/science rules; bank + builder show right/wrong dots, totals and last-done date.
 1. **Question bank API additions** (task_014, requirements §9.1/9.2) — `GET /api/question-bank/questions` alias for the list, `GET /api/qb-tests` lists tests (filters child_id/track/status), passages list paginated with `page`/`per_page` (plain array kept when omitted). Bank + test builder section dropdowns now include sections found in the DB (e.g. `phonics-word-analysis`).
 1. **Question source: AI generated vs human** (task_014) — new required `qb_question.source` (`ai_generated`|`human`); existing rows backfilled `ai_generated`; bank badge + filter + editor field; test builder can build from one source only; `source` filter on list/pool/test-create APIs; hidden from kids.
 1. **Fix stacked/overlapping figures in `stem_svg`** (task_014) — `stem_svg` holding several SVGs now lays them out in a row (64px test / 44px bank; single figure 200px / 140px) instead of each taking full width and spilling over the next card.

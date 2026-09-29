@@ -14,7 +14,8 @@
 | D4 | Two fully separate tracks: `cogat-style`, `iready-style`. Grades 4/5/6. Both kids. |
 | D5 | Difficulty 1–5, set by question author |
 | D6 | i-Ready math not in v1; section list is open-ended so it can be added later |
-| D7 | Default test mix 50% new / 30% needs_work / 20% due |
+| D7 | ~~Default test mix 50/30/20~~ — superseded 2026-09-29 by D12 |
+| D12 | Tests are built only from hand-picked questions (UI and API `question_ids`), like the math bank. Five mastery statuses per child/question with the math/science rules: level ±1 per right/wrong (1–5), streak; New = never tried, Needs improvement = wrong > right or last answer wrong, Mastered = level ≥ 4, Due = last right > 7 days ago, Good = rest. Every submitted answer is kept in `qb_question_attempt` (right/wrong, choice, time, test) |
 | D8 | Answers recorded per question via `POST /api/qb-tests/{id}/answer` (first answer final) so the child gets immediate feedback without the test GET leaking answers; submit scores from recorded answers |
 | D9 | Only the SHA-256 hash of the API token is stored (`site_config.qb_api_token_hash`, plus last-4 hint) |
 | D11 | Every question has a required `source`: `ai_generated` or `human` (where the question came from). Pre-existing rows backfilled as `ai_generated` (Milo's originals). Shown as bank badge/filter and test-builder filter; hidden from kids |
@@ -77,7 +78,8 @@ qb_request_key    key (PK, "<type>:<Idempotency-Key>"), resource_type, resource_
 | GET | `/api/qb-tests?child_id=&track=&status=` | parent/token | All practice tests, newest first |
 | GET | `/api/question-bank/sections?track=` | parent/token | Section list + counts per grade |
 | GET | `/api/question-bank/export?track=` | parent/token | Full JSON backup (questions + passages) |
-| POST | `/api/qb-tests` | parent/token | `{child_id, track, grade, section?, count, mastery_mix?}` → `{id, question_ids, shortfall}` |
+| POST | `/api/qb-tests` | parent/token | `{child_id, question_ids, title?}` → `{id, title, question_ids}`; questions must be active and share one track + grade; passage sub-questions kept together |
+| GET | `/api/question-bank/questions/{id}/history?child_id=` | parent/token | Every attempt, newest first |
 | GET | `/api/qb-tests/{id}` | parent/token/owning child | Answers/explanations only for already-answered questions (child) |
 | POST | `/api/qb-tests/{id}/answer` | owning child/parent | `{question_id, choice}` → `{is_correct, correct_answer, explanation}`; first answer final |
 | POST | `/api/qb-tests/{id}/submit` | owning child/parent | `{time_taken_seconds}` → score; unanswered = wrong; idempotent |

@@ -100,7 +100,8 @@ kid-verbal/
 ### CogAT-style / i-Ready-style Practice (shared bank, not per child)
 - `qb_passage` — reading passages for passage-set questions
 - `qb_question` — track, grade, section, qtype, stem/stem_svg, options JSON [{text, svg}], correct_answer (index), explanation, image_path, passage_id, difficulty, source (ai_generated/human, required), status (active/archived), source_ref
-- `qb_question_progress` — per child/question correct/wrong counts, last_tested, last_correct_at
+- `qb_question_progress` — per child/question correct/wrong counts, streak, difficulty_level (1–5), last_tested, last_correct_at
+- `qb_question_attempt` — every submitted answer per child/question (is_correct, choice, test_id, attempted_at)
 - `qb_test` / `qb_test_question` / `qb_test_answer` / `qb_test_submission` — assembled tests, per-question answers, final score
 - `qb_request_key` — Idempotency-Key → created resource
 

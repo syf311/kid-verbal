@@ -18,8 +18,12 @@
     .tag.src-ai_generated { background: #faf5ff; color: #6b46c1; border: 1px solid #d6bcfa; }
     .tag.src-human { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
     .tag.src-missing { background: #fff5f5; color: #c53030; }
-    .tag.m-new { background: #ebf4ff; color: #5a67d8; } .tag.m-needs_work { background: #fed7d7; color: #9b2c2c; }
-    .tag.m-due { background: #feebc8; color: #9c4221; } .tag.m-mastered { background: #c6f6d5; color: #276749; }
+    .tag.m-new { background: #ebf4ff; color: #5a67d8; } .tag.m-needs_improvement { background: #fed7d7; color: #9b2c2c; }
+    .tag.m-due { background: #feebc8; color: #9c4221; } .tag.m-good { background: #bee3f8; color: #2c5282; }
+    .tag.m-mastered { background: #c6f6d5; color: #276749; }
+    .hist { display: inline-flex; gap: 2px; vertical-align: middle; }
+    .hist i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+    .hist i.ok { background: #48bb78; } .hist i.bad { background: #f56565; }
     .q-actions { margin-left: auto; display: flex; gap: 6px; }
     .q-actions button { padding: 4px 10px; font-size: 13px; border-radius: 6px; border: 1px solid #cbd5e0; background: white; cursor: pointer; }
     .qb-stem { font-size: 16px; color: #2d3748; line-height: 1.5; }
@@ -96,8 +100,8 @@
         {% for c in children %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
     </select>
     <select id="f-mastery" onchange="reload()" style="display:none;">
-        <option value="">Any mastery</option><option value="new">New</option><option value="needs_work">Needs work</option>
-        <option value="due">Due</option><option value="mastered">Mastered</option>
+        <option value="">Any mastery</option>
+        {% for key, label in mastery_labels.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
     </select>
     <input type="search" id="f-q" placeholder="Search..." onkeydown="if(event.key==='Enter')reload()">
 </div>
@@ -175,6 +179,7 @@
 const SECTIONS = {{ sections|tojson }};
 const TRACK_LABELS = {{ track_labels|tojson }};
 const SOURCE_LABELS = {{ source_labels|tojson }};
+const MASTERY_LABELS = {{ mastery_labels|tojson }};
 let page = 1;
 let loadSeq = 0;
 let current = [];      // questions on the page
@@ -223,7 +228,9 @@ async function load() {
         let ph = '';
         if (q.passage_id && q.passage_id !== lastPassage) { ph = qbPassageHtml(data.passages[String(q.passage_id)]); lastPassage = q.passage_id; }
         const opts = q.options.map((o, i) => `<div class="opt ${String(i) === q.correct_answer ? 'correct' : ''}"><span class="letter">${QB_LETTERS[i]}</span>${qbOptionHtml(o)}</div>`).join('');
-        const m = q.mastery ? `<span class="tag m-${q.mastery}">${q.mastery.replace('_', ' ')}${q.progress ? ` ${q.progress.correct_count}✓ ${q.progress.wrong_count}✗` : ''}</span>` : '';
+        const m = q.mastery ? `<span class="tag m-${q.mastery}">${qbEsc(MASTERY_LABELS[q.mastery])}</span>` + (q.progress
+            ? `<span class="hist">${[...(q.history || [])].reverse().map(h => `<i class="${h.is_correct ? 'ok' : 'bad'}" title="${h.is_correct ? 'right' : 'wrong'} · ${(h.attempted_at || '').slice(0, 10)}"></i>`).join('')}</span>
+               <span class="tag">${q.progress.correct_count}✓ ${q.progress.wrong_count}✗ · last ${(q.progress.last_tested || '').slice(0, 10)}</span>` : '') : '';
         return `${ph}<div class="q-card ${q.status}">
             <div class="q-meta">
                 <span class="tag track">${qbEsc(TRACK_LABELS[q.track])}</span>

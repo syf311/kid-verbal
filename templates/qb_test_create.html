@@ -4,32 +4,61 @@
 
 {% block extra_css %}
 <style>
-    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
-    .form-grid label { display: block; font-size: 14px; font-weight: 600; color: #4a5568; margin-bottom: 4px; }
-    .form-grid select, .form-grid input { width: 100%; padding: 10px; font-size: 16px; border: 2px solid #ddd; border-radius: 8px; margin: 0; }
-    .full { grid-column: 1 / -1; }
-    .mix-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-    .mix-row input { text-align: center; }
-    .pool { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 18px 0; }
-    .pool div { background: #f7fafc; border-radius: 12px; padding: 12px; text-align: center; }
-    .pool .n { font-size: 26px; font-weight: 800; }
-    .pool .l { font-size: 12px; color: #718096; text-transform: uppercase; letter-spacing: .5px; }
-    #result { margin-top: 16px; }
-    @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } .pool { grid-template-columns: repeat(2, 1fr); } }
+    .container { max-width: 1000px; }
+    .form-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px 14px; }
+    .form-grid label, .lbl { display: block; font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 4px; }
+    .form-grid select, .form-grid input { width: 100%; padding: 8px; font-size: 14px; border: 2px solid #ddd; border-radius: 8px; margin: 0; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 14px 0 8px; }
+    .chip { padding: 6px 12px; border-radius: 16px; border: 2px solid #e2e8f0; background: white; cursor: pointer; font-size: 13px; font-weight: 600; color: #4a5568; }
+    .chip.on { color: white; }
+    .chip.m-new.on { background: #5a67d8; border-color: #5a67d8; }
+    .chip.m-needs_improvement.on { background: #e53e3e; border-color: #e53e3e; }
+    .chip.m-due.on { background: #dd6b20; border-color: #dd6b20; }
+    .chip.m-good.on { background: #3182ce; border-color: #3182ce; }
+    .chip.m-mastered.on { background: #38a169; border-color: #38a169; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; font-size: 14px; }
+    .toolbar .btn { padding: 6px 12px; font-size: 13px; margin: 0; }
+    .toolbar input { width: 64px; padding: 6px; margin: 0; font-size: 13px; }
+    .toolbar input[type=search] { width: 200px; }
+    #question-list { max-height: 560px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 12px; }
+    .q-item { display: flex; gap: 12px; padding: 12px 14px; border-bottom: 1px solid #edf2f7; cursor: pointer; align-items: flex-start; }
+    .q-item:hover { background: #f7fafc; }
+    .q-item.selected { background: #ebf4ff; }
+    .q-item input[type=checkbox] { width: auto; margin: 4px 0 0; transform: scale(1.2); pointer-events: none; }
+    .q-body { flex: 1; min-width: 0; }
+    .q-body .qb-stem { font-size: 14px; color: #2d3748; line-height: 1.45; max-height: 90px; overflow: hidden; }
+    .q-body .qb-stem.qb-rich svg { width: 32px; max-height: 32px; margin: 2px; }
+    .q-body .qb-stem.qb-rich.one-fig svg { width: 80px; max-height: 70px; display: inline-block; margin: 2px; }
+    .q-body .qb-stem-svg svg { width: 32px; height: 32px; }
+    .q-body .qb-stem-svg.one-fig svg { width: 80px; max-height: 70px; }
+    .q-body .qb-img { max-height: 70px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; font-size: 12px; color: #718096; }
+    .tag { font-weight: 700; padding: 1px 7px; border-radius: 9px; background: #edf2f7; color: #4a5568; font-size: 11px; }
+    .tag.m-new { background: #ebf4ff; color: #5a67d8; } .tag.m-needs_improvement { background: #fed7d7; color: #9b2c2c; }
+    .tag.m-due { background: #feebc8; color: #9c4221; } .tag.m-good { background: #bee3f8; color: #2c5282; }
+    .tag.m-mastered { background: #c6f6d5; color: #276749; }
+    .hist { display: inline-flex; gap: 2px; vertical-align: middle; }
+    .hist i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .hist i.ok { background: #48bb78; } .hist i.bad { background: #f56565; }
+    .create-row { display: flex; gap: 10px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+    .create-row input { width: 320px; padding: 10px; margin: 0; }
+    #result { margin-top: 14px; }
+    @media (max-width: 800px) { .form-grid { grid-template-columns: 1fr 1fr; } .create-row input { width: 100%; } }
 </style>
 {% endblock %}
 
 {% block content %}
+{% include "_qb_render.html" %}
 <a href="/parent" style="color: #667eea; text-decoration: none;">&larr; Parent dashboard</a>
 <h1 style="margin-top: 10px;">New Practice Test</h1>
-<p style="color:#666; margin: -10px 0 20px;">Questions are picked by mastery: new first, then needs work, then due for review. Mastered questions are skipped.</p>
+<p style="color:#666; margin: -10px 0 16px;">Filter by section and mastery, then pick the questions to include.</p>
 
 <div class="form-grid">
     <div>
         <label>Child</label>
-        <select id="child" onchange="onChildChange()">
+        <select id="child" onchange="onScopeChange(true)">
             {% for c in children %}
-            <option value="{{ c.id }}" data-grade="{{ c.grade_level or '' }}" {% if c.id == selected_child_id %}selected{% endif %}>{{ c.name }}{% if c.grade_level %} ({{ c.grade_level }}){% endif %}</option>
+            <option value="{{ c.id }}" data-grade="{{ c.grade_level or '' }}" {% if c.id == selected_child_id %}selected{% endif %}>{{ c.name }}</option>
             {% endfor %}
         </select>
     </div>
@@ -41,47 +70,45 @@
     </div>
     <div>
         <label>Grade</label>
-        <select id="grade" onchange="refreshPool()">
+        <select id="grade" onchange="onScopeChange()">
             {% for g in grades %}<option value="{{ g }}">Grade {{ g }}</option>{% endfor %}
         </select>
     </div>
     <div>
         <label>Section</label>
-        <select id="section" onchange="refreshPool()"></select>
+        <select id="section" onchange="load()"></select>
     </div>
     <div>
         <label>Question source</label>
-        <select id="source" onchange="refreshPool()">
-            <option value="">All (AI generated + human)</option>
-            {% for key, label in source_labels.items() %}<option value="{{ key }}">{{ label }} only</option>{% endfor %}
+        <select id="source" onchange="load()">
+            <option value="">All</option>
+            {% for key, label in source_labels.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
         </select>
     </div>
-    <div>
-        <label>Number of questions</label>
-        <input type="number" id="count" value="10" min="1" max="100">
-    </div>
-    <div>
-        <label>Title (optional)</label>
-        <input type="text" id="title" placeholder="Auto">
-    </div>
-    <div class="full">
-        <label>Mix (%) &mdash; new / needs work / due</label>
-        <div class="mix-row">
-            <input type="number" id="mix-new" value="50" min="0" max="100">
-            <input type="number" id="mix-needs_work" value="30" min="0" max="100">
-            <input type="number" id="mix-due" value="20" min="0" max="100">
-        </div>
-    </div>
 </div>
 
-<div class="pool" id="pool">
-    <div><div class="n" id="p-new" style="color:#5a67d8;">-</div><div class="l">New</div></div>
-    <div><div class="n" id="p-needs_work" style="color:#e53e3e;">-</div><div class="l">Needs work</div></div>
-    <div><div class="n" id="p-due" style="color:#dd6b20;">-</div><div class="l">Due</div></div>
-    <div><div class="n" id="p-mastered" style="color:#38a169;">-</div><div class="l">Mastered</div></div>
+<div class="chips" id="chips">
+    <span class="lbl" style="margin:0 4px 0 0;">Mastery:</span>
+    {% for key, label in mastery_labels.items() %}
+    <button class="chip m-{{ key }}" data-m="{{ key }}" onclick="toggleMastery('{{ key }}')">{{ label }} <span id="cnt-{{ key }}">(0)</span></button>
+    {% endfor %}
+    <span style="font-size:12px; color:#a0aec0;">none selected = all</span>
 </div>
 
-<button class="btn btn-success" id="createBtn" onclick="createTest()">Create Test</button>
+<div class="toolbar">
+    <input type="search" id="search" placeholder="Search text..." onkeydown="if(event.key==='Enter')load()">
+    <button class="btn btn-primary" onclick="selectShown()">Select all shown</button>
+    <button class="btn btn-warning" onclick="deselectAll()">Clear selection</button>
+    <span>Random</span><input type="number" id="rand-n" value="10" min="1"><button class="btn btn-primary" onclick="pickRandom()">pick from shown</button>
+    <span style="margin-left:auto;"><strong id="shown-count">0</strong> shown &middot; <strong id="selected-count">0</strong> selected</span>
+</div>
+
+<div id="question-list"><div style="padding:30px; text-align:center; color:#999;">Loading...</div></div>
+
+<div class="create-row">
+    <input type="text" id="title" placeholder="Title (optional, auto if blank)">
+    <button class="btn btn-success" id="createBtn" onclick="createTest()" disabled>Create Test</button>
+</div>
 <div id="result"></div>
 {% include "_qb_disclaimer.html" %}
 {% endblock %}
@@ -89,38 +116,117 @@
 {% block scripts %}
 <script>
 const SECTIONS = {{ sections|tojson }};
+const MASTERY_LABELS = {{ mastery_labels|tojson }};
+let shown = [];            // questions matching current filters
+let passages = {};
+let selected = new Map();  // id -> question (kept across section/mastery/source filters)
+let masteryOn = new Set();
+let loadSeq = 0;
 
-function onChildChange() {
-    const opt = document.getElementById('child').selectedOptions[0];
-    const m = (opt && opt.dataset.grade || '').match(/(\d+)/);
-    if (m && ['4', '5', '6'].includes(m[1])) document.getElementById('grade').value = m[1];
-    refreshPool();
-}
+function fmtDate(s) { return s ? s.slice(0, 10) : ''; }
 
 function onTrackChange() {
     const track = document.getElementById('track').value;
-    const sel = document.getElementById('section');
-    let html = '<option value="">All sections (mixed)</option>';
-    let group = null;
+    let html = '<option value="">All sections</option>', group = null;
     for (const [key, label, g] of SECTIONS[track]) {
         if (g !== group) { if (group) html += '</optgroup>'; html += `<optgroup label="${g}">`; group = g; }
         html += `<option value="${key}">${label}</option>`;
     }
-    sel.innerHTML = html + (group ? '</optgroup>' : '');
-    refreshPool();
+    document.getElementById('section').innerHTML = html + (group ? '</optgroup>' : '');
+    onScopeChange();
 }
 
-let poolSeq = 0;
-async function refreshPool() {
-    const seq = ++poolSeq;
+// Child / track / grade define the test's scope: changing them clears the selection
+function onScopeChange(fromChild) {
+    if (fromChild) {
+        const m = (document.getElementById('child').selectedOptions[0]?.dataset.grade || '').match(/(\d+)/);
+        if (m && ['4', '5', '6'].includes(m[1])) document.getElementById('grade').value = m[1];
+    }
+    selected.clear();
+    updateCounts();
+    load();
+}
+
+function toggleMastery(m) {
+    masteryOn.has(m) ? masteryOn.delete(m) : masteryOn.add(m);
+    document.querySelectorAll('.chip[data-m]').forEach(c => c.classList.toggle('on', masteryOn.has(c.dataset.m)));
+    load();
+}
+
+async function load() {
     const p = new URLSearchParams({
         child_id: document.getElementById('child').value, track: document.getElementById('track').value,
-        grade: document.getElementById('grade').value, section: document.getElementById('section').value,
-        source: document.getElementById('source').value });
-    const res = await fetch(`/api/question-bank/pool?${p}`);
-    if (!res.ok || seq !== poolSeq) return;
-    const counts = await res.json();
-    for (const k of ['new', 'needs_work', 'due', 'mastered']) document.getElementById('p-' + k).textContent = counts[k];
+        grade: document.getElementById('grade').value, per_page: 1000 });
+    for (const k of ['section', 'source', 'search']) {
+        const v = document.getElementById(k).value.trim();
+        if (v) p.set(k === 'search' ? 'q' : k, v);
+    }
+    if (masteryOn.size) p.set('mastery', [...masteryOn].join(','));
+    const seq = ++loadSeq;
+    const res = await fetch(`/api/question-bank?${p}`);
+    const data = await res.json();
+    if (seq !== loadSeq) return;
+    if (!res.ok) { document.getElementById('question-list').innerHTML = `<p style="padding:20px;">${qbEsc(data.error)}</p>`; return; }
+    shown = data.questions;
+    passages = data.passages || {};
+    for (const [k, n] of Object.entries(data.mastery_counts || {})) document.getElementById('cnt-' + k).textContent = `(${n})`;
+    render();
+}
+
+function historyHtml(q) {
+    if (!q.progress) return '<span>never tried</span>';
+    const dots = [...(q.history || [])].reverse().map(h =>
+        `<i class="${h.is_correct ? 'ok' : 'bad'}" title="${h.is_correct ? 'right' : 'wrong'} · ${fmtDate(h.attempted_at)}"></i>`).join('');
+    return `<span class="hist">${dots}</span>
+        <span>${q.progress.correct_count}&#10003; ${q.progress.wrong_count}&#10007;</span>
+        <span>last ${fmtDate(q.progress.last_tested)}</span>`;
+}
+
+function render() {
+    const list = document.getElementById('question-list');
+    if (!shown.length) {
+        list.innerHTML = '<div style="padding:30px; text-align:center; color:#999;">No questions match these filters.</div>';
+        updateCounts(); return;
+    }
+    list.innerHTML = shown.map(q => {
+        const sel = selected.has(q.id);
+        const p = q.passage_id ? passages[String(q.passage_id)] : null;
+        return `<div class="q-item ${sel ? 'selected' : ''}" data-id="${q.id}" onclick="toggleQ(${q.id})">
+            <input type="checkbox" ${sel ? 'checked' : ''}>
+            <div class="q-body">
+                ${qbStemHtml(q)}
+                <div class="meta">
+                    <span class="tag m-${q.mastery}">${MASTERY_LABELS[q.mastery]}</span>
+                    ${historyHtml(q)}
+                    <span class="tag">${qbEsc(q.section)}</span><span class="tag">D${q.difficulty}</span><span class="tag">#${q.id}</span>
+                    ${p ? `<span class="tag" title="Passage">&#128214; ${qbEsc(p.title || 'passage #' + q.passage_id)}</span>` : ''}
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+    updateCounts();
+}
+
+function toggleQ(id) {
+    if (selected.has(id)) selected.delete(id);
+    else selected.set(id, shown.find(q => q.id === id));
+    const el = document.querySelector(`.q-item[data-id="${id}"]`);
+    if (el) { el.classList.toggle('selected', selected.has(id)); el.querySelector('input').checked = selected.has(id); }
+    updateCounts();
+}
+function selectShown() { shown.forEach(q => selected.set(q.id, q)); render(); }
+function deselectAll() { selected.clear(); render(); }
+function pickRandom() {
+    const n = Math.max(1, parseInt(document.getElementById('rand-n').value) || 1);
+    const pool = shown.filter(q => !selected.has(q.id));
+    for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+    pool.slice(0, n).forEach(q => selected.set(q.id, q));
+    render();
+}
+function updateCounts() {
+    document.getElementById('shown-count').textContent = shown.length;
+    document.getElementById('selected-count').textContent = selected.size;
+    document.getElementById('createBtn').disabled = selected.size === 0;
 }
 
 async function createTest() {
@@ -130,27 +236,23 @@ async function createTest() {
     const res = await fetch('/api/qb-tests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) },
-        body: JSON.stringify({
-            child_id: parseInt(childId), track: document.getElementById('track').value,
-            grade: parseInt(document.getElementById('grade').value), section: document.getElementById('section').value || null,
-            source: document.getElementById('source').value || null,
-            count: parseInt(document.getElementById('count').value), title: document.getElementById('title').value,
-            mastery_mix: { new: +document.getElementById('mix-new').value, needs_work: +document.getElementById('mix-needs_work').value,
-                           due: +document.getElementById('mix-due').value } })
+        body: JSON.stringify({ child_id: parseInt(childId), question_ids: [...selected.keys()],
+                               title: document.getElementById('title').value })
     });
-    btn.disabled = false;
     const data = await res.json();
+    btn.disabled = false;
     const box = document.getElementById('result');
-    if (!res.ok) { box.innerHTML = `<div class="card" style="background:#fff5f5; color:#9b2c2c;">${data.error}</div>`; return; }
+    if (!res.ok) { box.innerHTML = `<div class="card" style="background:#fff5f5; color:#9b2c2c;">${qbEsc(data.error)}</div>`; return; }
     box.innerHTML = `<div class="card" style="background:#f0fff4;">
-        <strong>Created:</strong> ${data.title} &mdash; ${data.question_ids.length} questions
-        ${data.shortfall ? `<div style="color:#dd6b20; margin-top:4px;">Only ${data.question_ids.length} eligible questions available (${data.shortfall} short).</div>` : ''}
+        <strong>Created:</strong> ${qbEsc(data.title)} &mdash; ${data.question_ids.length} questions
         <div style="margin-top:10px;"><a class="btn btn-primary" style="padding:8px 18px; font-size:15px;" href="/child/${childId}/qb-test/${data.id}">Open test</a>
         <a class="btn btn-warning" style="padding:8px 18px; font-size:15px;" href="/child/${childId}/qb-history">Practice history</a></div></div>`;
-    refreshPool();
+    selected.clear();
+    document.getElementById('title').value = '';
+    load();
 }
 
 onTrackChange();
-onChildChange();
+onScopeChange(true);
 </script>
 {% endblock %}
