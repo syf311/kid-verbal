@@ -213,25 +213,39 @@ def validate_question(data, existing=None):
 
 def passage_to_dict(row):
     d = dict(row)
-    d["body"] = sanitize_rich(d.get("body")) or ""
+    d["body"] = d.get("body") or ""
     return d
 
 
-def question_to_dict(row, include_answer=True):
-    """Row → API dict. Rich fields are re-sanitized on read so rows stored before sanitizing are safe too."""
+def _clean_options(raw):
+    """Stored options JSON → [{text, svg}] (plain-string options become {text})."""
+    opts = json.loads(raw) if raw else []
+    return [{"text": o.get("text"), "svg": o.get("svg")} if isinstance(o, dict) else {"text": o, "svg": None}
+            for o in opts]
+
+
+def sanitize_stored(conn):
+    """One-time migration: sanitize every stored rich field so reads can serve rows as-is.
+    (Rows written through the API are already sanitized; this covers anything stored before that.)"""
+    for r in conn.execute("SELECT id, stem, stem_svg, explanation, options FROM qb_question").fetchall():
+        opts = [{"text": sanitize_rich(o["text"]), "svg": sanitize_svg(o["svg"])} for o in _clean_options(r["options"])]
+        conn.execute("UPDATE qb_question SET stem = ?, stem_svg = ?, explanation = ?, options = ? WHERE id = ?",
+                     (sanitize_rich(r["stem"]), sanitize_svg(r["stem_svg"]), sanitize_rich(r["explanation"]),
+                      json.dumps(opts), r["id"]))
+    for r in conn.execute("SELECT id, body FROM qb_passage").fetchall():
+        conn.execute("UPDATE qb_passage SET body = ? WHERE id = ?", (sanitize_rich(r["body"]) or "", r["id"]))
+
+
+def question_to_dict(row, include_answer=True, lite=False):
+    """Row → API dict. Rich fields are stored sanitized (on write, plus the one-time sanitize_stored
+    migration), so they are served as-is. lite=True drops options/explanation for list views."""
     d = dict(row)
-    raw_opts = json.loads(d["options"]) if d.get("options") else []
-    d["options"] = [
-        {"text": sanitize_rich(o.get("text")), "svg": sanitize_svg(o.get("svg"))} if isinstance(o, dict)
-        else {"text": sanitize_rich(o), "svg": None}
-        for o in raw_opts
-    ]
+    if lite:
+        d.pop("options", None)
+        d.pop("explanation", None)
+    else:
+        d["options"] = _clean_options(d.get("options"))
     d["tags"] = json.loads(d["tags"]) if d.get("tags") else []
-    for k in ("stem", "explanation"):
-        if k in d:
-            d[k] = sanitize_rich(d[k])
-    if "stem_svg" in d:
-        d["stem_svg"] = sanitize_svg(d["stem_svg"])
     if not include_answer:
         for k in ("correct_answer", "explanation", "answer_source"):
             d.pop(k, None)

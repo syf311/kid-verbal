@@ -1,3 +1,4 @@
+import gzip
 import hashlib
 import hmac
 import json
@@ -6027,6 +6028,21 @@ def login_required_json(f):
     return decorated
 
 
+@app.after_request
+def qb_gzip_json(response):
+    """Gzip larger question-bank JSON responses (SVG-heavy lists shrink ~80%)."""
+    if (request.path.startswith(("/api/question-bank", "/api/qb-tests"))
+            and response.status_code == 200 and response.mimetype == "application/json"
+            and not response.direct_passthrough and "gzip" in request.headers.get("Accept-Encoding", "")
+            and "Content-Encoding" not in response.headers):
+        data = response.get_data()
+        if len(data) > 2048:
+            response.set_data(gzip.compress(data, compresslevel=5))
+            response.headers["Content-Encoding"] = "gzip"
+            response.headers["Vary"] = "Accept-Encoding"
+    return response
+
+
 def parent_or_token_required(f):
     """Parent session OR `Authorization: Bearer <token>` (token hash in site_config.qb_api_token_hash)."""
     @wraps(f)
@@ -6313,7 +6329,9 @@ def qb_delete_question_image(question_id):
 def qb_list_questions():
     """Filterable question list. With child_id each question carries its mastery status, progress and
     recent history, and `mastery_counts` covers the whole filtered set (before the mastery filter).
-    `mastery` accepts a comma list, e.g. mastery=new,needs_improvement."""
+    `mastery` accepts a comma list, e.g. mastery=new,needs_improvement.
+    fields=lite omits options/explanation and passage bodies (used by the test builder)."""
+    lite = request.args.get("fields") == "lite"
     track = request.args.get("track")
     grade = request.args.get("grade", type=int)
     section = request.args.get("section")
@@ -6372,25 +6390,27 @@ def qb_list_questions():
 
     history = {}
     if child_id and page_rows:
-        qids = [r["id"] for r, _ in page_rows]
+        # All of this child's attempts in one pass (no huge IN-list: old SQLite caps variables at 999)
+        wanted = {r["id"] for r, _ in page_rows}
         for a in conn.execute(
-            f"""SELECT question_id, is_correct, attempted_at, test_id FROM qb_question_attempt
-                WHERE child_id = ? AND question_id IN ({','.join('?' * len(qids))})
-                ORDER BY attempted_at DESC, id DESC""", [child_id, *qids]).fetchall():
-            h = history.setdefault(a["question_id"], [])
-            if len(h) < 10:
-                h.append({"is_correct": bool(a["is_correct"]), "attempted_at": a["attempted_at"], "test_id": a["test_id"]})
+            """SELECT question_id, is_correct, attempted_at, test_id FROM qb_question_attempt
+               WHERE child_id = ? ORDER BY attempted_at DESC, id DESC""", (child_id,)):
+            if a["question_id"] in wanted:
+                h = history.setdefault(a["question_id"], [])
+                if len(h) < 10:
+                    h.append({"is_correct": bool(a["is_correct"]), "attempted_at": a["attempted_at"], "test_id": a["test_id"]})
     passage_ids = {r["passage_id"] for r, _ in page_rows if r["passage_id"]}
     passages = {}
     if passage_ids:
-        for p in conn.execute(f"SELECT * FROM qb_passage WHERE id IN ({','.join('?' * len(passage_ids))})",
-                              list(passage_ids)).fetchall():
-            passages[str(p["id"])] = qb.passage_to_dict(p)
+        cols = "id, title" if lite else "*"
+        for p in conn.execute(f"SELECT {cols} FROM qb_passage").fetchall():
+            if p["id"] in passage_ids:
+                passages[str(p["id"])] = dict(p) if lite else qb.passage_to_dict(p)
     conn.close()
 
     items = []
     for r, m in page_rows:
-        d = qb.question_to_dict(r)
+        d = qb.question_to_dict(r, lite=lite)
         for k in list(d):
             if k.startswith("m_"):
                 d.pop(k)

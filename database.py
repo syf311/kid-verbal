@@ -748,6 +748,12 @@ def init_question_bank_tables(conn):
         qb_engine.rebuild_history(conn)
         conn.execute("INSERT INTO site_config (key, value) VALUES ('qb_migration_attempt_history_v1', 'done')")
         conn.commit()
+    # One-time: sanitize stored rich text so the API can serve rows without re-sanitizing on every read
+    if not conn.execute("SELECT 1 FROM site_config WHERE key = 'qb_migration_sanitize_v1'").fetchone():
+        import qb_engine
+        qb_engine.sanitize_stored(conn)
+        conn.execute("INSERT INTO site_config (key, value) VALUES ('qb_migration_sanitize_v1', 'done')")
+        conn.commit()
 
 
 if __name__ == "__main__":

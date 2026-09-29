@@ -64,7 +64,7 @@
     </div>
     <div>
         <label>Track</label>
-        <select id="track" onchange="onTrackChange()">
+        <select id="track" onchange="onTrackChange(); onScopeChange()">
             {% for key, label in track_labels.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
         </select>
     </div>
@@ -133,7 +133,6 @@ function onTrackChange() {
         html += `<option value="${key}">${label}</option>`;
     }
     document.getElementById('section').innerHTML = html + (group ? '</optgroup>' : '');
-    onScopeChange();
 }
 
 // Child / track / grade define the test's scope: changing them clears the selection
@@ -156,7 +155,7 @@ function toggleMastery(m) {
 async function load() {
     const p = new URLSearchParams({
         child_id: document.getElementById('child').value, track: document.getElementById('track').value,
-        grade: document.getElementById('grade').value, per_page: 1000 });
+        grade: document.getElementById('grade').value, per_page: 1000, fields: 'lite' });
     for (const k of ['section', 'source', 'search']) {
         const v = document.getElementById(k).value.trim();
         if (v) p.set(k === 'search' ? 'q' : k, v);
