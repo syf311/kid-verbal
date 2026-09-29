@@ -6061,6 +6061,19 @@ def _qb_get_question(conn, question_id):
     return conn.execute("SELECT * FROM qb_question WHERE id = ?", (question_id,)).fetchone()
 
 
+def _qb_sections_with_db():
+    """Built-in sections per track plus any other section present in the bank (grouped as "Other")."""
+    conn = get_db()
+    rows = conn.execute("SELECT DISTINCT track, section FROM qb_question WHERE status = 'active'").fetchall()
+    conn.close()
+    result = {t: list(secs) for t, secs in qb.SECTIONS.items()}
+    for r in sorted(rows, key=lambda r: (r["track"], r["section"])):
+        known = {k for k, _, _ in result.get(r["track"], [])}
+        if r["track"] in result and r["section"] not in known:
+            result[r["track"]].append((r["section"], _qb_section_label(r["track"], r["section"]), "Other"))
+    return result
+
+
 def _qb_section_label(track, section):
     for key, label, _group in qb.SECTIONS.get(track, []):
         if key == section:
@@ -6077,7 +6090,7 @@ def qb_bank_page():
     children = conn.execute("SELECT id, name, grade_level FROM child ORDER BY name").fetchall()
     conn.close()
     return render_template("qb_bank.html", children=[dict(c) for c in children],
-                           source_labels=qb.SOURCE_LABELS, sections=qb.SECTIONS, track_labels=qb.TRACK_LABELS, grades=qb.GRADES)
+                           source_labels=qb.SOURCE_LABELS, sections=_qb_sections_with_db(), track_labels=qb.TRACK_LABELS, grades=qb.GRADES)
 
 
 @app.route("/parent/qb-tests/new")
@@ -6089,7 +6102,7 @@ def qb_test_create_page():
     return render_template("qb_test_create.html", children=[dict(c) for c in children],
                            selected_child_id=request.args.get("child_id", type=int),
                            source_labels=qb.SOURCE_LABELS,
-                           sections=qb.SECTIONS, track_labels=qb.TRACK_LABELS, grades=qb.GRADES)
+                           sections=_qb_sections_with_db(), track_labels=qb.TRACK_LABELS, grades=qb.GRADES)
 
 
 def _qb_child_and_test(child_id, test_id):
@@ -6294,6 +6307,7 @@ def qb_delete_question_image(question_id):
 
 
 @app.route("/api/question-bank", methods=["GET"])
+@app.route("/api/question-bank/questions", methods=["GET"])  # alias: same list, REST-style path
 @parent_or_token_required
 def qb_list_questions():
     track = request.args.get("track")
@@ -6476,23 +6490,31 @@ def qb_create_passage():
 @app.route("/api/question-bank/passages", methods=["GET"])
 @parent_or_token_required
 def qb_list_passages():
-    sql, params = "SELECT * FROM qb_passage WHERE 1 = 1", []
+    """Newest first. Without page/per_page returns a plain array (backward compatible);
+    with either one returns {items, total, page, per_page}."""
+    where, params = " WHERE 1 = 1", []
     for col in ("track", "grade", "section"):
         val = request.args.get(col)
         if val:
-            sql += f" AND {col} = ?"
+            where += f" AND p.{col} = ?"
             params.append(val)
+    paginate = "page" in request.args or "per_page" in request.args
+    page = max(1, request.args.get("page", 1, type=int))
+    per_page = min(200, max(1, request.args.get("per_page", 20, type=int)))
+    sql = f"""SELECT p.*, (SELECT COUNT(*) FROM qb_question q
+                           WHERE q.passage_id = p.id AND q.status = 'active') AS question_count
+              FROM qb_passage p{where} ORDER BY p.id DESC"""
     conn = get_db()
-    rows = conn.execute(sql + " ORDER BY id DESC", params).fetchall()
-    result = []
-    for r in rows:
-        d = dict(r)
-        d["question_count"] = conn.execute(
-            "SELECT COUNT(*) FROM qb_question WHERE passage_id = ? AND status = 'active'", (r["id"],)
-        ).fetchone()[0]
-        result.append(d)
+    if paginate:
+        total = conn.execute(f"SELECT COUNT(*) FROM qb_passage p{where}", params).fetchone()[0]
+        rows = conn.execute(sql + " LIMIT ? OFFSET ?", [*params, per_page, (page - 1) * per_page]).fetchall()
+    else:
+        rows = conn.execute(sql, params).fetchall()
     conn.close()
-    return jsonify(result)
+    items = [dict(r) for r in rows]
+    if not paginate:
+        return jsonify(items)
+    return jsonify({"items": items, "total": total, "page": page, "per_page": per_page})
 
 
 @app.route("/api/question-bank/passages/<int:passage_id>", methods=["GET"])
@@ -6756,19 +6778,18 @@ def qb_delete_test(test_id):
     return "", 204
 
 
-@app.route("/api/children/<int:child_id>/qb-test-history", methods=["GET"])
-@login_required_json
-def qb_test_history(child_id):
-    if not _qb_can_access_child(child_id):
-        return jsonify({"error": "Access denied"}), 403
+def _qb_list_tests(child_id=None):
     track = request.args.get("track")
     status = request.args.get("status")
     sql = """SELECT t.*, s.correct_count, s.total_count, s.score, s.time_taken_seconds, s.submitted_at,
                     (SELECT COUNT(*) FROM qb_test_question WHERE test_id = t.id) AS question_count,
                     (SELECT COUNT(*) FROM qb_test_answer WHERE test_id = t.id) AS answered_count
              FROM qb_test t LEFT JOIN qb_test_submission s ON s.test_id = t.id
-             WHERE t.child_id = ?"""
-    params = [child_id]
+             WHERE 1 = 1"""
+    params = []
+    if child_id:
+        sql += " AND t.child_id = ?"
+        params.append(child_id)
     if track:
         sql += " AND t.track = ?"
         params.append(track)
@@ -6786,6 +6807,21 @@ def qb_test_history(child_id):
         d["section_label"] = _qb_section_label(r["track"], r["section"]) if r["section"] else "Mixed"
         result.append(d)
     return jsonify(result)
+
+
+@app.route("/api/children/<int:child_id>/qb-test-history", methods=["GET"])
+@login_required_json
+def qb_test_history(child_id):
+    if not _qb_can_access_child(child_id):
+        return jsonify({"error": "Access denied"}), 403
+    return _qb_list_tests(child_id)
+
+
+@app.route("/api/qb-tests", methods=["GET"])
+@parent_or_token_required
+def qb_list_tests():
+    """All practice tests, newest first; optional ?child_id=&track=&status=."""
+    return _qb_list_tests(request.args.get("child_id", type=int))
 
 
 if __name__ == "__main__":

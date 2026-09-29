@@ -71,8 +71,10 @@ qb_request_key    key (PK, "<type>:<Idempotency-Key>"), resource_type, resource_
 | DELETE | `/api/question-bank/questions/{id}` | parent/token | Soft delete → `status=archived` (keeps history intact) |
 | POST/DELETE | `/api/question-bank/questions/{id}/image` | parent/token | multipart field `image`, saved to `uploads/qb_{id}_{ts}_{name}` |
 | POST | `/api/question-bank/passages` | parent/token | Create passage; sub-questions link via `passage_id` |
+| GET | `/api/question-bank/passages?track=&grade=&section=&page=&per_page=` | parent/token | Newest first. No page/per_page → plain array; with either → `{items, total, page, per_page}` (per_page default 20, max 200) |
 | GET/PUT/DELETE | `/api/question-bank/passages/{id}` | parent/token | GET includes sub-questions |
-| GET | `/api/question-bank?track=&grade=&section=&qtype=&status=&child_id=&mastery=&page=` | parent/token | `mastery` filter needs `child_id` |
+| GET | `/api/question-bank?track=&grade=&section=&qtype=&source=&status=&child_id=&mastery=&page=` (alias `/api/question-bank/questions`) | parent/token | `mastery` filter needs `child_id` |
+| GET | `/api/qb-tests?child_id=&track=&status=` | parent/token | All practice tests, newest first |
 | GET | `/api/question-bank/sections?track=` | parent/token | Section list + counts per grade |
 | GET | `/api/question-bank/export?track=` | parent/token | Full JSON backup (questions + passages) |
 | POST | `/api/qb-tests` | parent/token | `{child_id, track, grade, section?, count, mastery_mix?}` → `{id, question_ids, shortfall}` |
