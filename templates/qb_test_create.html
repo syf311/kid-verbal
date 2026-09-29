@@ -58,7 +58,7 @@
         <label>Child</label>
         <select id="child" onchange="onScopeChange(true)">
             {% for c in children %}
-            <option value="{{ c.id }}" data-grade="{{ c.grade_level or '' }}" {% if c.id == selected_child_id %}selected{% endif %}>{{ c.name }}</option>
+            <option value="{{ c.id }}" data-grade="{{ c.grade_level or '' }}">{{ c.name }}</option>
             {% endfor %}
         </select>
     </div>
@@ -162,10 +162,18 @@ async function load() {
     }
     if (masteryOn.size) p.set('mastery', [...masteryOn].join(','));
     const seq = ++loadSeq;
-    const res = await fetch(`/api/question-bank?${p}`);
-    const data = await res.json();
+    const list = document.getElementById('question-list');
+    list.innerHTML = '<div style="padding:30px; text-align:center; color:#999;">Loading...</div>';
+    let res, data;
+    try {
+        res = await fetch(`/api/question-bank?${p}`);
+        data = await res.json();
+    } catch (e) {
+        if (seq === loadSeq) list.innerHTML = `<p style="padding:20px; color:#c53030;">Could not load questions (${qbEsc(res ? res.status + ' ' + res.statusText : e.message)}). Try again.</p>`;
+        return;
+    }
     if (seq !== loadSeq) return;
-    if (!res.ok) { document.getElementById('question-list').innerHTML = `<p style="padding:20px;">${qbEsc(data.error)}</p>`; return; }
+    if (!res.ok) { list.innerHTML = `<p style="padding:20px; color:#c53030;">${qbEsc(data.error || res.statusText)}</p>`; return; }
     shown = data.questions;
     passages = data.passages || {};
     for (const [k, n] of Object.entries(data.mastery_counts || {})) document.getElementById('cnt-' + k).textContent = `(${n})`;

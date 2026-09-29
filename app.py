@@ -6117,7 +6117,6 @@ def qb_test_create_page():
     children = conn.execute("SELECT id, name, grade_level FROM child ORDER BY name").fetchall()
     conn.close()
     return render_template("qb_test_create.html", children=[dict(c) for c in children],
-                           selected_child_id=request.args.get("child_id", type=int),
                            source_labels=qb.SOURCE_LABELS, mastery_labels=qb.MASTERY_LABELS,
                            sections=_qb_sections_with_db(), track_labels=qb.TRACK_LABELS, grades=qb.GRADES)
 

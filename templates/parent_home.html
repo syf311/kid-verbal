@@ -550,7 +550,7 @@ function updateQuickLinks(childId) {
         <a href="#" class="btn" style="background:#718096;color:#fff;" onclick="event.preventDefault(); bulkImportNSB()">Bulk Import from NSB</a>
     `;
     document.getElementById('practice-links').innerHTML = `
-        <a href="/parent/qb-tests/new?child_id=${childId}" class="btn-success">Create Practice Test</a>
+        <a href="/parent/qb-tests/new" class="btn-success">Create Practice Test</a>
         <a href="/parent/question-bank" class="btn-primary">Question Bank</a>
         <a href="/child/${childId}/qb-history" class="btn-warning">Practice History</a>
     `;
