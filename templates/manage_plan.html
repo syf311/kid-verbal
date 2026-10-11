@@ -1263,8 +1263,10 @@ function renderMpQuestions() {
             <div style="display:flex; align-items:flex-start; gap:8px;">
                 <input type="checkbox" ${sel ? 'checked' : ''} style="width:16px; height:16px; margin-top:3px; pointer-events:none; flex-shrink:0;">
                 <div style="flex:1; min-width:0;">
-                    <div style="font-size:13px; color:#333; line-height:1.4;">${escHtml(q.question_text)}</div>
+                    ${q.question_text ? `<div style="font-size:13px; color:#333; line-height:1.4;">${escHtml(q.question_text)}</div>` : ''}
+                    ${q.image_path ? `<img src="/uploads/${q.image_path}" alt="Question picture" style="display:block; max-width:100%; max-height:100px; margin-top:4px; border-radius:6px; border:1px solid #e2e8f0;">` : ''}
                     <div style="font-size:11px; margin-top:4px;">
+                        ${q.contest ? `<span style="background:#bee3f8;color:#2a4365;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;">${escHtml([q.contest, q.contest_year, q.problem_number ? '#' + q.problem_number : ''].filter(x => x).join(' '))}</span>` : ''}
                         ${concepts}
                         <span style="background:${diffBg};color:${diffColor};padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;">Diff ${q.difficulty}</span>
                         <span style="background:#e2e8f0;color:#4a5568;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;">${masteryLabel}</span>

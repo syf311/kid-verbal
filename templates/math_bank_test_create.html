@@ -25,6 +25,12 @@
         font-weight: 600; background: #e9d8fd; color: #553c9a;
     }
     .diff-badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .origin-badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .origin-ai_generated { background: #e2e8f0; color: #4a5568; }
+    .origin-human { background: #feebc8; color: #9c4221; }
+    .contest-tag { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; background: #bee3f8; color: #2a4365; }
+    .q-thumb { display: block; max-width: 100%; max-height: 120px; margin-top: 4px; border-radius: 6px; border: 1px solid #e2e8f0; }
+    .filter-select { padding: 4px 8px; font-size: 13px; border: 1px solid #ccc; border-radius: 6px; }
     .diff-1 { background: #c6f6d5; color: #276749; }
     .diff-2 { background: #bee3f8; color: #2b6cb0; }
     .diff-3 { background: #fefcbf; color: #975a16; }
@@ -70,6 +76,18 @@
     <button class="filter-btn" onclick="setDiffFilter(4)">4</button>
     <button class="filter-btn" onclick="setDiffFilter(5)">5</button>
 </div>
+<div style="margin-bottom: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+    <label style="font-size: 13px; font-weight: 600;">Origin:</label>
+    <span id="origin-filters">
+        <button class="filter-btn active" onclick="setOriginFilter('')">All</button>
+        <button class="filter-btn" onclick="setOriginFilter('human')">Real</button>
+        <button class="filter-btn" onclick="setOriginFilter('ai_generated')">AI</button>
+    </span>
+    <label style="font-size: 13px; font-weight: 600; margin-left: 10px;">Contest:</label>
+    <select id="contest-filter" class="filter-select" onchange="loadQuestions()"><option value="">All</option></select>
+    <label style="font-size: 13px; font-weight: 600;">Year:</label>
+    <select id="year-filter" class="filter-select" onchange="loadQuestions()"><option value="">All</option></select>
+</div>
 <div style="margin-bottom: 12px;">
     <label style="font-size: 13px; font-weight: 600;">Mastery:</label>
     <span id="mastery-filters"></span>
@@ -98,6 +116,8 @@ let selectedIds = new Set();
 let currentConcept = '';
 let currentDiff = 0;
 let currentMastery = '';
+let currentOrigin = '';
+const ORIGIN_LABELS = { ai_generated: 'AI', human: 'Real' };
 const MASTERY_LABELS = { never: 'New', wrong: 'Needs Work', due: 'Due', good: 'Good', mastered: 'Mastered' };
 const DIFF_COLORS = { 1: 'diff-1', 2: 'diff-2', 3: 'diff-3', 4: 'diff-4', 5: 'diff-5' };
 
@@ -113,11 +133,19 @@ async function loadQuestions() {
     if (currentConcept) url += `&concept=${encodeURIComponent(currentConcept)}`;
     if (currentDiff) url += `&difficulty=${currentDiff}`;
     if (currentMastery) url += `&status=${currentMastery}`;
+    if (currentOrigin) url += `&origin=${currentOrigin}`;
+    const contest = document.getElementById('contest-filter').value;
+    const year = document.getElementById('year-filter').value;
+    if (contest) url += `&contest=${encodeURIComponent(contest)}`;
+    if (year) url += `&year=${year}`;
 
     const res = await fetch(url);
     if (!res.ok) return;
     const data = await res.json();
     allQuestions = data.questions || [];
+
+    renderSelectOptions('contest-filter', data.contests || []);
+    renderSelectOptions('year-filter', data.years || []);
 
     renderConceptFilters(data.concepts || []);
     renderMasteryFilters(data.status_counts || {});
@@ -151,6 +179,28 @@ function setDiffFilter(d) {
     loadQuestions();
 }
 function setMasteryFilter(m) { currentMastery = m; loadQuestions(); }
+function setOriginFilter(o) {
+    currentOrigin = o;
+    document.querySelectorAll('#origin-filters .filter-btn').forEach(btn =>
+        btn.classList.toggle('active', btn.getAttribute('onclick') === `setOriginFilter('${o}')`));
+    loadQuestions();
+}
+
+function renderSelectOptions(id, values) {
+    const el = document.getElementById(id);
+    const current = el.value;
+    el.innerHTML = '<option value="">All</option>' +
+        values.map(v => `<option value="${escHtml(String(v))}">${escHtml(String(v))}</option>`).join('');
+    el.value = values.map(String).includes(current) ? current : '';
+}
+
+function contestLabel(q) {
+    const parts = [];
+    if (q.contest) parts.push(q.contest);
+    if (q.contest_year) parts.push(q.contest_year);
+    if (q.problem_number) parts.push('#' + q.problem_number);
+    return parts.join(' ');
+}
 
 function renderQuestions(questions) {
     const list = document.getElementById('question-list');
@@ -162,11 +212,15 @@ function renderQuestions(questions) {
         const sel = selectedIds.has(q.id);
         const concepts = (q.concepts || []).map(c => `<span class="concept-tag">${escHtml(c)}</span>`).join(' ');
         const diffCls = DIFF_COLORS[q.difficulty] || 'diff-3';
+        const tag = contestLabel(q);
         return `<div class="q-item ${sel ? 'selected' : ''}" onclick="toggleQ(${q.id})">
             <input type="checkbox" ${sel ? 'checked' : ''} style="pointer-events:none;">
             <div style="flex:1; min-width:0;">
-                <div style="font-size:14px; color:#333; line-height:1.4;">${escHtml(q.question_text)}</div>
+                ${q.question_text ? `<div style="font-size:14px; color:#333; line-height:1.4;">${escHtml(q.question_text)}</div>` : ''}
+                ${q.image_path ? `<img class="q-thumb" src="/uploads/${q.image_path}" alt="Question picture">` : ''}
                 <div style="font-size:11px; margin-top:4px;">
+                    <span class="origin-badge origin-${q.origin}">${ORIGIN_LABELS[q.origin] || 'AI'}</span>
+                    ${tag ? `<span class="contest-tag">${escHtml(tag)}</span>` : ''}
                     ${concepts}
                     <span class="diff-badge ${diffCls}">Diff ${q.difficulty}</span>
                 </div>

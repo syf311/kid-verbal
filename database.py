@@ -598,6 +598,17 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # Migration: math_question origin (ai_generated|human), contest tags, solution image
+    for col in ("origin TEXT", "contest TEXT", "contest_year INTEGER",
+                "problem_number INTEGER", "solution_image_path TEXT"):
+        try:
+            conn.execute(f"ALTER TABLE math_question ADD COLUMN {col}")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
+    conn.execute("UPDATE math_question SET origin = 'ai_generated' WHERE origin IS NULL")
+    conn.commit()
+
     init_question_bank_tables(conn)
 
     conn.close()

@@ -4252,6 +4252,9 @@ def list_math_questions(child_id):
     concept_filter = request.args.get("concept")
     difficulty_filter = request.args.get("difficulty", type=int)
     status_filter = request.args.get("status")
+    origin_filter = request.args.get("origin")
+    contest_filter = request.args.get("contest")
+    year_filter = request.args.get("year", type=int)
     search = request.args.get("search", "").strip().lower()
     page = request.args.get("page", type=int)
     per_page = request.args.get("per_page", 50, type=int)
@@ -4271,8 +4274,26 @@ def list_math_questions(child_id):
     if difficulty_filter:
         sql += " AND mq.difficulty = ?"
         params.append(difficulty_filter)
-    sql += " ORDER BY mq.created_at DESC"
+    if origin_filter:
+        sql += " AND mq.origin = ?"
+        params.append(origin_filter)
+    if contest_filter:
+        sql += " AND mq.contest = ?"
+        params.append(contest_filter)
+    if year_filter:
+        sql += " AND mq.contest_year = ?"
+        params.append(year_filter)
+    if contest_filter or year_filter:
+        sql += " ORDER BY mq.contest, mq.contest_year DESC, mq.problem_number, mq.id"
+    else:
+        sql += " ORDER BY mq.created_at DESC"
     questions = conn.execute(sql, params).fetchall()
+
+    tag_rows = conn.execute(
+        "SELECT DISTINCT contest, contest_year FROM math_question WHERE child_id = ?", (child_id,)
+    ).fetchall()
+    all_contests = sorted({r["contest"] for r in tag_rows if r["contest"]})
+    all_years = sorted({r["contest_year"] for r in tag_rows if r["contest_year"]}, reverse=True)
 
     # All distinct concepts for this child
     all_concepts_raw = conn.execute(
@@ -4288,7 +4309,7 @@ def list_math_questions(child_id):
             pass
 
     unverified_count = conn.execute(
-        "SELECT COUNT(*) FROM math_question WHERE child_id = ? AND verified = 0",
+        "SELECT COUNT(*) FROM math_question WHERE child_id = ? AND verified = 0 AND image_path IS NULL",
         (child_id,)
     ).fetchone()[0]
     conn.close()
@@ -4322,7 +4343,7 @@ def list_math_questions(child_id):
             continue
 
         # Apply search filter
-        if search and search not in d["question_text"].lower():
+        if search and search not in (d["question_text"] or "").lower():
             for k in ("m_correct_count", "m_wrong_count", "m_streak", "m_difficulty_level", "m_last_tested", "m_last_correct_at"):
                 del d[k]
             continue
@@ -4352,56 +4373,195 @@ def list_math_questions(child_id):
         "per_page": per_page,
         "total_pages": total_pages,
         "concepts": sorted(all_concepts),
+        "contests": all_contests,
+        "years": all_years,
         "status_counts": status_counts,
         "unverified_count": unverified_count
     })
 
 
+MATH_IMAGE_EXTS = {"png", "jpg", "jpeg", "gif", "webp"}
+MATH_ORIGINS = ("ai_generated", "human")
+MATH_LETTERS = ("A", "B", "C", "D", "E")
+
+
+def _math_question_request():
+    """Read a math question create/update request: JSON, or multipart with a `payload` JSON field + image files."""
+    if request.content_type and request.content_type.startswith("multipart/form-data"):
+        try:
+            data = json.loads(request.form.get("payload") or "{}")
+        except json.JSONDecodeError:
+            data = None
+        return data, request.files
+    return request.get_json(silent=True), {}
+
+
+def _check_math_image(file):
+    if not file or not file.filename:
+        return None
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in MATH_IMAGE_EXTS:
+        return "Images must be png, jpg, gif or webp"
+    return None
+
+
+def _save_math_image(file, question_id, kind):
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+    filename = f"mathq_{question_id}_{kind}_{int(time.time())}_{secrets.token_hex(6)}.{ext}"
+    file.save(os.path.join(UPLOAD_FOLDER, filename))
+    return filename
+
+
+def _delete_upload(filename):
+    if filename:
+        try:
+            os.remove(os.path.join(UPLOAD_FOLDER, filename))
+        except OSError:
+            pass
+
+
+def _clean_math_tags(data):
+    """Validate origin/contest/year/problem number present in data; returns (values, error)."""
+    out = {}
+    if "origin" in data:
+        if data["origin"] not in MATH_ORIGINS:
+            return None, "origin must be ai_generated or human"
+        out["origin"] = data["origin"]
+    if "contest" in data:
+        out["contest"] = (data["contest"] or "").strip() or None
+    for key, lo, hi in (("contest_year", 1950, 2100), ("problem_number", 1, 100)):
+        if key in data:
+            v = data[key]
+            if v in (None, ""):
+                out[key] = None
+                continue
+            try:
+                v = int(v)
+            except (TypeError, ValueError):
+                return None, f"{key} must be a number"
+            if not lo <= v <= hi:
+                return None, f"{key} must be between {lo} and {hi}"
+            out[key] = v
+    return out, None
+
+
+def _check_math_question(question_text, choices, correct_answer, has_image):
+    if not has_image and not question_text:
+        return "Question text is required (or upload a question picture)"
+    if not isinstance(choices, dict):
+        return "choices must be an object"
+    if not has_image and len(choices) < 2:
+        return "At least 2 choices are required (or upload a question picture that shows them)"
+    if correct_answer not in MATH_LETTERS:
+        return "Correct answer must be A-E"
+    if choices and correct_answer not in choices:
+        return "Correct answer must be one of the choices"
+    return None
+
+
 @app.route("/api/children/<int:child_id>/math-questions", methods=["POST"])
 @parent_required
 def add_math_question(child_id):
-    data = request.json
-    question_text = data.get("question_text", "").strip()
-    choices = data.get("choices", {})
-    correct_answer = data.get("correct_answer", "").strip().upper()
-    if not question_text or not choices or not correct_answer:
-        return jsonify({"error": "question_text, choices, and correct_answer required"}), 400
+    data, files = _math_question_request()
+    if data is None:
+        return jsonify({"error": "Invalid request"}), 400
+    question_text = (data.get("question_text") or "").strip()
+    choices = {k.upper(): v.strip() for k, v in (data.get("choices") or {}).items() if v and v.strip()}
+    correct_answer = (data.get("correct_answer") or "").strip().upper()
+    q_image = files.get("question_image")
+    s_image = files.get("solution_image")
+    has_image = bool(q_image and q_image.filename)
+
+    if data.get("origin") not in MATH_ORIGINS:
+        return jsonify({"error": "origin (ai_generated or human) is required"}), 400
+    tags, err = _clean_math_tags(data)
+    err = err or _check_math_question(question_text, choices, correct_answer, has_image) \
+        or _check_math_image(q_image) or _check_math_image(s_image)
+    if err:
+        return jsonify({"error": err}), 400
 
     conn = get_db()
     cursor = conn.execute(
-        """INSERT INTO math_question (child_id, question_text, choices, correct_answer, solution_steps, concepts, grade_level, difficulty, source)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        """INSERT INTO math_question (child_id, question_text, choices, correct_answer, solution_steps, concepts, grade_level, difficulty, source,
+                                     origin, contest, contest_year, problem_number)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (child_id, question_text, json.dumps(choices), correct_answer,
          data.get("solution_steps", ""), json.dumps(data.get("concepts", [])),
-         data.get("grade_level", ""), data.get("difficulty", 3), data.get("source", "manual"))
+         data.get("grade_level", ""), data.get("difficulty", 3), data.get("source", "manual"),
+         tags["origin"], tags.get("contest"), tags.get("contest_year"), tags.get("problem_number"))
     )
+    qid = cursor.lastrowid
+    if has_image:
+        conn.execute("UPDATE math_question SET image_path = ? WHERE id = ?", (_save_math_image(q_image, qid, "q"), qid))
+    if s_image and s_image.filename:
+        conn.execute("UPDATE math_question SET solution_image_path = ? WHERE id = ?", (_save_math_image(s_image, qid, "s"), qid))
     conn.commit()
     conn.close()
-    return jsonify({"id": cursor.lastrowid}), 201
+    return jsonify({"id": qid}), 201
 
 
 @app.route("/api/math-questions/<int:question_id>", methods=["PUT"])
 @parent_required
 def update_math_question(question_id):
-    data = request.json
+    data, files = _math_question_request()
+    if data is None:
+        return jsonify({"error": "Invalid request"}), 400
     conn = get_db()
     q = conn.execute("SELECT * FROM math_question WHERE id = ?", (question_id,)).fetchone()
     if not q:
         conn.close()
         return jsonify({"error": "Not found"}), 404
+
+    q_image = files.get("question_image")
+    s_image = files.get("solution_image")
+    new_q_image = bool(q_image and q_image.filename)
+    new_s_image = bool(s_image and s_image.filename)
+    remove_q = bool(data.get("remove_question_image")) and not new_q_image
+    remove_s = bool(data.get("remove_solution_image")) and not new_s_image
+    has_image = new_q_image or (bool(q["image_path"]) and not remove_q)
+
+    question_text = ((data["question_text"] if "question_text" in data else q["question_text"]) or "").strip()
+    if "choices" in data:
+        choices = {k.upper(): v.strip() for k, v in (data["choices"] or {}).items() if v and v.strip()}
+    else:
+        choices = json.loads(q["choices"] or "{}")
+    correct_answer = (data.get("correct_answer") or q["correct_answer"]).strip().upper()
+
+    tags, err = _clean_math_tags(data)
+    err = err or _check_math_question(question_text, choices, correct_answer, has_image) \
+        or _check_math_image(q_image) or _check_math_image(s_image)
+    if err:
+        conn.close()
+        return jsonify({"error": err}), 400
+
+    image_path = q["image_path"]
+    if new_q_image or remove_q:
+        _delete_upload(image_path)
+        image_path = _save_math_image(q_image, question_id, "q") if new_q_image else None
+    solution_image_path = q["solution_image_path"]
+    if new_s_image or remove_s:
+        _delete_upload(solution_image_path)
+        solution_image_path = _save_math_image(s_image, question_id, "s") if new_s_image else None
+
     conn.execute(
         """UPDATE math_question SET question_text = ?, choices = ?, correct_answer = ?,
            solution_steps = ?, concepts = ?, grade_level = ?, difficulty = ?, source = ?,
-           verified = 1
+           origin = ?, contest = ?, contest_year = ?, problem_number = ?,
+           image_path = ?, solution_image_path = ?, verified = 1
            WHERE id = ?""",
-        (data.get("question_text", q["question_text"]),
-         json.dumps(data.get("choices", json.loads(q["choices"]))),
-         data.get("correct_answer", q["correct_answer"]).upper(),
+        (question_text,
+         json.dumps(choices),
+         correct_answer,
          data.get("solution_steps", q["solution_steps"]),
          json.dumps(data.get("concepts", json.loads(q["concepts"] or "[]"))),
          data.get("grade_level", q["grade_level"]),
          data.get("difficulty", q["difficulty"]),
          data.get("source", q["source"]),
+         tags.get("origin", q["origin"]),
+         tags["contest"] if "contest" in tags else q["contest"],
+         tags["contest_year"] if "contest_year" in tags else q["contest_year"],
+         tags["problem_number"] if "problem_number" in tags else q["problem_number"],
+         image_path, solution_image_path,
          question_id)
     )
     conn.commit()
@@ -4413,9 +4573,13 @@ def update_math_question(question_id):
 @parent_required
 def delete_math_question(question_id):
     conn = get_db()
+    q = conn.execute("SELECT image_path, solution_image_path FROM math_question WHERE id = ?", (question_id,)).fetchone()
     conn.execute("DELETE FROM math_question WHERE id = ?", (question_id,))
     conn.commit()
     conn.close()
+    if q:
+        _delete_upload(q["image_path"])
+        _delete_upload(q["solution_image_path"])
     return jsonify({"success": True})
 
 
@@ -4495,12 +4659,12 @@ def verify_math_questions(child_id):
     if question_ids:
         placeholders = ",".join("?" for _ in question_ids)
         questions = conn.execute(
-            f"SELECT * FROM math_question WHERE child_id = ? AND verified = 0 AND id IN ({placeholders})",
+            f"SELECT * FROM math_question WHERE child_id = ? AND verified = 0 AND image_path IS NULL AND id IN ({placeholders})",
             [child_id] + question_ids
         ).fetchall()
     else:
         questions = conn.execute(
-            "SELECT * FROM math_question WHERE child_id = ? AND verified = 0", (child_id,)
+            "SELECT * FROM math_question WHERE child_id = ? AND verified = 0 AND image_path IS NULL", (child_id,)
         ).fetchall()
 
     if not questions:
@@ -4622,7 +4786,7 @@ def verify_math_questions(child_id):
 def get_unverified_math_question_ids(child_id):
     conn = get_db()
     rows = conn.execute(
-        "SELECT id FROM math_question WHERE child_id = ? AND verified = 0",
+        "SELECT id FROM math_question WHERE child_id = ? AND verified = 0 AND image_path IS NULL",
         (child_id,)
     ).fetchall()
     conn.close()
@@ -4644,7 +4808,7 @@ def verify_math_questions_batch(child_id):
     conn = get_db()
     placeholders = ",".join("?" for _ in question_ids)
     questions = conn.execute(
-        f"SELECT * FROM math_question WHERE child_id = ? AND verified = 0 AND id IN ({placeholders})",
+        f"SELECT * FROM math_question WHERE child_id = ? AND verified = 0 AND image_path IS NULL AND id IN ({placeholders})",
         [child_id] + question_ids
     ).fetchall()
 
@@ -4851,8 +5015,8 @@ def import_math_questions_ai(child_id):
             skipped += 1
             continue
         conn.execute(
-            """INSERT INTO math_question (child_id, question_text, choices, correct_answer, solution_steps, concepts, grade_level, difficulty, source)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO math_question (child_id, question_text, choices, correct_answer, solution_steps, concepts, grade_level, difficulty, source, origin)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ai_generated')""",
             (child_id, p["question_text"], json.dumps(p["choices"]), correct_answer,
              solution_steps, json.dumps(p["concepts"]), grade_level, p["difficulty"], "AI generated")
         )
@@ -4904,7 +5068,7 @@ def review_math_bank_test(child_id, test_id):
     questions = conn.execute(
         """SELECT q.* FROM math_question q
            JOIN math_bank_test_question btq ON q.id = btq.question_id
-           WHERE btq.test_id = ? ORDER BY q.id""",
+           WHERE btq.test_id = ? ORDER BY q.contest, q.contest_year, q.problem_number, q.id""",
         (test_id,)
     ).fetchall()
     conn.close()
@@ -4984,7 +5148,7 @@ def get_math_bank_test(test_id):
     questions = conn.execute(
         """SELECT q.* FROM math_question q
            JOIN math_bank_test_question btq ON q.id = btq.question_id
-           WHERE btq.test_id = ? ORDER BY q.id""",
+           WHERE btq.test_id = ? ORDER BY q.contest, q.contest_year, q.problem_number, q.id""",
         (test_id,)
     ).fetchall()
     result = dict(test)

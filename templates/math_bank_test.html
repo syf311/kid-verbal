@@ -102,8 +102,11 @@ function renderQuestions() {
         const concepts = (q.concepts ? (typeof q.concepts === 'string' ? JSON.parse(q.concepts) : q.concepts) : []);
         const conceptsHtml = concepts.map(c => `<span class="concept-tag">${escHtml(c)}</span>`).join(' ');
         let choicesHtml = '';
-        if (q.choices && typeof q.choices === 'object') {
-            choicesHtml = '<div class="choices-group">' + Object.entries(q.choices).map(([k, v]) =>
+        // Picture questions may keep their choices in the picture: offer plain A–E
+        let opts = (q.choices && typeof q.choices === 'object') ? q.choices : {};
+        if (!Object.keys(opts).length && q.image_path) opts = { A: '', B: '', C: '', D: '', E: '' };
+        if (Object.keys(opts).length) {
+            choicesHtml = '<div class="choices-group">' + Object.entries(opts).map(([k, v]) =>
                 `<label class="choice-radio" id="choice-${q.id}-${k}" onclick="selectAnswer(${q.id}, '${k}')">
                     <input type="radio" name="q${q.id}" value="${k}">
                     <span class="choice-letter">${k}.</span>
@@ -113,8 +116,8 @@ function renderQuestions() {
         }
         return `<div class="question-card" id="qcard-${q.id}">
             <div class="question-number">Question ${i + 1} ${conceptsHtml}</div>
-            ${q.image_path ? `<img src="/uploads/${q.image_path}" style="max-width:400px; margin:10px 0; border-radius:8px;">` : ''}
-            <div class="question-text">${escHtml(q.question_text)}</div>
+            ${q.question_text ? `<div class="question-text">${escHtml(q.question_text)}</div>` : ''}
+            ${q.image_path ? `<img src="/uploads/${q.image_path}" alt="Question picture" style="display:block; max-width:100%; width:600px; margin:10px 0; border-radius:8px; border:1px solid #e2e8f0;">` : ''}
             ${choicesHtml}
         </div>`;
     }).join('');

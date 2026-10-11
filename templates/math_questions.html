@@ -44,6 +44,18 @@
         display: inline-block; background: #c6f6d5; color: #276749;
     }
     .choices-inline { font-size: 12px; color: #555; margin-top: 4px; }
+    .origin-badge { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; display: inline-block; }
+    .origin-ai_generated { background: #e2e8f0; color: #4a5568; }
+    .origin-human { background: #feebc8; color: #9c4221; }
+    .contest-tag { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; display: inline-block; background: #bee3f8; color: #2a4365; }
+    .q-image { display: block; max-width: 100%; width: 520px; margin-top: 6px; border-radius: 6px; border: 1px solid #e2e8f0; }
+    .tag-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 8px; }
+    .tag-grid label, .image-field label { font-size: 12px; font-weight: 600; }
+    .tag-grid select, .filter-select { width: 100%; padding: 6px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px; }
+    .filter-select { width: auto; padding: 4px 8px; font-size: 13px; }
+    .image-field { margin-bottom: 8px; }
+    .image-field img { display: block; max-width: 100%; max-height: 160px; margin: 4px 0; border-radius: 6px; border: 1px solid #e2e8f0; }
+    .form-hint { font-size: 12px; color: #888; margin-bottom: 8px; }
     .solution-toggle { font-size: 12px; color: #667eea; cursor: pointer; font-weight: 600; margin-top: 4px; }
     .solution-box { font-size: 13px; color: #555; margin-top: 6px; padding: 8px 12px; background: #fff; border-radius: 6px; border: 1px solid #e2e8f0; white-space: pre-wrap; display: none; }
     .section-card { background: #f7fafc; border-radius: 12px; padding: 16px 20px; margin-bottom: 16px; }
@@ -154,6 +166,17 @@
 <div class="ai-section" id="section-add">
     <div class="section-card">
         <h3>Add Question Manually</h3>
+        <div class="form-hint">With a question picture, text and choices are optional (choices can be in the picture; the child then picks A–E).</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div class="image-field">
+                <label>Question Picture</label>
+                <input type="file" id="add-q-image" accept="image/png,image/jpeg,image/gif,image/webp">
+            </div>
+            <div class="image-field">
+                <label>Solution Picture</label>
+                <input type="file" id="add-s-image" accept="image/png,image/jpeg,image/gif,image/webp">
+            </div>
+        </div>
         <div style="margin-bottom: 8px;">
             <label style="font-weight: 600; font-size: 13px;">Question Text</label>
             <textarea id="add-q-text" rows="3" placeholder="Enter the math problem..." style="font-size: 14px;"></textarea>
@@ -190,6 +213,27 @@
         <div style="margin-bottom: 8px;">
             <label style="font-size: 12px; font-weight: 600;">Solution Steps</label>
             <textarea id="add-steps" rows="3" placeholder="Step-by-step solution..." style="font-size: 13px;"></textarea>
+        </div>
+        <div class="tag-grid">
+            <div>
+                <label>Origin</label>
+                <select id="add-origin">
+                    <option value="human">Real question (human)</option>
+                    <option value="ai_generated">AI generated</option>
+                </select>
+            </div>
+            <div>
+                <label>Contest</label>
+                <input type="text" id="add-contest" list="contest-options" placeholder="e.g., AMC 10A" style="padding:6px;">
+            </div>
+            <div>
+                <label>Year</label>
+                <input type="number" id="add-year" min="1950" max="2100" placeholder="e.g., 2022" style="padding:6px;">
+            </div>
+            <div>
+                <label>Problem #</label>
+                <input type="number" id="add-number" min="1" max="100" placeholder="e.g., 5" style="padding:6px;">
+            </div>
         </div>
         <button class="btn btn-success" onclick="addQuestion()">Add Question</button>
         <span id="add-status" style="margin-left: 10px; font-size: 13px;"></span>
@@ -298,6 +342,19 @@
         <button class="modal-close" onclick="closeEditModal()">&times;</button>
         <h3>Edit Question</h3>
         <input type="hidden" id="edit-q-id">
+        <div class="form-hint">With a question picture, text and choices are optional (choices can be in the picture; the child then picks A–E).</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div class="image-field">
+                <label>Question Picture</label>
+                <div id="edit-q-image-current"></div>
+                <input type="file" id="edit-q-image" accept="image/png,image/jpeg,image/gif,image/webp">
+            </div>
+            <div class="image-field">
+                <label>Solution Picture</label>
+                <div id="edit-s-image-current"></div>
+                <input type="file" id="edit-s-image" accept="image/png,image/jpeg,image/gif,image/webp">
+            </div>
+        </div>
         <div style="margin-bottom: 8px;">
             <label style="font-weight: 600; font-size: 13px;">Question Text</label>
             <textarea id="edit-q-text" rows="3" style="font-size: 14px;"></textarea>
@@ -335,6 +392,27 @@
                 </select>
             </div>
         </div>
+        <div class="tag-grid">
+            <div>
+                <label>Origin</label>
+                <select id="edit-origin">
+                    <option value="human">Real question (human)</option>
+                    <option value="ai_generated">AI generated</option>
+                </select>
+            </div>
+            <div>
+                <label>Contest</label>
+                <input type="text" id="edit-contest" list="contest-options" placeholder="e.g., AMC 10A" style="padding:6px;">
+            </div>
+            <div>
+                <label>Year</label>
+                <input type="number" id="edit-year" min="1950" max="2100" placeholder="e.g., 2022" style="padding:6px;">
+            </div>
+            <div>
+                <label>Problem #</label>
+                <input type="number" id="edit-number" min="1" max="100" placeholder="e.g., 5" style="padding:6px;">
+            </div>
+        </div>
         <div style="display: flex; gap: 8px; align-items: center;">
             <button class="btn btn-success" onclick="saveEditQuestion()">Save</button>
             <button class="btn" style="background:#edf2f7; color:#4a5568;" onclick="closeEditModal()">Cancel</button>
@@ -362,6 +440,11 @@
     <div id="verify-list"></div>
 </div>
 
+<datalist id="contest-options">
+    <option value="AMC 8"><option value="AMC 10A"><option value="AMC 10B"><option value="AMC 12A"><option value="AMC 12B">
+    <option value="MATHCOUNTS"><option value="Math Kangaroo">
+</datalist>
+
 <!-- Filters -->
 <div style="margin-bottom: 10px;">
     <input type="text" id="search-input" placeholder="Search questions..." style="padding: 8px 12px; border: 2px solid #ddd; border-radius: 8px; width: 100%; max-width: 400px; box-sizing: border-box;" oninput="loadQuestions()">
@@ -381,6 +464,18 @@
         <button class="filter-btn" onclick="setDiffFilter(5)">5</button>
     </span>
 </div>
+<div style="margin-bottom: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+    <label style="font-size: 13px; font-weight: 600;">Origin:</label>
+    <span id="origin-filters">
+        <button class="filter-btn active" onclick="setOriginFilter('')">All</button>
+        <button class="filter-btn" onclick="setOriginFilter('human')">Real</button>
+        <button class="filter-btn" onclick="setOriginFilter('ai_generated')">AI</button>
+    </span>
+    <label style="font-size: 13px; font-weight: 600; margin-left: 10px;">Contest:</label>
+    <select id="contest-filter" class="filter-select" onchange="currentPage = 1; loadQuestions()"><option value="">All</option></select>
+    <label style="font-size: 13px; font-weight: 600;">Year:</label>
+    <select id="year-filter" class="filter-select" onchange="currentPage = 1; loadQuestions()"><option value="">All</option></select>
+</div>
 <div style="margin-bottom: 12px;">
     <label style="font-size: 13px; font-weight: 600; margin-right: 6px;">Mastery:</label>
     <span id="mastery-filters"></span>
@@ -399,10 +494,12 @@ const childId = {{ child.id }};
 let currentConcept = '';
 let currentDiff = 0;
 let currentMastery = '';
+let currentOrigin = '';
 let currentPage = 1;
 
 const MASTERY_LABELS = { never: 'New', wrong: 'Needs Work', due: 'Due', good: 'Good', mastered: 'Mastered' };
 const DIFF_COLORS = { 1: 'diff-1', 2: 'diff-2', 3: 'diff-3', 4: 'diff-4', 5: 'diff-5' };
+const ORIGIN_LABELS = { ai_generated: 'AI', human: 'Real' };
 
 function escHtml(str) {
     if (!str) return '';
@@ -436,12 +533,19 @@ async function loadQuestions() {
     if (currentConcept) url += `&concept=${encodeURIComponent(currentConcept)}`;
     if (currentDiff) url += `&difficulty=${currentDiff}`;
     if (currentMastery) url += `&status=${currentMastery}`;
+    if (currentOrigin) url += `&origin=${currentOrigin}`;
+    const contest = document.getElementById('contest-filter').value;
+    const year = document.getElementById('year-filter').value;
+    if (contest) url += `&contest=${encodeURIComponent(contest)}`;
+    if (year) url += `&year=${year}`;
     if (search) url += `&search=${encodeURIComponent(search)}`;
 
     const res = await fetch(url);
     if (!res.ok) return;
     const data = await res.json();
 
+    renderSelectOptions('contest-filter', data.contests || []);
+    renderSelectOptions('year-filter', data.years || []);
     renderConceptFilters(data.concepts || []);
     renderMasteryFilters(data.status_counts || {});
     renderQuestions(data.questions || []);
@@ -465,6 +569,22 @@ async function loadQuestions() {
 }
 
 function goPage(p) { currentPage = p; loadQuestions(); }
+
+function renderSelectOptions(id, values) {
+    const el = document.getElementById(id);
+    const current = el.value;
+    el.innerHTML = '<option value="">All</option>' +
+        values.map(v => `<option value="${escHtml(String(v))}">${escHtml(String(v))}</option>`).join('');
+    el.value = values.map(String).includes(current) ? current : '';
+}
+
+function contestLabel(q) {
+    const parts = [];
+    if (q.contest) parts.push(q.contest);
+    if (q.contest_year) parts.push(q.contest_year);
+    if (q.problem_number) parts.push('#' + q.problem_number);
+    return parts.join(' ');
+}
 
 function renderConceptFilters(concepts) {
     const el = document.getElementById('concept-filters');
@@ -496,6 +616,13 @@ function setDiffFilter(d) {
     loadQuestions();
 }
 function setMasteryFilter(m) { currentMastery = m; currentPage = 1; loadQuestions(); }
+function setOriginFilter(o) {
+    currentOrigin = o;
+    currentPage = 1;
+    document.querySelectorAll('#origin-filters .filter-btn').forEach(btn =>
+        btn.classList.toggle('active', btn.getAttribute('onclick') === `setOriginFilter('${o}')`));
+    loadQuestions();
+}
 
 function renderQuestions(questions) {
     cacheQuestions(questions);
@@ -511,31 +638,37 @@ function renderQuestions(questions) {
         const masteryLabel = MASTERY_LABELS[q.mastery_status] || 'New';
 
         let choicesHtml = '';
-        if (q.choices && typeof q.choices === 'object') {
+        if (q.choices && typeof q.choices === 'object' && Object.keys(q.choices).length) {
             choicesHtml = '<div class="choices-inline">' +
                 Object.entries(q.choices).map(([k, v]) =>
                     `<span style="margin-right:10px;${k === q.correct_answer ? 'font-weight:700;color:#276749;' : ''}"><strong>${escHtml(k)}.</strong> ${escHtml(v)}</span>`
                 ).join('') + '</div>';
         }
 
-        const hasSteps = q.solution_steps && q.solution_steps.trim();
+        if (!choicesHtml && q.image_path) {
+            choicesHtml = `<div class="choices-inline">Choices in picture — answer: <strong style="color:#276749;">${escHtml(q.correct_answer)}</strong></div>`;
+        }
+
+        const hasSteps = (q.solution_steps && q.solution_steps.trim()) || q.solution_image_path;
+        const tag = contestLabel(q);
 
         return `<div class="q-card" id="q-${q.id}">
-            <div class="q-text">${escHtml(q.question_text)}</div>
-            ${q.image_path ? `<img src="/uploads/${q.image_path}" style="max-width:300px; max-height:200px; margin-top:6px; border-radius:6px;">` : ''}
+            ${q.question_text ? `<div class="q-text">${escHtml(q.question_text)}</div>` : ''}
+            ${q.image_path ? `<img class="q-image" src="/uploads/${q.image_path}" alt="Question picture">` : ''}
             ${choicesHtml}
             <div class="q-meta">
+                <span class="origin-badge origin-${q.origin}">${ORIGIN_LABELS[q.origin] || 'AI'}</span>
+                ${tag ? `<span class="contest-tag">${escHtml(tag)}</span>` : ''}
                 ${concepts}
                 <span class="diff-badge ${diffCls}">Diff ${q.difficulty}</span>
                 <span class="mastery-badge ${masteryCls}">${masteryLabel}</span>
                 ${q.verified ? '<span class="verified-badge">&#10003; Verified</span>' : ''}
                 ${q.grade_level ? `<span style="color:#888;">${escHtml(q.grade_level)}</span>` : ''}
-                ${q.source ? `<span style="color:#aaa;">${escHtml(q.source)}</span>` : ''}
                 <span style="color:#667eea; cursor:pointer; font-weight:600;" onclick="editQuestion(${q.id})">Edit</span>
                 <span style="color:#e53e3e; cursor:pointer; font-weight:600;" onclick="deleteQuestion(${q.id})">Delete</span>
             </div>
             ${hasSteps ? `<div class="solution-toggle" onclick="toggleSolution(${q.id})">Show Solution</div>
-            <div class="solution-box" id="sol-${q.id}">${escHtml(q.solution_steps)}</div>` : ''}
+            <div class="solution-box" id="sol-${q.id}">${escHtml(q.solution_steps || '')}${q.solution_image_path ? `<img class="q-image" src="/uploads/${q.solution_image_path}" alt="Solution picture">` : ''}</div>` : ''}
         </div>`;
     }).join('');
 }
@@ -549,36 +682,67 @@ function toggleSolution(id) {
 
 // ── Add Question ──
 
-async function addQuestion() {
-    const qText = document.getElementById('add-q-text').value.trim();
-    if (!qText) { alert('Enter question text'); return; }
+// Text, choices and tags from the add form or edit modal (prefix 'add' / 'edit').
+function readQuestionForm(prefix) {
     const choices = {};
     for (const l of ['a','b','c','d','e']) {
-        const v = document.getElementById('add-choice-' + l).value.trim();
+        const v = document.getElementById(`${prefix}-choice-${l}`).value.trim();
         if (v) choices[l.toUpperCase()] = v;
     }
-    if (Object.keys(choices).length < 2) { alert('Enter at least 2 choices'); return; }
+    return {
+        question_text: document.getElementById(`${prefix}-q-text`).value.trim(),
+        choices,
+        concepts: document.getElementById(`${prefix}-concepts`).value.split(',').map(c => c.trim()).filter(c => c),
+        solution_steps: document.getElementById(`${prefix}-steps`).value.trim(),
+        difficulty: parseInt(document.getElementById(`${prefix}-difficulty`).value),
+        origin: document.getElementById(`${prefix}-origin`).value,
+        contest: document.getElementById(`${prefix}-contest`).value.trim(),
+        contest_year: document.getElementById(`${prefix}-year`).value,
+        problem_number: document.getElementById(`${prefix}-number`).value
+    };
+}
 
-    const concepts = document.getElementById('add-concepts').value.split(',').map(c => c.trim()).filter(c => c);
+// Client-side check mirroring the server rules; returns an error message or ''.
+function checkQuestionForm(data, hasImage) {
+    if (!hasImage && !data.question_text) return 'Enter question text or add a question picture';
+    if (!hasImage && Object.keys(data.choices).length < 2) return 'Enter at least 2 choices (or add a question picture that shows them)';
+    if (Object.keys(data.choices).length && !data.choices[data.correct_answer]) return 'The correct answer must be one of the choices';
+    return '';
+}
+
+function questionFormData(payload, prefix) {
+    const fd = new FormData();
+    fd.append('payload', JSON.stringify(payload));
+    const qFile = document.getElementById(`${prefix}-q-image`).files[0];
+    const sFile = document.getElementById(`${prefix}-s-image`).files[0];
+    if (qFile) fd.append('question_image', qFile);
+    if (sFile) fd.append('solution_image', sFile);
+    return fd;
+}
+
+async function addQuestion() {
+    const data = readQuestionForm('add');
+    data.correct_answer = document.getElementById('add-answer').value;
+    data.grade_level = document.getElementById('add-grade').value.trim();
+    data.source = 'manual';
+    const hasImage = !!document.getElementById('add-q-image').files[0];
+    const err = checkQuestionForm(data, hasImage);
+    if (err) { alert(err); return; }
+
     const res = await fetch(`/api/children/${childId}/math-questions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            question_text: qText,
-            choices,
-            correct_answer: document.getElementById('add-answer').value,
-            difficulty: parseInt(document.getElementById('add-difficulty').value),
-            grade_level: document.getElementById('add-grade').value.trim(),
-            concepts,
-            solution_steps: document.getElementById('add-steps').value.trim(),
-            source: 'manual'
-        })
+        body: questionFormData(data, 'add')
     });
     if (res.ok) {
         document.getElementById('add-q-text').value = '';
         for (const l of ['a','b','c','d','e']) document.getElementById('add-choice-' + l).value = '';
         document.getElementById('add-concepts').value = '';
         document.getElementById('add-steps').value = '';
+        document.getElementById('add-q-image').value = '';
+        document.getElementById('add-s-image').value = '';
+        // Next problem of the same contest: keep contest/year, bump the number
+        const numEl = document.getElementById('add-number');
+        if (numEl.value) numEl.value = parseInt(numEl.value) + 1;
         showToast('Question added!');
         loadQuestions();
     } else {
@@ -615,9 +779,24 @@ function openEditModal(questionData) {
     const concepts = Array.isArray(questionData.concepts) ? questionData.concepts : [];
     document.getElementById('edit-concepts').value = concepts.join(', ');
     document.getElementById('edit-difficulty').value = questionData.difficulty || 3;
+    document.getElementById('edit-origin').value = questionData.origin || 'ai_generated';
+    document.getElementById('edit-contest').value = questionData.contest || '';
+    document.getElementById('edit-year').value = questionData.contest_year || '';
+    document.getElementById('edit-number').value = questionData.problem_number || '';
+    document.getElementById('edit-q-image').value = '';
+    document.getElementById('edit-s-image').value = '';
+    renderCurrentImage('edit-q-image-current', questionData.image_path, 'edit-remove-q-image');
+    renderCurrentImage('edit-s-image-current', questionData.solution_image_path, 'edit-remove-s-image');
     document.getElementById('edit-status').textContent = '';
 
     document.getElementById('edit-modal').classList.add('open');
+}
+
+function renderCurrentImage(containerId, path, removeId) {
+    document.getElementById(containerId).innerHTML = path
+        ? `<img src="/uploads/${path}" alt="Current picture">
+           <label style="font-weight:400;"><input type="checkbox" id="${removeId}"> Remove</label>`
+        : '';
 }
 
 function closeEditModal() {
@@ -647,32 +826,22 @@ function editQuestion(id) {
 async function saveEditQuestion() {
     const id = document.getElementById('edit-q-id').value;
     const statusEl = document.getElementById('edit-status');
-    const qText = document.getElementById('edit-q-text').value.trim();
-    if (!qText) { statusEl.textContent = 'Question text is required'; statusEl.style.color = '#e53e3e'; return; }
-
-    const choices = {};
-    for (const l of ['a','b','c','d','e']) {
-        const v = document.getElementById('edit-choice-' + l).value.trim();
-        if (v) choices[l.toUpperCase()] = v;
-    }
-    if (Object.keys(choices).length < 2) { statusEl.textContent = 'At least 2 choices required'; statusEl.style.color = '#e53e3e'; return; }
-
     const correctRadio = document.querySelector('input[name="edit-correct"]:checked');
     if (!correctRadio) { statusEl.textContent = 'Select a correct answer'; statusEl.style.color = '#e53e3e'; return; }
 
-    const concepts = document.getElementById('edit-concepts').value.split(',').map(c => c.trim()).filter(c => c);
+    const data = readQuestionForm('edit');
+    data.correct_answer = correctRadio.value;
+    const removeQ = document.getElementById('edit-remove-q-image');
+    const removeS = document.getElementById('edit-remove-s-image');
+    data.remove_question_image = !!(removeQ && removeQ.checked);
+    data.remove_solution_image = !!(removeS && removeS.checked);
+    const hasImage = !!document.getElementById('edit-q-image').files[0] || (!!removeQ && !removeQ.checked);
+    const err = checkQuestionForm(data, hasImage);
+    if (err) { statusEl.textContent = err; statusEl.style.color = '#e53e3e'; return; }
 
     const res = await fetch(`/api/math-questions/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            question_text: qText,
-            choices,
-            correct_answer: correctRadio.value,
-            solution_steps: document.getElementById('edit-steps').value.trim(),
-            concepts,
-            difficulty: parseInt(document.getElementById('edit-difficulty').value)
-        })
+        body: questionFormData(data, 'edit')
     });
 
     if (res.ok) {

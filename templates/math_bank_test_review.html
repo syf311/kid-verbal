@@ -75,14 +75,17 @@
         </div>
     </div>
 
-    {% if q.image_path %}
-    <img src="/uploads/{{ q.image_path }}" style="max-width: 300px; margin-bottom: 8px; border-radius: 6px;">
+    {% if q.question_text %}
+    <div class="q-text">{{ q.question_text }}</div>
     {% endif %}
 
-    <div class="q-text">{{ q.question_text }}</div>
+    {% if q.image_path %}
+    <img src="/uploads/{{ q.image_path }}" alt="Question picture" style="display: block; max-width: 100%; width: 600px; margin-bottom: 8px; border-radius: 6px; border: 1px solid #e2e8f0;">
+    {% endif %}
 
-    {% if q.choices %}
-    {% for k, v in q.choices.items() %}
+    {% set opts = q.choices if q.choices else ({'A': '', 'B': '', 'C': '', 'D': '', 'E': ''} if q.image_path else {}) %}
+    {% if opts %}
+    {% for k, v in opts.items() %}
     {% set is_child_pick = (a.get('child_answer', '') == k) %}
     {% set is_correct_choice = (a.get('correct_answer', '') == k) %}
     <div class="choice-row {{ 'child-pick' if is_child_pick else '' }} {{ 'wrong' if is_child_pick and not is_correct else '' }} {{ 'correct-choice' if is_correct_choice else '' }}">
@@ -98,8 +101,8 @@
     {% endfor %}
     {% endif %}
 
-    {% if q.solution_steps %}
-    <div class="solution-box"><strong>Solution:</strong> {{ q.solution_steps }}</div>
+    {% if q.solution_steps or q.solution_image_path %}
+    <div class="solution-box"><strong>Solution:</strong> {{ q.solution_steps or '' }}{% if q.solution_image_path %}<img src="/uploads/{{ q.solution_image_path }}" alt="Solution picture" style="display: block; max-width: 100%; width: 600px; margin-top: 8px; border-radius: 6px; border: 1px solid #e2e8f0;">{% endif %}</div>
     {% endif %}
 </div>
 {% endfor %}

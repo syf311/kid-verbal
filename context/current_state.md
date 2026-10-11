@@ -1,6 +1,6 @@
 # Current State
 
-*Last updated: 2026-09-27*
+*Last updated: 2026-10-10*
 
 ## What's Built and Working
 
@@ -36,6 +36,7 @@
 - Auto-save drafts
 - **Math Question Bank:** AI-generated or manually added MC questions with concept tags, difficulty (1-5), solution steps, and per-question mastery tracking
 - **Math Bank Tests:** Create tests from the question bank with concept/difficulty/mastery filters, auto-graded, solution steps in review
+- **Math question pictures & tags** (task_015): optional question picture (text/choices optional then — child picks plain A–E) and solution picture; required origin (`ai_generated`/`human`), optional contest / year / problem #; filter by origin/contest/year on bank page and test builder; tests ordered contest → year → problem #
 - **Copy/paste prevention:** Text selection, right-click, and Ctrl+C disabled on test pages to deter cheating
 
 ### Writing
@@ -100,6 +101,7 @@
 
 ## Recent Changes (latest commits)
 
+1. **Math question pictures and origin/contest tags** (task_015) — upload a question picture (choices may be in the picture; child then picks A–E) and a solution picture in the Add form / Edit modal; new `math_question` columns `origin` (required, existing rows backfilled `ai_generated`), `contest`, `contest_year`, `problem_number`, `solution_image_path`; add/update accept multipart (`payload` JSON + files); Origin/Contest/Year filters on bank page and test builder; picture + tag shown in bank, builder and learning-plan Math Practice picker (tags hidden from kids); solution picture on review page; tests list questions in contest/year/problem order; AI Verify skips picture questions; picture files deleted with the question.
 1. **Test builder ignores `?child_id=`** (task_014) — always opens with the first child (pick others in the dropdown); dashboard link no longer passes it. Builder shows an error instead of hanging on "Loading..." if the list request fails.
 1. **Faster test builder** (task_014) — rich text is sanitized on write plus a one-time `sanitize_stored` migration, so reads no longer re-parse HTML (~25x less server time); list API `fields=lite` (no options/explanation/passage bodies) used by the builder; large question-bank JSON gzipped; builder loads once instead of twice; attempt history fetched without a large IN-list (old SQLite 999-variable limit).
 1. **Hand-picked practice tests with 5 mastery levels and answer history** (task_014) — test builder filters by child/track/grade/section/source/search plus multi-select mastery (New / Needs improvement / Due / Good / Mastered, with counts) and you tick questions (select all shown / random N). Auto assembly removed (API requires `question_ids`). New `qb_question_attempt` history (backfilled from submitted tests); progress gains streak + level with math/science rules; bank + builder show right/wrong dots, totals and last-done date.
