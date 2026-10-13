@@ -229,6 +229,26 @@ def logout():
     return redirect(url_for("login_page"))
 
 
+@app.route("/manifest.webmanifest")
+def web_manifest():
+    """Lets phones add the app to the home screen and open it full screen like a native app."""
+    resp = jsonify({
+        "name": "Kid Verbal",
+        "short_name": "Kid Verbal",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#667eea",
+        "theme_color": "#667eea",
+        "icons": [
+            {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
+        ],
+    })
+    resp.mimetype = "application/manifest+json"
+    return resp
+
+
 # ── Home route ──
 
 @app.route("/")

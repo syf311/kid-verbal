@@ -266,7 +266,9 @@
         .sidebar-footer { display: none; }
         .accounts-panel { display: none !important; }
         .main-content { padding: 16px; }
-        .tab-btn { padding: 8px 12px; font-size: 13px; }
+        .tab-btn { padding: 8px 12px; font-size: 13px; white-space: nowrap; flex-shrink: 0; }
+        .tab-bar { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+        .tab-bar::-webkit-scrollbar { display: none; }
         .stat-row { flex-direction: column; gap: 10px; }
         .list-item { flex-direction: column; align-items: flex-start; gap: 6px; }
         .list-item .actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }

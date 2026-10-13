@@ -1,6 +1,6 @@
 # Current State
 
-*Last updated: 2026-10-10*
+*Last updated: 2026-10-12*
 
 ## What's Built and Working
 
@@ -79,6 +79,7 @@
 - Plan badges on dashboard
 
 ### Infrastructure
+- **Mobile-friendly:** every page renders on phones (phone stylesheet in `base.html`); can be added to the home screen as an app (`/manifest.webmanifest`)
 - Account auth (parent + child roles)
 - Parent dashboard with tabbed interface (sidebar navigation)
 - Child dashboard showing pending work
@@ -101,6 +102,7 @@
 
 ## Recent Changes (latest commits)
 
+1. **Mobile phone rendering** (task_016) — phone-only stylesheet in `base.html` (`max-width: 640px`, loaded after page CSS so desktop is unchanged): edge-to-edge layout with safe-area insets, 16px inputs (no iOS focus zoom), side-panel toggles in page flow, sticky timers, scrollable tables. "Open PDF full screen" button above PDF iframes on phones. Add-to-Home-Screen support: `/manifest.webmanifest`, icons in `static/`. Per-page fixes: parent dashboard tabs scroll, Words / Materials / Settings rows wrap, live session panels fit, math/science tests scroll with the page. Verified desktop pixel-identical before/after.
 1. **Math question pictures and origin/contest tags** (task_015) — upload a question picture (choices may be in the picture; child then picks A–E) and a solution picture in the Add form / Edit modal; new `math_question` columns `origin` (required, existing rows backfilled `ai_generated`), `contest`, `contest_year`, `problem_number`, `solution_image_path`; add/update accept multipart (`payload` JSON + files); Origin/Contest/Year filters on bank page and test builder; picture + tag shown in bank, builder and learning-plan Math Practice picker (tags hidden from kids); solution picture on review page; tests list questions in contest/year/problem order; AI Verify skips picture questions; picture files deleted with the question.
 1. **Test builder ignores `?child_id=`** (task_014) — always opens with the first child (pick others in the dropdown); dashboard link no longer passes it. Builder shows an error instead of hanging on "Loading..." if the list request fails.
 1. **Faster test builder** (task_014) — rich text is sanitized on write plus a one-time `sanitize_stored` migration, so reads no longer re-parse HTML (~25x less server time); list API `fields=lite` (no options/explanation/passage bodies) used by the builder; large question-bank JSON gzipped; builder loads once instead of twice; attempt history fetched without a large IN-list (old SQLite 999-variable limit).

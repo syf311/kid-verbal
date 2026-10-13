@@ -48,6 +48,12 @@
     }
     .grade-row:last-child { border-bottom: none; }
     .child-name { font-weight: 600; min-width: 100px; }
+    @media (max-width: 640px) {
+        .settings-section { padding: 14px; }
+        .form-row { flex-wrap: wrap; }
+        .form-row label { min-width: 0; flex-basis: 100%; }
+        .form-row input, .form-row select { min-width: 0; max-width: none; margin-bottom: 0; }
+    }
 </style>
 {% endblock %}
 

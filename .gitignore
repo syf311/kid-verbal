@@ -10,3 +10,4 @@ node_modules/
 *.pdf
 *.png
 .env
+!static/*.png

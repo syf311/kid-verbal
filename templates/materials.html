@@ -14,6 +14,12 @@
         transition: border-color 0.2s;
     }
     .article-card:hover { border-color: #667eea; }
+    @media (max-width: 640px) {
+        .article-card > div { flex-wrap: wrap; }
+        .article-card > div > div:first-child { flex: 1 1 100% !important; }
+        .browse-filter-row { flex-wrap: wrap; }
+        .browse-filter-row select { flex: 1 1 140px !important; max-width: none !important; min-width: 0; }
+    }
     .article-meta { font-size: 13px; color: #888; margin-bottom: 6px; }
     .article-summary { color: #555; font-size: 14px; line-height: 1.5; margin: 8px 0; display: none; }
     .article-summary.expanded { display: block; }
@@ -318,7 +324,7 @@
     <h2 style="margin-bottom: 10px;">Browse Articles</h2>
     <p style="color: #666; margin-bottom: 15px;">Find kid-friendly articles from curated RSS feeds and import them as reading materials.</p>
 
-    <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
+    <div class="browse-filter-row" style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
         <label for="source-filter" style="white-space: nowrap;">Filter by source:</label>
         <select id="source-filter" style="padding: 8px 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 14px; flex: 1; max-width: 300px;">
             <option value="">All Sources</option>

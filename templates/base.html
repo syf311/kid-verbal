@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>{% block title %}Kid Verbal{% endblock %}</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -62,17 +62,106 @@
         }
     </style>
     {% block extra_css %}{% endblock %}
+    <style>
+        /* Phone layout. Every rule is scoped to small screens and loaded after each page's own CSS,
+           so desktop rendering is unchanged and these win over page rules of equal specificity. */
+        @media (hover: none) {
+            .btn:hover { transform: none; }
+        }
+        @media (max-width: 640px) {
+            html { -webkit-text-size-adjust: 100%; }
+            body {
+                padding: 0;
+                padding-bottom: env(safe-area-inset-bottom);
+                -webkit-tap-highlight-color: rgba(102, 126, 234, 0.15);
+            }
+            .container {
+                max-width: 100%;
+                min-height: 100vh;
+                border-radius: 0;
+                box-shadow: none;
+                padding: 12px max(14px, env(safe-area-inset-right)) 24px max(14px, env(safe-area-inset-left));
+                padding-top: max(12px, env(safe-area-inset-top));
+            }
+            h1 { font-size: 26px; }
+            h2 { font-size: 22px; }
+            h1, h2 { margin-bottom: 14px; overflow-wrap: anywhere; }
+            .btn { padding: 12px 20px; font-size: 16px; }
+            .card { padding: 14px; }
+            .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+            /* iOS zooms the page when a focused field's font is under 16px */
+            input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea { font-size: 16px !important; }
+            img, video, canvas, iframe { max-width: 100%; }
+            pre, code { white-space: pre-wrap; overflow-wrap: anywhere; }
+            table { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            /* Fixed side-panel toggles and timers overlapped page titles; keep them out of the header */
+            .toggle-sidebar { position: static; display: block; margin: 8px 0 8px auto; }
+            .timer-display {
+                position: sticky;
+                top: max(8px, env(safe-area-inset-top));
+                right: auto;
+                width: fit-content;
+                margin: 0 0 8px auto;
+            }
+            .pdf-open-link {
+                display: block;
+                text-align: center;
+                margin: 8px 0;
+                padding: 12px;
+                border-radius: 10px;
+                background: #667eea;
+                color: white;
+                font-weight: 600;
+                text-decoration: none;
+            }
+        }
+    </style>
+    <meta name="theme-color" content="#667eea">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Kid Verbal">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 </head>
 <body>
     <div class="container">
         {% if session.get('username') %}
-        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 15px; margin-bottom: 10px; font-size: 14px;">
+        <div class="user-bar" style="display: flex; justify-content: flex-end; align-items: center; gap: 15px; margin-bottom: 10px; font-size: 14px;">
             <span style="color: #666;">{{ session.username }} ({{ session.role }})</span>
             <a href="/logout" style="color: #f56565; text-decoration: none;">Logout</a>
         </div>
         {% endif %}
         {% block content %}{% endblock %}
     </div>
+    <script>
+    // Phone browsers can't page through a PDF inside an iframe (iOS shows page 1 only, Android shows nothing),
+    // so on small screens put an "Open PDF" button above each PDF iframe.
+    (function () {
+        if (!window.matchMedia('(max-width: 640px)').matches) return;
+        function addLink(frame) {
+            var src = frame.getAttribute('src') || '';
+            var link = frame.previousElementSibling;
+            var hasLink = link && link.classList.contains('pdf-open-link');
+            if (!/\.pdf(\?|#|$)/i.test(src)) { if (hasLink) link.remove(); return; }
+            if (!hasLink) {
+                link = document.createElement('a');
+                link.className = 'pdf-open-link';
+                link.target = '_blank';
+                link.rel = 'noopener';
+                link.textContent = 'Open PDF full screen \u2197';
+                frame.parentNode.insertBefore(link, frame);
+            }
+            link.href = src;
+        }
+        function scan() { document.querySelectorAll('iframe').forEach(addLink); }
+        document.addEventListener('DOMContentLoaded', function () {
+            scan();
+            new MutationObserver(scan).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['src'] });
+        });
+    })();
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

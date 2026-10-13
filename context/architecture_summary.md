@@ -49,6 +49,7 @@ kid-verbal/
 │   ├── progress.html / stats.html
 │   └── ...
 ├── uploads/                # Uploaded PDFs, images
+├── static/                 # App icons for the web app manifest (Add to Home Screen)
 ├── verbal.db               # SQLite database (runtime)
 └── ai/                     # AI context files (this directory)
 ```
@@ -124,4 +125,5 @@ kid-verbal/
 - **Manual grading:** Writing (parent scores + annotations), Reading (parent marks correct/incorrect)
 - **AI integration:** OpenAI API key stored in `site_config` DB table (never in code). Accessed via `get_config()` helper. Used for reading question generation; designed for reuse across future AI features.
 - **API token auth (question bank only):** `parent_or_token_required` accepts a parent session or `Authorization: Bearer <token>`; SHA-256 hash in `site_config.qb_api_token_hash`. Non-idempotent creates accept an `Idempotency-Key` header.
+- **Mobile layout:** `base.html` holds a phone-only stylesheet (`@media (max-width: 640px)`) loaded after each page's `extra_css`, plus a script adding an "Open PDF" button above PDF iframes on phones. Page-specific phone rules go in the page's own `@media (max-width: 640px)` block. Keep desktop rules outside media queries untouched.
 - **Reading web proxy:** `GET /api/reading-proxy?url=...` fetches external pages, strips links/scripts/nav, converts relative URLs to absolute, serves sanitized HTML for safe kid reading. URL must belong to a known reading material (security check).
