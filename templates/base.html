@@ -65,11 +65,12 @@
     <style>
         /* Phone layout. Every rule is scoped to small screens and loaded after each page's own CSS,
            so desktop rendering is unchanged and these win over page rules of equal specificity. */
+        .app-bar { display: none; }
         @media (hover: none) {
             .btn:hover { transform: none; }
         }
         @media (max-width: 640px) {
-            html { -webkit-text-size-adjust: 100%; }
+            html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
             body {
                 padding: 0;
                 padding-bottom: env(safe-area-inset-bottom);
@@ -83,6 +84,115 @@
                 padding: 12px max(14px, env(safe-area-inset-right)) 24px max(14px, env(safe-area-inset-left));
                 padding-top: max(12px, env(safe-area-inset-top));
             }
+            body.has-app-bar .container { padding-top: 12px; }
+
+            /* App bar: back on the left, title (shown once the page title scrolls away), account menu on the right */
+            .app-bar {
+                display: grid;
+                grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.5fr) minmax(0, 0.75fr);
+                align-items: center;
+                position: sticky;
+                top: 0;
+                z-index: 50; /* above page content (z <= 10), below modals and toasts (z >= 100) */
+                min-height: calc(48px + env(safe-area-inset-top));
+                padding: env(safe-area-inset-top) max(4px, env(safe-area-inset-right)) 0 max(4px, env(safe-area-inset-left));
+                background: rgba(255, 255, 255, 0.92);
+                -webkit-backdrop-filter: saturate(180%) blur(16px);
+                backdrop-filter: saturate(180%) blur(16px);
+                border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+            }
+            .app-bar-back {
+                justify-self: start;
+                display: inline-flex;
+                align-items: center;
+                max-width: 100%;
+                min-height: 44px;
+                padding: 0 8px 0 4px;
+                color: #667eea;
+                font-size: 17px;
+                text-decoration: none;
+                white-space: nowrap;
+                -webkit-user-select: none;
+                user-select: none;
+            }
+            .app-bar-back[hidden] { display: none; }
+            .app-bar-back .chev { font-size: 30px; line-height: 1; margin: -4px 4px 0 0; }
+            .app-bar-back .label { overflow: hidden; text-overflow: ellipsis; }
+            .app-bar-back:active { opacity: 0.5; }
+            .app-bar-title {
+                grid-column: 2;
+                text-align: center;
+                font-size: 17px;
+                font-weight: 600;
+                color: #222;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                opacity: 0;
+                transition: opacity 0.2s;
+            }
+            .app-bar-title.show { opacity: 1; }
+            .app-bar-menu { grid-column: 3; justify-self: end; position: relative; }
+            .app-bar-menu summary {
+                list-style: none;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 44px;
+                height: 44px;
+                cursor: pointer;
+            }
+            .app-bar-menu summary::-webkit-details-marker { display: none; }
+            .app-bar-avatar {
+                width: 32px;
+                height: 32px;
+                border-radius: 50%;
+                background: #667eea;
+                color: white;
+                font-size: 15px;
+                font-weight: 700;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                text-transform: uppercase;
+            }
+            .app-bar-menu-panel {
+                position: absolute;
+                right: 4px;
+                top: 48px;
+                min-width: 220px;
+                background: white;
+                border-radius: 14px;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+                overflow: hidden;
+            }
+            .app-bar-menu-panel .who { padding: 12px 16px; font-size: 14px; color: #777; border-bottom: 1px solid #eee; }
+            .app-bar-menu-panel a {
+                display: flex;
+                align-items: center;
+                min-height: 48px;
+                padding: 0 16px;
+                font-size: 17px;
+                color: #333;
+                text-decoration: none;
+                border-bottom: 1px solid #f0f0f0;
+            }
+            .app-bar-menu-panel a:active { background: #f2f2f7; }
+            .app-bar-menu-panel a.logout { color: #e53e3e; border-bottom: none; }
+            body.has-app-bar .user-bar, .app-back-src { display: none !important; }
+
+            /* Touch: 44px tap targets, press feedback, no text selection on controls */
+            button, .btn, select, summary, input[type=button], input[type=submit] { min-height: 44px; }
+            button, .btn, input[type=button], input[type=submit] {
+                min-width: 44px;
+                -webkit-user-select: none;
+                user-select: none;
+                -webkit-touch-callout: none;
+            }
+            a.btn:not([style*="display"]) { display: inline-flex; align-items: center; justify-content: center; }
+            input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=hidden]) { min-height: 44px; }
+            input[type=checkbox], input[type=radio] { width: 22px; height: 22px; min-height: 0; accent-color: #667eea; }
+            button:not(:disabled):active, .btn:active { transform: scale(0.96); filter: brightness(0.92); }
             h1 { font-size: 26px; }
             h2 { font-size: 22px; }
             h1, h2 { margin-bottom: 14px; overflow-wrap: anywhere; }
@@ -98,7 +208,7 @@
             .toggle-sidebar { position: static; display: block; margin: 8px 0 8px auto; }
             .timer-display {
                 position: sticky;
-                top: max(8px, env(safe-area-inset-top));
+                top: calc(56px + env(safe-area-inset-top));
                 right: auto;
                 width: fit-content;
                 margin: 0 0 8px auto;
@@ -125,7 +235,21 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
     <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 </head>
-<body>
+<body{% if session.get('username') %} class="has-app-bar"{% endif %}>
+    {% if session.get('username') %}
+    <header class="app-bar" id="app-bar" data-home="{{ '/parent' if session.get('role') == 'parent' else '/child/' ~ session.get('child_id') }}">
+        <a class="app-bar-back" id="app-bar-back" href="#" hidden><span class="chev">&lsaquo;</span><span class="label">Back</span></a>
+        <div class="app-bar-title" id="app-bar-title"></div>
+        <details class="app-bar-menu" id="app-bar-menu">
+            <summary aria-label="Account"><span class="app-bar-avatar">{{ session.username[:1] }}</span></summary>
+            <div class="app-bar-menu-panel">
+                <div class="who">{{ session.username }} ({{ session.role }})</div>
+                <a href="/">Home</a>
+                <a href="/logout" class="logout">Logout</a>
+            </div>
+        </details>
+    </header>
+    {% endif %}
     <div class="container">
         {% if session.get('username') %}
         <div class="user-bar" style="display: flex; justify-content: flex-end; align-items: center; gap: 15px; margin-bottom: 10px; font-size: 14px;">
@@ -159,6 +283,61 @@
         document.addEventListener('DOMContentLoaded', function () {
             scan();
             new MutationObserver(scan).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['src'] });
+        });
+    })();
+    </script>
+    <script>
+    // App bar (shown on phones only, via CSS): reuse the page's own "← ..." link as the bar's back button,
+    // and show the page title in the bar once the page's heading scrolls under it.
+    (function () {
+        var bar = document.getElementById('app-bar');
+        if (!bar) return;
+        var back = document.getElementById('app-bar-back');
+        var barTitle = document.getElementById('app-bar-title');
+        var menu = document.getElementById('app-bar-menu');
+        var container = document.querySelector('.container');
+
+        function useBackLink() {
+            var links = container.querySelectorAll('a');
+            for (var i = 0; i < links.length; i++) {
+                var a = links[i];
+                var text = a.textContent.trim();
+                if (text.charAt(0) !== '\u2190' || !a.getClientRects().length) continue;
+                if (a.getBoundingClientRect().top + window.scrollY > 400) return false;
+                var label = text.slice(1).trim().replace(/^Back to\s+/i, '');
+                if (!label || label.length > 18) label = 'Back';
+                back.querySelector('.label').textContent = label.charAt(0).toUpperCase() + label.slice(1);
+                back.href = a.getAttribute('href') || '#';
+                back.onclick = function (e) { e.preventDefault(); a.click(); };
+                // already on this account's home screen: a back button would only reload it
+                back.hidden = location.pathname === bar.dataset.home;
+                a.classList.add('app-back-src');
+                return true;
+            }
+            return false;
+        }
+
+        function useTitle() {
+            var h = container.querySelector('h1, h2');
+            if (!h || !window.IntersectionObserver) return;
+            barTitle.textContent = h.textContent.trim();
+            new IntersectionObserver(function (entries) {
+                var e = entries[0];
+                barTitle.classList.toggle('show', !e.isIntersecting && e.boundingClientRect.top < 60);
+            }, { rootMargin: '-56px 0px 0px 0px' }).observe(h);
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            useTitle();
+            if (!useBackLink()) {
+                // some pages render their back link from JavaScript after load
+                var obs = new MutationObserver(function () { if (useBackLink()) obs.disconnect(); });
+                obs.observe(container, { childList: true, subtree: true });
+                setTimeout(function () { obs.disconnect(); }, 5000);
+            }
+        });
+        document.addEventListener('click', function (e) {
+            if (menu.open && !menu.contains(e.target)) menu.open = false;
         });
     })();
     </script>
