@@ -217,7 +217,8 @@ function setUpFullExam() {
     allQuestions.forEach(q => selectedIds.add(q.id));
     renderQuestions(allQuestions);
     updateCount();
-    document.getElementById('test-title').value = `${contest} ${year}`;
+    // Neutral title: the kid sees it, and the year would let them look the answers up
+    document.getElementById('test-title').value = 'Full Exam';
     document.getElementById('test-mode').value = 'exam';
     document.getElementById('timer-mode').value = 'countdown';
     const minutes = officialMinutes(contest);

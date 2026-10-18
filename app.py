@@ -5224,8 +5224,8 @@ def _math_kid_preview():
 
 
 def _math_kid_view(test):
-    """In practice mode a kid must not see where a question comes from (year + problem number)."""
-    return test["mode"] == "practice" and (session.get("role") == "child" or _math_kid_preview())
+    """A kid must not see where a question comes from (year + problem number), in exam or practice mode."""
+    return session.get("role") == "child" or _math_kid_preview()
 
 
 def _math_kid_image(conn, q):
