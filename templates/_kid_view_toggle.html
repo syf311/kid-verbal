@@ -1,0 +1,30 @@
+{# Parent-only switch that reloads the page with ?view=kid to show it the way the kid sees it #}
+{% if session.get('role') == 'parent' %}
+{% set kid_on = request.args.get('view') == 'kid' %}
+<style>
+    .kid-view-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 14px; font-size: 13px; color: #4a5568; }
+    .kid-view-switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; user-select: none; }
+    .kid-view-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+    .kid-view-track { position: relative; width: 38px; height: 22px; border-radius: 11px; background: #cbd5e0; transition: background 0.15s; flex-shrink: 0; }
+    .kid-view-track::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left 0.15s; }
+    .kid-view-switch input:checked + .kid-view-track { background: #ed8936; }
+    .kid-view-switch input:checked + .kid-view-track::after { left: 19px; }
+    .kid-view-switch input:focus-visible + .kid-view-track { outline: 2px solid #667eea; outline-offset: 2px; }
+    .kid-view-note { background: #fffaf0; border: 1px solid #fbd38d; color: #9c4221; border-radius: 8px; padding: 4px 10px; font-weight: 600; }
+</style>
+<div class="kid-view-bar">
+    <label class="kid-view-switch">
+        <input type="checkbox" id="kid-view-toggle" {{ 'checked' if kid_on else '' }} onchange="toggleKidView(this.checked)">
+        <span class="kid-view-track"></span>
+        Kid view
+    </label>
+    {% if kid_on %}<span class="kid-view-note">Preview — this is what your child sees{{ kid_view_note or '' }}</span>{% endif %}
+</div>
+<script>
+function toggleKidView(on) {
+    const url = new URL(window.location.href);
+    if (on) url.searchParams.set('view', 'kid'); else url.searchParams.delete('view');
+    window.location.replace(url.toString());
+}
+</script>
+{% endif %}

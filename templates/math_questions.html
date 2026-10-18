@@ -153,6 +153,7 @@
 <div id="toast" class="toast-notification" onclick="this.classList.remove('show')"></div>
 <a href="/parent" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back to Dashboard</a>
 <h1 style="margin-top: 10px;">Math Question Bank — {{ child.name }}</h1>
+{% with kid_view_note=' in practice tests' %}{% include '_kid_view_toggle.html' %}{% endwith %}
 
 <!-- Action buttons -->
 <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
@@ -500,6 +501,7 @@ let currentPage = 1;
 const MASTERY_LABELS = { never: 'New', wrong: 'Needs Work', due: 'Due', good: 'Good', mastered: 'Mastered' };
 const DIFF_COLORS = { 1: 'diff-1', 2: 'diff-2', 3: 'diff-3', 4: 'diff-4', 5: 'diff-5' };
 const ORIGIN_LABELS = { ai_generated: 'AI', human: 'Real' };
+const kidPreview = new URLSearchParams(window.location.search).get('view') === 'kid';
 
 function escHtml(str) {
     if (!str) return '';
@@ -539,6 +541,7 @@ async function loadQuestions() {
     if (contest) url += `&contest=${encodeURIComponent(contest)}`;
     if (year) url += `&year=${year}`;
     if (search) url += `&search=${encodeURIComponent(search)}`;
+    if (kidPreview) url += '&view=kid';
 
     const res = await fetch(url);
     if (!res.ok) return;
@@ -657,15 +660,15 @@ function renderQuestions(questions) {
             ${q.image_path ? `<img class="q-image" src="/uploads/${q.image_path}" alt="Question picture">` : ''}
             ${choicesHtml}
             <div class="q-meta">
-                <span class="origin-badge origin-${q.origin}">${ORIGIN_LABELS[q.origin] || 'AI'}</span>
+                ${q.origin ? `<span class="origin-badge origin-${q.origin}">${ORIGIN_LABELS[q.origin] || 'AI'}</span>` : ''}
                 ${tag ? `<span class="contest-tag">${escHtml(tag)}</span>` : ''}
                 ${concepts}
                 <span class="diff-badge ${diffCls}">Diff ${q.difficulty}</span>
                 <span class="mastery-badge ${masteryCls}">${masteryLabel}</span>
                 ${q.verified ? '<span class="verified-badge">&#10003; Verified</span>' : ''}
                 ${q.grade_level ? `<span style="color:#888;">${escHtml(q.grade_level)}</span>` : ''}
-                <span style="color:#667eea; cursor:pointer; font-weight:600;" onclick="editQuestion(${q.id})">Edit</span>
-                <span style="color:#e53e3e; cursor:pointer; font-weight:600;" onclick="deleteQuestion(${q.id})">Delete</span>
+                ${kidPreview ? '' : `<span style="color:#667eea; cursor:pointer; font-weight:600;" onclick="editQuestion(${q.id})">Edit</span>
+                <span style="color:#e53e3e; cursor:pointer; font-weight:600;" onclick="deleteQuestion(${q.id})">Delete</span>`}
             </div>
             ${hasSteps ? `<div class="solution-toggle" onclick="toggleSolution(${q.id})">Show Solution</div>
             <div class="solution-box" id="sol-${q.id}">${escHtml(q.solution_steps || '')}${q.solution_image_path ? `<img class="q-image" src="/uploads/${q.solution_image_path}" alt="Solution picture">` : ''}</div>` : ''}

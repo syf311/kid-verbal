@@ -3455,6 +3455,35 @@ def get_learning_plan(plan_id):
     return jsonify(result)
 
 
+def _rename(table, row_id):
+    """Change only the title of a plan or math bank test."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body with a title is required"}), 400
+    extra = sorted(set(data) - {"title"})
+    if extra:
+        return jsonify({"error": f"Only the title can be changed (got {', '.join(extra)})"}), 400
+    title = data.get("title")
+    title = title.strip() if isinstance(title, str) else ""
+    if not title:
+        return jsonify({"error": "title is required"}), 400
+    if len(title) > 200:
+        return jsonify({"error": "title is too long (max 200 characters)"}), 400
+    conn = get_db()
+    cur = conn.execute(f"UPDATE {table} SET title = ? WHERE id = ?", (title, row_id))
+    conn.commit()
+    conn.close()
+    if cur.rowcount == 0:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify({"id": row_id, "title": title})
+
+
+@app.route("/api/learning-plans/<int:plan_id>", methods=["PUT"])
+@parent_required
+def rename_learning_plan(plan_id):
+    return _rename("learning_plan", plan_id)
+
+
 @app.route("/api/learning-plans/<int:plan_id>", methods=["DELETE"])
 @parent_required
 def delete_learning_plan(plan_id):
@@ -4394,6 +4423,16 @@ def list_math_questions(child_id):
     page = max(1, min(page, total_pages))
     start = (page - 1) * per_page
     page_items = result[start:start + per_page]
+    if _math_kid_preview():
+        # Show the page as a kid sees these questions in a practice test
+        conn = get_db()
+        for d in page_items:
+            q = conn.execute("SELECT id, image_path, kid_image_path, kid_image_checked FROM math_question WHERE id = ?",
+                             (d["id"],)).fetchone()
+            d["image_path"] = _math_kid_image(conn, q)
+            for k in MATH_SOURCE_FIELDS:
+                d.pop(k, None)
+        conn.close()
 
     return jsonify({
         "questions": page_items,
@@ -5082,7 +5121,8 @@ def take_math_bank_test(child_id, test_id):
     if not child or not test:
         return "Not found", 404
     learning_plan_id = request.args.get("plan_id") or test["learning_plan_id"]
-    return render_template("math_bank_test.html", child=dict(child), test=dict(test), learning_plan_id=learning_plan_id)
+    return render_template("math_bank_test.html", child=dict(child), test=dict(test), learning_plan_id=learning_plan_id,
+                           kid_preview=_math_kid_preview())
 
 
 @app.route("/child/<int:child_id>/math-bank-test/<int:test_id>/review")
@@ -5121,7 +5161,8 @@ def review_math_bank_test(child_id, test_id):
     answers = json.loads(sub["answers"]) if sub else {}
     return render_template("math_bank_test_review.html", child=dict(child), test=dict(test),
                            submission=dict(sub) if sub else None, questions=qs, answers=answers,
-                           learning_plan_id=learning_plan_id, show_source=session.get("role") == "parent")
+                           learning_plan_id=learning_plan_id, kid_preview=_math_kid_preview(),
+                           show_source=session.get("role") == "parent" and not _math_kid_preview())
 
 
 MATH_TEST_MODES = ("exam", "practice")
@@ -5177,9 +5218,14 @@ def _math_contest_scoring(questions):
 MATH_SOURCE_FIELDS = ("contest", "contest_year", "problem_number", "source", "origin")
 
 
+def _math_kid_preview():
+    """A parent looking at a page the way the kid sees it (?view=kid)."""
+    return session.get("role") == "parent" and request.args.get("view") == "kid"
+
+
 def _math_kid_view(test):
     """In practice mode a kid must not see where a question comes from (year + problem number)."""
-    return test["mode"] == "practice" and session.get("role") == "child"
+    return test["mode"] == "practice" and (session.get("role") == "child" or _math_kid_preview())
 
 
 def _math_kid_image(conn, q):
@@ -5456,6 +5502,12 @@ def submit_math_bank_test(test_id):
     result = _finish_math_bank_test(conn, test, questions, _math_test_child_id(test), test["elapsed_seconds"] or 0)
     conn.close()
     return jsonify(result)
+
+
+@app.route("/api/math-bank-tests/<int:test_id>", methods=["PUT"])
+@parent_required
+def rename_math_bank_test(test_id):
+    return _rename("math_bank_test", test_id)
 
 
 @app.route("/api/math-bank-tests/<int:test_id>", methods=["DELETE"])

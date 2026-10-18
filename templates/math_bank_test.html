@@ -87,6 +87,7 @@
     <h2 style="margin: 0;">{{ test.title }} <span class="mode-badge {{ 'mode-exam' if exam else 'mode-practice' }}">{{ 'Exam' if exam else 'Practice' }}</span></h2>
     <span></span>
 </div>
+{% with kid_view_note=' (answers are not saved)' %}{% include '_kid_view_toggle.html' %}{% endwith %}
 
 {% if exam and test.timer_mode != 'none' %}
 <div class="timer-box" id="timerBox" style="display: none;">
@@ -122,9 +123,11 @@
 const testId = {{ test.id }};
 const childId = {{ child.id }};
 const isExam = {{ 'true' if test.mode == 'exam' else 'false' }};
+const kidPreview = {{ 'true' if kid_preview else 'false' }};   // parent previewing the kid view: read-only
 const timerMode = '{{ test.timer_mode }}';
 const timeLimit = {{ test.time_limit_seconds or 0 }};
-const reviewUrl = `/child/${childId}/math-bank-test/${testId}/review{% if learning_plan_id %}?plan_id={{ learning_plan_id }}{% endif %}`;
+const reviewUrl = `/child/${childId}/math-bank-test/${testId}/review{% if learning_plan_id %}?plan_id={{ learning_plan_id }}{% endif %}`
+    + ({{ 'true' if kid_preview else 'false' }} ? '{{ '&' if learning_plan_id else '?' }}view=kid' : '');
 const LETTERS = ['A', 'B', 'C', 'D', 'E'];
 let questions = [];
 let answers = {};        // qid -> {child_answer, and in practice once checked: is_correct, correct_answer, solution_steps, solution_image_path}
@@ -148,7 +151,7 @@ function setSaveStatus(text, isError) {
 }
 
 async function loadTest() {
-    const res = await fetch(`/api/math-bank-tests/${testId}`);
+    const res = await fetch(`/api/math-bank-tests/${testId}${kidPreview ? '?view=kid' : ''}`);
     if (!res.ok) {
         document.getElementById('loadingArea').textContent = 'Could not load the test. Please refresh the page.';
         return;
@@ -161,7 +164,7 @@ async function loadTest() {
     renderQuestions();
     document.getElementById('loadingArea').style.display = 'none';
     document.getElementById('questionsArea').style.display = '';
-    if (isExam) {
+    if (isExam && !kidPreview) {
         document.getElementById('submitArea').style.display = '';
         if (Object.keys(answers).length || elapsed) setSaveStatus('Welcome back — continuing where you left off.');
         startTimer();
@@ -203,7 +206,7 @@ function questionHtml(q, i) {
     }).join('') + '</div>';
 
     let after = '';
-    if (!isExam) {
+    if (!isExam && !(kidPreview && !checked)) {
         after = checked ? feedbackHtml(a)
             : `<div class="check-row"><button class="btn btn-primary" id="check-${q.id}" onclick="checkAnswer(${q.id})" ${current ? '' : 'disabled'}>Submit Answer</button></div>`;
     }
@@ -245,6 +248,7 @@ function rerenderQuestion(qid) {
 
 async function selectAnswer(event, qid, letter) {
     event.preventDefault();
+    if (kidPreview) return;
     const key = String(qid);
     if (!isExam) {
         const a = answers[key];
@@ -273,6 +277,7 @@ async function selectAnswer(event, qid, letter) {
 }
 
 async function checkAnswer(qid) {
+    if (kidPreview) return;
     const choice = picks[qid];
     if (!choice) return;
     const btn = document.getElementById(`check-${qid}`);
@@ -384,7 +389,7 @@ function resumeTest() {
 
 // Leaving or closing the page pauses the exam: save the time on the way out
 window.addEventListener('pagehide', () => {
-    if (!isExam || submitting || timerMode === 'none') return;
+    if (!isExam || kidPreview || submitting || timerMode === 'none') return;
     navigator.sendBeacon(`/api/math-bank-tests/${testId}/progress`,
         new Blob([JSON.stringify({ elapsed_seconds: elapsed })], { type: 'application/json' }));
 });
