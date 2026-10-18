@@ -690,6 +690,12 @@ function renderLanguageArts(childId, data) {
 
 // ── Render math tab ──
 
+function bankModeBadge(t) {
+    return t.mode === 'exam'
+        ? '<span style="background:#fed7d7;color:#9b2c2c;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">Exam</span>'
+        : '<span style="background:#c6f6d5;color:#276749;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">Practice</span>';
+}
+
 function renderMathTab(childId, data) {
     const pdfTests = data.math_tests || [];
     const bankTests = data.math_bank_tests || [];
@@ -717,9 +723,14 @@ function renderMathTab(childId, data) {
             const planBadge = t.plan_title
                 ? `<span style="background:#ebf4ff;color:#667eea;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">${escHtml(t.plan_title)}</span>`
                 : '';
-            const typeBadge = t.type === 'bank' ? '<span style="background:#fefcbf;color:#975a16;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">Bank</span>' : '';
+            const typeBadge = t.type === 'bank' ? '<span style="background:#fefcbf;color:#975a16;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">Bank</span>' + bankModeBadge(t) : '';
+            const inProgress = t.type === 'bank' && (t.answered_count > 0 || t.elapsed_seconds > 0);
+            if (inProgress) {
+                timerInfo += ` &middot; <span style="color:#dd6b20;font-weight:600;">In progress ${t.answered_count}/${t.total_questions}`
+                    + (t.mode === 'exam' && t.elapsed_seconds > 0 ? `, ${Math.floor(t.elapsed_seconds / 60)} min used` : '') + '</span>';
+            }
             const manageUrl = t.type === 'pdf' ? `/parent/child/${childId}/math-test/${t.id}/manage` : `/child/${childId}/math-bank-test/${t.id}`;
-            const manageLabel = t.type === 'pdf' ? 'Manage' : 'Take';
+            const manageLabel = t.type === 'pdf' ? 'Manage' : (inProgress ? 'Continue' : 'Take');
             return `
             <div class="list-item">
                 <div class="info">
@@ -739,13 +750,13 @@ function renderMathTab(childId, data) {
         compList.innerHTML = '<span class="empty-msg">No completed math tests yet.</span>';
     } else {
         compList.innerHTML = allCompleted.map(t => {
-            const scoreInfo = t.correct_count != null && t.total_count != null
+            const scoreInfo = (t.max_points ? ` &middot; ${t.points}/${t.max_points} points` : '') + (t.correct_count != null && t.total_count != null
                 ? ` &middot; ${t.correct_count}/${t.total_count} correct (${t.score}%)`
-                : (t.score != null ? ` &middot; Score: ${t.score}%` : '');
+                : (t.score != null ? ` &middot; Score: ${t.score}%` : ''));
             const planBadge = t.plan_title
                 ? `<span style="background:#ebf4ff;color:#667eea;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">${escHtml(t.plan_title)}</span>`
                 : '';
-            const typeBadge = t.type === 'bank' ? '<span style="background:#fefcbf;color:#975a16;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">Bank</span>' : '';
+            const typeBadge = t.type === 'bank' ? '<span style="background:#fefcbf;color:#975a16;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">Bank</span>' + bankModeBadge(t) : '';
             const reviewUrl = t.type === 'pdf' ? `/child/${childId}/math-test/${t.id}/review` : `/child/${childId}/math-bank-test/${t.id}/review`;
             return `
             <div class="list-item">

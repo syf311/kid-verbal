@@ -385,8 +385,11 @@ def child_dashboard_summary(child_id):
 
     math_bank_tests = conn.execute(
         """SELECT mbt.id, mbt.title, mbt.status, mbt.created_at,
-                  mbt.timer_mode, mbt.time_limit_seconds, mbt.learning_plan_id,
+                  mbt.timer_mode, mbt.time_limit_seconds, mbt.learning_plan_id, mbt.mode, mbt.elapsed_seconds,
                   lp.title as plan_title,
+                  (SELECT points FROM math_bank_test_submission WHERE test_id = mbt.id ORDER BY submitted_at DESC LIMIT 1) as points,
+                  (SELECT max_points FROM math_bank_test_submission WHERE test_id = mbt.id ORDER BY submitted_at DESC LIMIT 1) as max_points,
+                  (SELECT COUNT(*) FROM math_bank_test_answer WHERE test_id = mbt.id AND child_answer != '') as answered_count,
                   (SELECT COUNT(*) FROM math_bank_test_question WHERE test_id = mbt.id) as question_count,
                   (SELECT score FROM math_bank_test_submission WHERE test_id = mbt.id ORDER BY submitted_at DESC LIMIT 1) as score,
                   (SELECT correct_count FROM math_bank_test_submission WHERE test_id = mbt.id ORDER BY submitted_at DESC LIMIT 1) as correct_count,
@@ -3429,11 +3432,14 @@ def get_learning_plan(plan_id):
             ).fetchone()
         elif item["item_type"] == "math_bank_test":
             row = conn.execute(
-                """SELECT mbt.id, mbt.title, mbt.status,
+                """SELECT mbt.id, mbt.title, mbt.status, mbt.mode, mbt.elapsed_seconds,
                           (SELECT COUNT(*) FROM math_bank_test_question WHERE test_id = mbt.id) as question_count,
                           (SELECT score FROM math_bank_test_submission WHERE test_id = mbt.id ORDER BY submitted_at DESC LIMIT 1) as score,
                           (SELECT correct_count FROM math_bank_test_submission WHERE test_id = mbt.id ORDER BY submitted_at DESC LIMIT 1) as correct_count,
-                          (SELECT total_count FROM math_bank_test_submission WHERE test_id = mbt.id ORDER BY submitted_at DESC LIMIT 1) as total_count
+                          (SELECT total_count FROM math_bank_test_submission WHERE test_id = mbt.id ORDER BY submitted_at DESC LIMIT 1) as total_count,
+                          (SELECT points FROM math_bank_test_submission WHERE test_id = mbt.id ORDER BY submitted_at DESC LIMIT 1) as points,
+                          (SELECT max_points FROM math_bank_test_submission WHERE test_id = mbt.id ORDER BY submitted_at DESC LIMIT 1) as max_points,
+                          (SELECT COUNT(*) FROM math_bank_test_answer WHERE test_id = mbt.id AND child_answer != '') as answered_count
                    FROM math_bank_test mbt WHERE mbt.id = ?""",
                 (item["item_id"],)
             ).fetchone()
@@ -5110,28 +5116,124 @@ def review_math_bank_test(child_id, test_id):
                            learning_plan_id=learning_plan_id)
 
 
+MATH_TEST_MODES = ("exam", "practice")
+MATH_SECRET_FIELDS = ("correct_answer", "solution_steps", "solution_image_path")
+
+
+def _math_test_mode(data):
+    """Mode from a create request; old clients without `mode` get exam if timed, else practice."""
+    mode = data.get("mode")
+    if mode in MATH_TEST_MODES:
+        return mode
+    return "exam" if data.get("timer_mode", "none") in ("countdown", "stopwatch") else "practice"
+
+
+def _insert_math_bank_test(conn, data, child_id, account_id, learning_plan_id=None, default_title="Math Test"):
+    mode = _math_test_mode(data)
+    timer_mode = data.get("timer_mode", "none") if mode == "exam" else "none"
+    time_limit_seconds = data.get("time_limit_seconds", 0) if timer_mode == "countdown" else 0
+    cursor = conn.execute(
+        """INSERT INTO math_bank_test (child_id, created_by, title, timer_mode, time_limit_seconds, learning_plan_id, mode)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (child_id, account_id, (data.get("title") or "").strip() or default_title,
+         timer_mode, time_limit_seconds, learning_plan_id, mode)
+    )
+    test_id = cursor.lastrowid
+    for qid in data.get("question_ids", []):
+        conn.execute("INSERT INTO math_bank_test_question (test_id, question_id) VALUES (?, ?)", (test_id, qid))
+    return test_id
+
+
+def _math_test_questions(conn, test_id):
+    return conn.execute(
+        """SELECT q.* FROM math_question q
+           JOIN math_bank_test_question btq ON q.id = btq.question_id
+           WHERE btq.test_id = ? ORDER BY q.contest, q.contest_year, q.problem_number, q.id""",
+        (test_id,)
+    ).fetchall()
+
+
+def _math_contest_scoring(questions):
+    """Official (correct, blank, wrong) points when every question is from one AMC contest, else None."""
+    contests = {(q["contest"] or "").upper().replace(" ", "") for q in questions}
+    if len(contests) != 1:
+        return None
+    contest = contests.pop()
+    if contest.startswith("AMC10") or contest.startswith("AMC12"):
+        return (6, 1.5, 0)
+    if contest.startswith("AMC8"):
+        return (1, 0, 0)
+    return None
+
+
+def _math_feedback(q, row):
+    return {
+        "child_answer": row["child_answer"],
+        "is_correct": bool(row["is_correct"]),
+        "correct_answer": q["correct_answer"].strip().upper(),
+        "solution_steps": q["solution_steps"],
+        "solution_image_path": q["solution_image_path"],
+    }
+
+
+def _finish_math_bank_test(conn, test, questions, child_id, time_taken):
+    """Grade every question from saved answers, update mastery for ones not graded yet, store the submission."""
+    saved = {r["question_id"]: r for r in conn.execute(
+        "SELECT * FROM math_bank_test_answer WHERE test_id = ?", (test["id"],)).fetchall()}
+    scoring = _math_contest_scoring(questions)
+    graded_answers = {}
+    correct_count = blank_count = 0
+    for q in questions:
+        row = saved.get(q["id"])
+        child_answer = (row["child_answer"] if row else "").strip().upper()
+        correct = q["correct_answer"].strip().upper()
+        is_correct = child_answer == correct
+        if row is None or row["is_correct"] is None:
+            # Exam answers (and blanks) are graded now; practice answers were graded when submitted
+            update_math_question_progress(conn, child_id, q["id"], is_correct)
+        correct_count += is_correct
+        blank_count += child_answer == ""
+        graded_answers[str(q["id"])] = {"child_answer": child_answer, "correct_answer": correct, "is_correct": is_correct}
+
+    total_count = len(questions)
+    score = round(correct_count / total_count * 100) if total_count > 0 else 0
+    points = max_points = None
+    if scoring:
+        right, blank, wrong = scoring
+        points = correct_count * right + blank_count * blank + (total_count - correct_count - blank_count) * wrong
+        max_points = total_count * right
+    conn.execute(
+        """INSERT INTO math_bank_test_submission (test_id, child_id, answers, score, correct_count, total_count,
+                                                  time_taken_seconds, points, max_points, blank_count)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (test["id"], child_id, json.dumps(graded_answers), score, correct_count, total_count,
+         time_taken, points, max_points, blank_count)
+    )
+    conn.execute("UPDATE math_bank_test SET status = 'completed' WHERE id = ?", (test["id"],))
+    conn.commit()
+    if test["learning_plan_id"]:
+        check_plan_completion(test["learning_plan_id"], conn)
+    return {"score": score, "correct_count": correct_count, "total_count": total_count,
+            "points": points, "max_points": max_points, "blank_count": blank_count, "answers": graded_answers}
+
+
+def _math_test_child_id(test):
+    account = get_current_account()
+    return account.get("child_id") or test["child_id"]
+
+
 @app.route("/api/math-bank-tests", methods=["POST"])
 @parent_required
 def create_math_bank_test():
     data = request.json
     child_id = data.get("child_id")
-    title = data.get("title", "").strip()
     question_ids = data.get("question_ids", [])
-    timer_mode = data.get("timer_mode", "none")
-    time_limit_seconds = data.get("time_limit_seconds", 0)
     if not child_id or not question_ids:
         return jsonify({"error": "child_id and question_ids required"}), 400
 
     account = get_current_account()
     conn = get_db()
-    cursor = conn.execute(
-        """INSERT INTO math_bank_test (child_id, created_by, title, timer_mode, time_limit_seconds)
-           VALUES (?, ?, ?, ?, ?)""",
-        (child_id, account["id"], title or "Math Test", timer_mode, time_limit_seconds)
-    )
-    test_id = cursor.lastrowid
-    for qid in question_ids:
-        conn.execute("INSERT INTO math_bank_test_question (test_id, question_id) VALUES (?, ?)", (test_id, qid))
+    test_id = _insert_math_bank_test(conn, data, child_id, account["id"])
     conn.commit()
     conn.close()
     return jsonify({"id": test_id, "total_questions": len(question_ids)}), 201
@@ -5165,93 +5267,159 @@ def get_math_bank_test(test_id):
     if not test:
         conn.close()
         return jsonify({"error": "Test not found"}), 404
-    questions = conn.execute(
-        """SELECT q.* FROM math_question q
-           JOIN math_bank_test_question btq ON q.id = btq.question_id
-           WHERE btq.test_id = ? ORDER BY q.contest, q.contest_year, q.problem_number, q.id""",
-        (test_id,)
-    ).fetchall()
+    questions = _math_test_questions(conn, test_id)
+    saved = {r["question_id"]: r for r in conn.execute(
+        "SELECT * FROM math_bank_test_answer WHERE test_id = ?", (test_id,)).fetchall()}
+    conn.close()
+    completed = test["status"] == "completed"
     result = dict(test)
-    qs = []
+    qs, answers = [], {}
     for q in questions:
         d = dict(q)
         if d["choices"]:
             d["choices"] = json.loads(d["choices"])
+        row = saved.get(q["id"])
+        if row is not None:
+            if row["is_correct"] is not None:
+                answers[str(q["id"])] = _math_feedback(q, row)
+            else:
+                answers[str(q["id"])] = {"child_answer": row["child_answer"]}
+        if not completed:
+            # Answers and solutions only reach the page once they may be shown
+            for k in MATH_SECRET_FIELDS:
+                d.pop(k, None)
         qs.append(d)
     result["questions"] = qs
+    result["answers"] = answers
+    return jsonify(result)
+
+
+@app.route("/api/math-bank-tests/<int:test_id>/answer", methods=["POST"])
+@login_required
+def answer_math_bank_test(test_id):
+    data = request.get_json(silent=True) or {}
+    question_id = data.get("question_id")
+    choice = (data.get("choice") or "").strip().upper()
+    conn = get_db()
+    test = conn.execute("SELECT * FROM math_bank_test WHERE id = ?", (test_id,)).fetchone()
+    if not test:
+        conn.close()
+        return jsonify({"error": "Test not found"}), 404
+    if test["status"] == "completed":
+        conn.close()
+        return jsonify({"error": "Test already submitted"}), 400
+    q = conn.execute(
+        """SELECT q.* FROM math_question q JOIN math_bank_test_question btq ON q.id = btq.question_id
+           WHERE btq.test_id = ? AND q.id = ?""", (test_id, question_id)
+    ).fetchone()
+    if not q:
+        conn.close()
+        return jsonify({"error": "Question not in this test"}), 400
+    if choice not in MATH_LETTERS and not (choice == "" and test["mode"] == "exam"):
+        conn.close()
+        return jsonify({"error": "choice must be A-E"}), 400
+    _save_math_test_elapsed(conn, test, data.get("elapsed_seconds"))
+
+    if test["mode"] == "exam":
+        conn.execute(
+            """INSERT INTO math_bank_test_answer (test_id, question_id, child_answer) VALUES (?, ?, ?)
+               ON CONFLICT(test_id, question_id) DO UPDATE SET child_answer = excluded.child_answer,
+               answered_at = CURRENT_TIMESTAMP""",
+            (test_id, q["id"], choice)
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({"saved": True})
+
+    # Practice: the first answer counts
+    row = conn.execute("SELECT * FROM math_bank_test_answer WHERE test_id = ? AND question_id = ?",
+                       (test_id, q["id"])).fetchone()
+    if row is None:
+        is_correct = choice == q["correct_answer"].strip().upper()
+        conn.execute(
+            "INSERT INTO math_bank_test_answer (test_id, question_id, child_answer, is_correct) VALUES (?, ?, ?, ?)",
+            (test_id, q["id"], choice, int(is_correct))
+        )
+        update_math_question_progress(conn, _math_test_child_id(test), q["id"], is_correct)
+        conn.commit()
+        row = conn.execute("SELECT * FROM math_bank_test_answer WHERE test_id = ? AND question_id = ?",
+                           (test_id, q["id"])).fetchone()
+    result = _math_feedback(q, row)
+
+    questions = _math_test_questions(conn, test_id)
+    answered = conn.execute("SELECT COUNT(*) FROM math_bank_test_answer WHERE test_id = ?", (test_id,)).fetchone()[0]
+    result["completed"] = answered >= len(questions)
+    if result["completed"]:
+        test = conn.execute("SELECT * FROM math_bank_test WHERE id = ?", (test_id,)).fetchone()
+        summary = _finish_math_bank_test(conn, test, questions, _math_test_child_id(test), test["elapsed_seconds"] or 0)
+        result.update({k: summary[k] for k in ("score", "correct_count", "total_count")})
     conn.close()
     return jsonify(result)
+
+
+def _save_math_test_elapsed(conn, test, elapsed):
+    """Store the exam timer; it only moves forward."""
+    try:
+        elapsed = int(elapsed)
+    except (TypeError, ValueError):
+        return
+    conn.execute("UPDATE math_bank_test SET elapsed_seconds = MAX(COALESCE(elapsed_seconds, 0), ?) WHERE id = ?",
+                 (max(0, elapsed), test["id"]))
+    conn.commit()
+
+
+@app.route("/api/math-bank-tests/<int:test_id>/progress", methods=["POST"])
+@login_required
+def save_math_bank_test_progress(test_id):
+    # Also sent with navigator.sendBeacon when the page is left, so the body may not be marked as JSON
+    data = request.get_json(force=True, silent=True) or {}
+    conn = get_db()
+    test = conn.execute("SELECT * FROM math_bank_test WHERE id = ?", (test_id,)).fetchone()
+    if not test:
+        conn.close()
+        return jsonify({"error": "Test not found"}), 404
+    if test["status"] != "completed":
+        _save_math_test_elapsed(conn, test, data.get("elapsed_seconds"))
+    conn.close()
+    return jsonify({"saved": True})
 
 
 @app.route("/api/math-bank-tests/<int:test_id>/submit", methods=["POST"])
 @login_required
 def submit_math_bank_test(test_id):
-    data = request.json
+    data = request.get_json(silent=True) or {}
     answers = data.get("answers", {})
-    time_taken = data.get("time_taken_seconds", 0)
 
     conn = get_db()
     test = conn.execute("SELECT * FROM math_bank_test WHERE id = ?", (test_id,)).fetchone()
     if not test:
         conn.close()
         return jsonify({"error": "Test not found"}), 404
+    if test["status"] == "completed":
+        conn.close()
+        return jsonify({"error": "Test already submitted"}), 400
 
-    questions = conn.execute(
-        """SELECT q.* FROM math_question q
-           JOIN math_bank_test_question btq ON q.id = btq.question_id
-           WHERE btq.test_id = ?""",
-        (test_id,)
-    ).fetchall()
-
-    correct_count = 0
-    total_count = len(questions)
-    graded_answers = {}
-
+    questions = _math_test_questions(conn, test_id)
+    # Answers in the body (older pages) fill in questions that have no saved answer
     for q in questions:
-        qid_str = str(q["id"])
-        child_answer = answers.get(qid_str, "").strip().upper()
-        correct = q["correct_answer"].strip().upper()
-        is_correct = child_answer == correct
-
-        if is_correct:
-            correct_count += 1
-
-        graded_answers[qid_str] = {
-            "child_answer": child_answer,
-            "correct_answer": correct,
-            "is_correct": is_correct
-        }
-
-    score = round(correct_count / total_count * 100) if total_count > 0 else 0
-
-    account = get_current_account()
-    progress_child_id = account.get("child_id") or test["child_id"]
-
-    # Update per-question mastery tracking
-    for q in questions:
-        ga = graded_answers.get(str(q["id"]))
-        if ga:
-            update_math_question_progress(conn, progress_child_id, q["id"], ga["is_correct"])
-
-    conn.execute(
-        """INSERT INTO math_bank_test_submission (test_id, child_id, answers, score, correct_count, total_count, time_taken_seconds)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (test_id, progress_child_id, json.dumps(graded_answers), score, correct_count, total_count, time_taken)
-    )
-    conn.execute("UPDATE math_bank_test SET status = 'completed' WHERE id = ?", (test_id,))
-    conn.commit()
-
-    if test["learning_plan_id"]:
-        check_plan_completion(test["learning_plan_id"], conn)
+        choice = str(answers.get(str(q["id"]), "")).strip().upper()
+        if choice in MATH_LETTERS:
+            conn.execute(
+                "INSERT OR IGNORE INTO math_bank_test_answer (test_id, question_id, child_answer) VALUES (?, ?, ?)",
+                (test_id, q["id"], choice)
+            )
+    _save_math_test_elapsed(conn, test, data.get("time_taken_seconds"))
+    test = conn.execute("SELECT * FROM math_bank_test WHERE id = ?", (test_id,)).fetchone()
+    result = _finish_math_bank_test(conn, test, questions, _math_test_child_id(test), test["elapsed_seconds"] or 0)
     conn.close()
-
-    return jsonify({"score": score, "correct_count": correct_count, "total_count": total_count, "answers": graded_answers})
+    return jsonify(result)
 
 
 @app.route("/api/math-bank-tests/<int:test_id>", methods=["DELETE"])
 @parent_required
 def delete_math_bank_test(test_id):
     conn = get_db()
+    conn.execute("DELETE FROM math_bank_test_answer WHERE test_id = ?", (test_id,))
     conn.execute("DELETE FROM math_bank_test WHERE id = ?", (test_id,))
     conn.commit()
     conn.close()
@@ -5683,22 +5851,12 @@ def add_plan_math_bank_test(plan_id):
         conn.close()
         return jsonify({"error": "Plan not found or not in draft"}), 400
     data = request.json
-    title = data.get("title", "").strip() or "Math Practice"
-    question_ids = data.get("question_ids", [])
-    if not question_ids:
+    if not data.get("question_ids"):
         conn.close()
         return jsonify({"error": "question_ids required"}), 400
-    timer_mode = data.get("timer_mode", "none")
-    time_limit_seconds = data.get("time_limit_seconds", 0)
     account = get_current_account()
-    cursor = conn.execute(
-        """INSERT INTO math_bank_test (child_id, created_by, title, timer_mode, time_limit_seconds, learning_plan_id)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (plan["child_id"], account["id"], title, timer_mode, time_limit_seconds, plan_id)
-    )
-    test_id = cursor.lastrowid
-    for qid in question_ids:
-        conn.execute("INSERT INTO math_bank_test_question (test_id, question_id) VALUES (?, ?)", (test_id, qid))
+    test_id = _insert_math_bank_test(conn, data, plan["child_id"], account["id"],
+                                     learning_plan_id=plan_id, default_title="Math Practice")
     max_order = conn.execute("SELECT COALESCE(MAX(sort_order), 0) FROM learning_plan_item WHERE plan_id = ?", (plan_id,)).fetchone()[0]
     conn.execute(
         "INSERT INTO learning_plan_item (plan_id, item_type, item_id, sort_order) VALUES (?, 'math_bank_test', ?, ?)",

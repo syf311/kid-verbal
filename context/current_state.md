@@ -1,6 +1,6 @@
 # Current State
 
-*Last updated: 2026-10-12*
+*Last updated: 2026-10-17*
 
 ## What's Built and Working
 
@@ -37,6 +37,7 @@
 - **Math Question Bank:** AI-generated or manually added MC questions with concept tags, difficulty (1-5), solution steps, and per-question mastery tracking
 - **Math Bank Tests:** Create tests from the question bank with concept/difficulty/mastery filters, auto-graded, solution steps in review
 - **Math question pictures & tags** (task_015): optional question picture (text/choices optional then — child picks plain A–E) and solution picture; required origin (`ai_generated`/`human`), optional contest / year / problem #; filter by origin/contest/year on bank page and test builder; tests ordered contest → year → problem #
+- **Exam and practice modes** (task_016): parent picks per bank test. Exam = timed (official AMC time via "Full Exam"), results/answers/solutions only after submitting, official AMC 8/10/12 scoring + %. Practice = untimed, each question submitted on its own with immediate answer + solution, first answer counts, ends on the last question. Both resume later (answers saved per question; exam timer pauses on Pause or leaving the page)
 - **Copy/paste prevention:** Text selection, right-click, and Ctrl+C disabled on test pages to deter cheating
 
 ### Writing
@@ -102,6 +103,7 @@
 
 ## Recent Changes (latest commits)
 
+1. **Math bank tests: exam mode and practice mode, with resume** (task_016) — new `math_bank_test.mode` (`exam`|`practice`; pending tests backfilled timed → exam, untimed → practice) and `elapsed_seconds`; new `math_bank_test_answer` table (saved per question); submission gains `points`/`max_points`/`blank_count` (AMC 10/12: 6 / 1.5 blank / 0, AMC 8: 1). New `POST /api/math-bank-tests/<id>/answer` and `/progress`; test GET no longer sends correct answers/solutions before they may be shown; resubmitting a completed test is rejected. Builder + learning-plan picker choose the mode; builder "Full Exam" button. Exam page: Pause/Resume, time saved every 15 s and on leaving, blanks allowed, auto-submit at 0; practice page: per-question Submit with feedback, auto-finish. Parent Math tab / child plan view show mode, progress and Continue; review shows points and blanks. Phone: timer + pause in a sticky bar under the app bar.
 1. **Native-style phone UI** (task_016) — sticky app top bar on phones (‹ Back from the page's own back link, title on scroll, account menu with Home/Logout), 44px tap targets with press feedback, no double-tap zoom delay. Desktop unchanged.
 1. **Mobile phone rendering** (task_016) — phone-only stylesheet in `base.html` (`max-width: 640px`, loaded after page CSS so desktop is unchanged): edge-to-edge layout with safe-area insets, 16px inputs (no iOS focus zoom), side-panel toggles in page flow, sticky timers, scrollable tables. "Open PDF full screen" button above PDF iframes on phones. Add-to-Home-Screen support: `/manifest.webmanifest`, icons in `static/`. Per-page fixes: parent dashboard tabs scroll, Words / Materials / Settings rows wrap, live session panels fit, math/science tests scroll with the page. Verified desktop pixel-identical before/after.
 1. **Math question pictures and origin/contest tags** (task_015) — upload a question picture (choices may be in the picture; child then picks A–E) and a solution picture in the Add form / Edit modal; new `math_question` columns `origin` (required, existing rows backfilled `ai_generated`), `contest`, `contest_year`, `problem_number`, `solution_image_path`; add/update accept multipart (`payload` JSON + files); Origin/Contest/Year filters on bank page and test builder; picture + tag shown in bank, builder and learning-plan Math Practice picker (tags hidden from kids); solution picture on review page; tests list questions in contest/year/problem order; AI Verify skips picture questions; picture files deleted with the question.

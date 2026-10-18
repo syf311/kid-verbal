@@ -39,43 +39,100 @@
     .submit-area { margin-top: 20px; text-align: center; }
     .submit-area .btn { padding: 14px 50px; font-size: 18px; }
     .concept-tag { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; background: #e9d8fd; color: #553c9a; }
+    .mode-badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 700; vertical-align: middle; margin-left: 8px; }
+    .mode-exam { background: #fed7d7; color: #9b2c2c; }
+    .mode-practice { background: #c6f6d5; color: #276749; }
+    .timer-box { position: fixed; right: 20px; top: 80px; z-index: 100; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+    .timer-box .timer-display { position: static; }
+    .pause-btn { padding: 6px 14px; font-size: 14px; font-weight: 700; border-radius: 8px; border: 2px solid #667eea; background: #fff; color: #667eea; cursor: pointer; }
+    /* Phones: timer + pause as a bar that sticks under the app bar instead of floating over the choices */
+    @media (max-width: 640px) {
+        .timer-box {
+            position: sticky; top: calc(48px + env(safe-area-inset-top)); right: auto;
+            flex-direction: row; justify-content: flex-end; align-items: center; gap: 10px;
+            margin: 0 calc(-1 * max(14px, env(safe-area-inset-right))) 10px calc(-1 * max(14px, env(safe-area-inset-left)));
+            padding: 6px max(14px, env(safe-area-inset-right)) 6px max(14px, env(safe-area-inset-left));
+            background: #fff; border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+        }
+        .timer-box .timer-display { box-shadow: none; font-size: 17px; padding: 6px 12px; }
+        .pause-btn { min-height: 44px; }
+    }
+    .paused-area { text-align: center; padding: 60px 20px; background: #f7fafc; border-radius: 15px; border: 2px dashed #cbd5e0; }
+    .paused-area h3 { margin: 0 0 8px; font-size: 22px; color: #2d3748; }
+    .paused-area p { color: #666; margin-bottom: 18px; }
+    .save-status { text-align: center; font-size: 12px; color: #a0aec0; min-height: 16px; margin-bottom: 8px; }
+    .save-status.error { color: #e53e3e; font-weight: 600; }
+    .choice-radio.locked { cursor: default; }
+    .choice-radio.locked:hover { border-color: #e2e8f0; background: white; }
+    .choice-radio.correct-choice, .choice-radio.correct-choice:hover { border-color: #48bb78; background: #f0fff4; }
+    .choice-radio.wrong-choice, .choice-radio.wrong-choice:hover { border-color: #e53e3e; background: #fff5f5; }
+    .check-row { margin-top: 12px; }
+    .feedback { margin-top: 12px; padding: 12px 14px; border-radius: 10px; font-size: 15px; }
+    .feedback.right { background: #f0fff4; border: 1px solid #9ae6b4; color: #276749; }
+    .feedback.wrong { background: #fff5f5; border: 1px solid #feb2b2; color: #9b2c2c; }
+    .feedback .solution { margin-top: 8px; color: #4a5568; white-space: pre-wrap; font-size: 14px; }
+    .feedback img { display: block; max-width: 100%; width: 600px; margin-top: 8px; border-radius: 6px; border: 1px solid #e2e8f0; }
+    .done-banner { text-align: center; padding: 24px; margin: 20px 0; border-radius: 15px; background: linear-gradient(135deg, #c6f6d5, #9ae6b4); }
+    .done-banner h3 { margin: 0 0 6px; font-size: 22px; color: #22543d; }
+    .q-image { display: block; max-width: 100%; width: 600px; margin: 10px 0; border-radius: 8px; border: 1px solid #e2e8f0; }
+    .question-card.correct-card { border-color: #48bb78; }
+    .question-card.wrong-card { border-color: #fc8181; }
 </style>
 {% endblock %}
 
 {% block content %}
+{% set exam = test.mode == 'exam' %}
 <div class="header-row">
     <a href="{% if learning_plan_id %}/child/{{ child.id }}/learning-plan/{{ learning_plan_id }}{% else %}/child/{{ child.id }}{% endif %}" style="color: #667eea; text-decoration: none; font-size: 14px;">&larr; Back</a>
-    <h2 style="margin: 0;">{{ test.title }}</h2>
+    <h2 style="margin: 0;">{{ test.title }} <span class="mode-badge {{ 'mode-exam' if exam else 'mode-practice' }}">{{ 'Exam' if exam else 'Practice' }}</span></h2>
     <span></span>
 </div>
 
-{% if test.timer_mode != 'none' %}
-<div class="timer-display" id="timerDisplay">00:00</div>
+{% if exam and test.timer_mode != 'none' %}
+<div class="timer-box" id="timerBox" style="display: none;">
+    <div class="timer-display" id="timerDisplay">00:00</div>
+    <button class="pause-btn" id="pauseBtn" onclick="pauseTest()">&#10074;&#10074; Pause</button>
+</div>
 {% endif %}
 
 <div class="progress-text" id="progressText">0 / 0 answered</div>
 <div class="progress-bar-wrap">
     <div class="progress-bar-fill" id="progressBar" style="width: 0%"></div>
 </div>
+<div class="save-status" id="saveStatus"></div>
 
 <div id="loadingArea" style="text-align:center; padding:60px; color:#666; font-size:18px;">Loading questions...</div>
+<div id="pausedArea" class="paused-area" style="display: none;">
+    <h3>Paused</h3>
+    <p>Your answers and time are saved. You can close this page and continue later.</p>
+    <button class="btn btn-success" onclick="resumeTest()" style="padding: 12px 40px; font-size: 18px;">Resume</button>
+</div>
+<div id="doneArea"></div>
 <div id="questionsArea" style="display: none;"></div>
 
+{% if exam %}
 <div class="submit-area" id="submitArea" style="display: none;">
     <button class="btn btn-success" onclick="submitTest()" id="submitBtn">Submit Test</button>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
 const testId = {{ test.id }};
 const childId = {{ child.id }};
+const isExam = {{ 'true' if test.mode == 'exam' else 'false' }};
 const timerMode = '{{ test.timer_mode }}';
-const timeLimit = {{ test.time_limit_seconds }};
+const timeLimit = {{ test.time_limit_seconds or 0 }};
+const reviewUrl = `/child/${childId}/math-bank-test/${testId}/review{% if learning_plan_id %}?plan_id={{ learning_plan_id }}{% endif %}`;
+const LETTERS = ['A', 'B', 'C', 'D', 'E'];
 let questions = [];
-let answers = {};
+let answers = {};        // qid -> {child_answer, and in practice once checked: is_correct, correct_answer, solution_steps, solution_image_path}
+let picks = {};          // practice: qid -> letter picked but not checked yet
 let elapsed = 0;
 let timerInterval = null;
+let heartbeat = null;
+let submitting = false;
 
 function escHtml(str) {
     if (!str) return '';
@@ -84,103 +141,278 @@ function escHtml(str) {
     return div.innerHTML;
 }
 
+function setSaveStatus(text, isError) {
+    const el = document.getElementById('saveStatus');
+    el.textContent = text;
+    el.classList.toggle('error', !!isError);
+}
+
 async function loadTest() {
     const res = await fetch(`/api/math-bank-tests/${testId}`);
-    if (!res.ok) return;
+    if (!res.ok) {
+        document.getElementById('loadingArea').textContent = 'Could not load the test. Please refresh the page.';
+        return;
+    }
     const data = await res.json();
+    if (data.status === 'completed') { window.location.href = reviewUrl; return; }
     questions = data.questions || [];
+    answers = data.answers || {};
+    elapsed = data.elapsed_seconds || 0;
     renderQuestions();
     document.getElementById('loadingArea').style.display = 'none';
     document.getElementById('questionsArea').style.display = '';
-    document.getElementById('submitArea').style.display = '';
-    startTimer();
+    if (isExam) {
+        document.getElementById('submitArea').style.display = '';
+        if (Object.keys(answers).length || elapsed) setSaveStatus('Welcome back — continuing where you left off.');
+        startTimer();
+    }
+}
+
+function choiceOptions(q) {
+    const opts = (q.choices && typeof q.choices === 'object') ? q.choices : {};
+    if (Object.keys(opts).length) return opts;
+    // Choices are in the picture: plain A-E
+    return Object.fromEntries(LETTERS.map(l => [l, '']));
 }
 
 function renderQuestions() {
     const area = document.getElementById('questionsArea');
-    area.innerHTML = questions.map((q, i) => {
-        const concepts = (q.concepts ? (typeof q.concepts === 'string' ? JSON.parse(q.concepts) : q.concepts) : []);
-        const conceptsHtml = concepts.map(c => `<span class="concept-tag">${escHtml(c)}</span>`).join(' ');
-        let choicesHtml = '';
-        // Picture questions may keep their choices in the picture: offer plain A–E
-        let opts = (q.choices && typeof q.choices === 'object') ? q.choices : {};
-        if (!Object.keys(opts).length && q.image_path) opts = { A: '', B: '', C: '', D: '', E: '' };
-        if (Object.keys(opts).length) {
-            choicesHtml = '<div class="choices-group">' + Object.entries(opts).map(([k, v]) =>
-                `<label class="choice-radio" id="choice-${q.id}-${k}" onclick="selectAnswer(${q.id}, '${k}')">
-                    <input type="radio" name="q${q.id}" value="${k}">
-                    <span class="choice-letter">${k}.</span>
-                    <span class="choice-text">${escHtml(v)}</span>
-                </label>`
-            ).join('') + '</div>';
-        }
-        return `<div class="question-card" id="qcard-${q.id}">
-            <div class="question-number">Question ${i + 1} ${conceptsHtml}</div>
-            ${q.question_text ? `<div class="question-text">${escHtml(q.question_text)}</div>` : ''}
-            ${q.image_path ? `<img src="/uploads/${q.image_path}" alt="Question picture" style="display:block; max-width:100%; width:600px; margin:10px 0; border-radius:8px; border:1px solid #e2e8f0;">` : ''}
-            ${choicesHtml}
-        </div>`;
-    }).join('');
+    area.innerHTML = questions.map((q, i) => `<div class="question-card" id="qcard-${q.id}">${questionHtml(q, i)}</div>`).join('');
+    questions.forEach(q => styleCard(q));
     updateProgress();
 }
 
-function selectAnswer(qid, letter) {
-    answers[String(qid)] = letter;
-    // Update UI
-    document.querySelectorAll(`[id^="choice-${qid}-"]`).forEach(el => el.classList.remove('selected'));
-    document.getElementById(`choice-${qid}-${letter}`).classList.add('selected');
-    document.getElementById(`qcard-${qid}`).classList.add('answered');
+function questionHtml(q, i) {
+    const concepts = (q.concepts ? (typeof q.concepts === 'string' ? JSON.parse(q.concepts) : q.concepts) : []);
+    const conceptsHtml = concepts.map(c => `<span class="concept-tag">${escHtml(c)}</span>`).join(' ');
+    const a = answers[String(q.id)];
+    const checked = !isExam && a && a.is_correct !== undefined;
+    const current = isExam ? (a ? a.child_answer : '') : (checked ? a.child_answer : (picks[q.id] || ''));
+    const choicesHtml = '<div class="choices-group">' + Object.entries(choiceOptions(q)).map(([k, v]) => {
+        let cls = 'choice-radio';
+        if (checked) {
+            cls += ' locked';
+            if (k === a.correct_answer) cls += ' correct-choice';
+            else if (k === a.child_answer) cls += ' wrong-choice';
+        } else if (k === current) cls += ' selected';
+        return `<label class="${cls}" id="choice-${q.id}-${k}" onclick="selectAnswer(event, ${q.id}, '${k}')">
+                <input type="radio" name="q${q.id}" value="${k}" ${k === current ? 'checked' : ''} ${checked ? 'disabled' : ''}>
+                <span class="choice-letter">${k}.</span>
+                <span class="choice-text">${escHtml(v)}</span>
+            </label>`;
+    }).join('') + '</div>';
+
+    let after = '';
+    if (!isExam) {
+        after = checked ? feedbackHtml(a)
+            : `<div class="check-row"><button class="btn btn-primary" id="check-${q.id}" onclick="checkAnswer(${q.id})" ${current ? '' : 'disabled'}>Submit Answer</button></div>`;
+    }
+    return `<div class="question-number">Question ${i + 1} ${conceptsHtml}</div>
+        ${q.question_text ? `<div class="question-text">${escHtml(q.question_text)}</div>` : ''}
+        ${q.image_path ? `<img class="q-image" src="/uploads/${q.image_path}" alt="Question picture">` : ''}
+        ${choicesHtml}
+        ${after}`;
+}
+
+function feedbackHtml(a) {
+    const head = a.is_correct
+        ? '<strong>&#10004; Correct!</strong>'
+        : `<strong>&#10008; Not quite.</strong> The correct answer is <strong>${escHtml(a.correct_answer)}</strong>.`;
+    const hasSolution = (a.solution_steps && a.solution_steps.trim()) || a.solution_image_path;
+    return `<div class="feedback ${a.is_correct ? 'right' : 'wrong'}">${head}
+        ${hasSolution ? `<div class="solution"><strong>Solution:</strong> ${escHtml(a.solution_steps || '')}</div>` : ''}
+        ${a.solution_image_path ? `<img src="/uploads/${a.solution_image_path}" alt="Solution picture">` : ''}
+    </div>`;
+}
+
+function styleCard(q) {
+    const card = document.getElementById(`qcard-${q.id}`);
+    const a = answers[String(q.id)];
+    card.classList.remove('answered', 'correct-card', 'wrong-card');
+    if (isExam) {
+        if (a && a.child_answer) card.classList.add('answered');
+    } else if (a && a.is_correct !== undefined) {
+        card.classList.add(a.is_correct ? 'correct-card' : 'wrong-card');
+    }
+}
+
+function rerenderQuestion(qid) {
+    const idx = questions.findIndex(q => q.id === qid);
+    const card = document.getElementById(`qcard-${qid}`);
+    card.innerHTML = questionHtml(questions[idx], idx);
+    styleCard(questions[idx]);
+}
+
+async function selectAnswer(event, qid, letter) {
+    event.preventDefault();
+    const key = String(qid);
+    if (!isExam) {
+        const a = answers[key];
+        if (a && a.is_correct !== undefined) return;   // already checked
+        picks[qid] = letter;
+        rerenderQuestion(qid);
+        return;
+    }
+    if (submitting || document.getElementById('pausedArea').style.display !== 'none') return;
+    const prev = answers[key] ? answers[key].child_answer : '';
+    const choice = prev === letter ? '' : letter;   // click the chosen answer again to leave it blank
+    answers[key] = { child_answer: choice };
+    rerenderQuestion(qid);
     updateProgress();
+    try {
+        const res = await fetch(`/api/math-bank-tests/${testId}/answer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question_id: qid, choice, elapsed_seconds: elapsed })
+        });
+        if (!res.ok) throw new Error();
+        setSaveStatus('Saved');
+    } catch (e) {
+        setSaveStatus('Could not save your answer — check your connection and pick it again.', true);
+    }
+}
+
+async function checkAnswer(qid) {
+    const choice = picks[qid];
+    if (!choice) return;
+    const btn = document.getElementById(`check-${qid}`);
+    btn.disabled = true;
+    btn.textContent = 'Checking...';
+    let data;
+    try {
+        const res = await fetch(`/api/math-bank-tests/${testId}/answer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question_id: qid, choice })
+        });
+        data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+    } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'Submit Answer';
+        setSaveStatus('Could not submit your answer — please try again.', true);
+        return;
+    }
+    setSaveStatus('');
+    delete picks[qid];
+    answers[String(qid)] = data;
+    rerenderQuestion(qid);
+    updateProgress();
+    if (data.completed) showPracticeDone(data);
+}
+
+function showPracticeDone(data) {
+    document.getElementById('doneArea').innerHTML = `<div class="done-banner">
+        <h3>All done!</h3>
+        <div style="font-size:18px; margin-bottom:12px;">${data.correct_count} / ${data.total_count} correct (${data.score}%)</div>
+        <a href="${reviewUrl}" class="btn btn-success">See Results</a>
+    </div>`;
+    document.getElementById('doneArea').scrollIntoView({ behavior: 'smooth' });
 }
 
 function updateProgress() {
-    const answered = Object.keys(answers).length;
     const total = questions.length;
+    const answered = Object.values(answers).filter(a => isExam ? a.child_answer : a.is_correct !== undefined).length;
     document.getElementById('progressText').textContent = `${answered} / ${total} answered`;
     document.getElementById('progressBar').style.width = total > 0 ? `${answered / total * 100}%` : '0%';
 }
 
+// ── Exam timer: runs only while the page is open; saved so it continues next time ──
+
 function startTimer() {
     if (timerMode === 'none') return;
-    const display = document.getElementById('timerDisplay');
+    document.getElementById('timerBox').style.display = '';
+    showTime();
+    if (timerMode === 'countdown' && elapsed >= timeLimit) { submitTest(true); return; }
     timerInterval = setInterval(() => {
         elapsed++;
-        if (timerMode === 'countdown') {
-            const remaining = Math.max(0, timeLimit - elapsed);
-            display.textContent = formatTime(remaining);
-            if (remaining <= 60) display.className = 'timer-display danger';
-            else if (remaining <= 300) display.className = 'timer-display warning';
-            if (remaining <= 0) { clearInterval(timerInterval); submitTest(); }
-        } else {
-            display.textContent = formatTime(elapsed);
-        }
+        showTime();
+        if (timerMode === 'countdown' && elapsed >= timeLimit) { stopTimer(); submitTest(true); }
     }, 1000);
+    heartbeat = setInterval(saveProgress, 15000);
+}
+
+function stopTimer() {
+    clearInterval(timerInterval);
+    clearInterval(heartbeat);
+    timerInterval = heartbeat = null;
+}
+
+function showTime() {
+    const display = document.getElementById('timerDisplay');
+    if (timerMode === 'countdown') {
+        const remaining = Math.max(0, timeLimit - elapsed);
+        display.textContent = formatTime(remaining);
+        display.className = 'timer-display' + (remaining <= 60 ? ' danger' : remaining <= 300 ? ' warning' : '');
+    } else {
+        display.textContent = formatTime(elapsed);
+    }
 }
 
 function formatTime(s) {
-    const m = Math.floor(s / 60);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
     const sec = s % 60;
-    return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    const mmss = `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    return h ? `${h}:${mmss}` : mmss;
 }
 
-async function submitTest() {
-    if (timerInterval) clearInterval(timerInterval);
+function saveProgress() {
+    return fetch(`/api/math-bank-tests/${testId}/progress`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ elapsed_seconds: elapsed })
+    }).catch(() => {});
+}
+
+async function pauseTest() {
+    stopTimer();
+    await saveProgress();
+    document.getElementById('questionsArea').style.display = 'none';
+    document.getElementById('submitArea').style.display = 'none';
+    document.getElementById('pauseBtn').style.display = 'none';
+    document.getElementById('pausedArea').style.display = '';
+}
+
+function resumeTest() {
+    document.getElementById('pausedArea').style.display = 'none';
+    document.getElementById('questionsArea').style.display = '';
+    document.getElementById('submitArea').style.display = '';
+    document.getElementById('pauseBtn').style.display = '';
+    startTimer();
+}
+
+// Leaving or closing the page pauses the exam: save the time on the way out
+window.addEventListener('pagehide', () => {
+    if (!isExam || submitting || timerMode === 'none') return;
+    navigator.sendBeacon(`/api/math-bank-tests/${testId}/progress`,
+        new Blob([JSON.stringify({ elapsed_seconds: elapsed })], { type: 'application/json' }));
+});
+
+async function submitTest(timeUp) {
+    if (submitting) return;
+    const unanswered = questions.length - Object.values(answers).filter(a => a.child_answer).length;
+    if (!timeUp && unanswered > 0 &&
+        !confirm(`${unanswered} question${unanswered !== 1 ? 's are' : ' is'} unanswered and will be left blank. Submit anyway?`)) return;
+    submitting = true;
+    stopTimer();
     const btn = document.getElementById('submitBtn');
     btn.disabled = true;
-    btn.textContent = 'Submitting...';
+    btn.textContent = timeUp ? "Time's up — submitting..." : 'Submitting...';
 
     const res = await fetch(`/api/math-bank-tests/${testId}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers, time_taken_seconds: elapsed })
+        body: JSON.stringify({ time_taken_seconds: elapsed })
     });
 
-    if (res.ok) {
-        window.location.href = `/child/${childId}/math-bank-test/${testId}/review`;
+    if (res.ok || res.status === 400) {
+        window.location.href = reviewUrl;
     } else {
+        submitting = false;
         btn.disabled = false;
         btn.textContent = 'Submit Test';
-        alert('Failed to submit');
+        setSaveStatus('Failed to submit — please try again.', true);
     }
 }
 

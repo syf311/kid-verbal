@@ -609,6 +609,35 @@ def init_db():
     conn.execute("UPDATE math_question SET origin = 'ai_generated' WHERE origin IS NULL")
     conn.commit()
 
+    # Migration: math bank test modes (exam|practice), saved timer, per-question answers, contest scoring
+    for table, col in (("math_bank_test", "mode TEXT"),
+                       ("math_bank_test", "elapsed_seconds INTEGER DEFAULT 0"),
+                       ("math_bank_test_submission", "points REAL"),
+                       ("math_bank_test_submission", "max_points REAL"),
+                       ("math_bank_test_submission", "blank_count INTEGER")):
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col}")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
+    conn.execute("""UPDATE math_bank_test
+                    SET mode = CASE WHEN timer_mode IN ('countdown', 'stopwatch') THEN 'exam' ELSE 'practice' END
+                    WHERE mode IS NULL""")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS math_bank_test_answer (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            test_id INTEGER NOT NULL,
+            question_id INTEGER NOT NULL,
+            child_answer TEXT NOT NULL DEFAULT '',
+            is_correct INTEGER,
+            answered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (test_id) REFERENCES math_bank_test(id) ON DELETE CASCADE,
+            FOREIGN KEY (question_id) REFERENCES math_question(id) ON DELETE CASCADE,
+            UNIQUE(test_id, question_id)
+        )
+    """)
+    conn.commit()
+
     init_question_bank_tables(conn)
 
     conn.close()

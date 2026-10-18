@@ -52,7 +52,10 @@
 {% set score = submission.score %}
 <div class="score-banner {{ 'high' if score >= 80 else 'mid' if score >= 50 else 'low' }}">
     <div class="score-number">{{ score }}%</div>
-    <div class="score-detail">{{ submission.correct_count }} / {{ submission.total_count }} correct</div>
+    {% if submission.max_points %}
+    <div class="score-detail" style="font-size: 20px; font-weight: 700;">{{ '%g' % submission.points }} / {{ '%g' % submission.max_points }} points</div>
+    {% endif %}
+    <div class="score-detail">{{ submission.correct_count }} / {{ submission.total_count }} correct{% if submission.blank_count %} &middot; {{ submission.blank_count }} left blank{% endif %}</div>
     {% if submission.time_taken_seconds > 0 %}
     <div class="score-detail">Time: {{ (submission.time_taken_seconds // 60) }}m {{ (submission.time_taken_seconds % 60) }}s</div>
     {% endif %}
@@ -62,10 +65,11 @@
 {% set qid = q.id|string %}
 {% set a = answers.get(qid, {}) %}
 {% set is_correct = a.get('is_correct', false) %}
+{% set is_blank = not a.get('child_answer') %}
 <div class="review-card {{ 'correct' if is_correct else 'wrong' }}">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
         <div style="font-weight: 700; font-size: 14px; color: {{ '#48bb78' if is_correct else '#e53e3e' }};">
-            {{ '✔' if is_correct else '✘' }} Question {{ loop.index }}
+            {{ '✔' if is_correct else '✘' }} Question {{ loop.index }}{% if is_blank %} <span style="color: #a0aec0; font-weight: 600;">(left blank)</span>{% endif %}
         </div>
         <div>
             {% for c in (q.concepts or []) %}

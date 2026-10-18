@@ -198,6 +198,7 @@ function render(data) {
         let title = d.title || 'Item';
         let meta = '';
         let href = '#';
+        let inProgress = false;
 
         if (item.item_type === 'study_session') {
             icon = '&#x1F4D6;';
@@ -272,11 +273,16 @@ function render(data) {
                 : `/child/${childId}/science-test/${item.item_id}`;
         } else if (item.item_type === 'math_bank_test') {
             icon = '&#x1F4CA;';
-            typeLabel = 'Math Practice';
+            typeLabel = d.mode === 'exam' ? 'Math Exam' : 'Math Practice';
             typeCls = 'type-math';
             meta = `${d.question_count || 0} questions`;
             if (completed && d.score != null) {
+                if (d.max_points) meta += ` &middot; ${d.points}/${d.max_points} points`;
                 meta += ` &middot; ${d.correct_count}/${d.total_count} correct (${d.score}%)`;
+            } else if (d.answered_count > 0 || d.elapsed_seconds > 0) {
+                meta += ` &middot; ${d.answered_count} answered so far`;
+                if (d.mode === 'exam' && d.elapsed_seconds > 0) meta += `, ${Math.floor(d.elapsed_seconds / 60)} min used`;
+                inProgress = true;
             }
             href = completed
                 ? `/child/${childId}/math-bank-test/${item.item_id}/review`
@@ -287,8 +293,10 @@ function render(data) {
             ? '<span class="badge-reviewed">Reviewed</span>'
             : completed
                 ? '<span class="badge-done">Done</span>'
-                : '<span class="badge-pending">Not Started</span>';
-        const btnLabel = completed ? 'Review' : 'Start';
+                : inProgress
+                    ? '<span class="badge-pending">In Progress</span>'
+                    : '<span class="badge-pending">Not Started</span>';
+        const btnLabel = completed ? 'Review' : (inProgress ? 'Continue' : 'Start');
         const btnClass = completed ? 'btn-primary' : 'btn-success';
         const cardCls = reviewed ? 'item-card reviewed-card' : 'item-card';
 

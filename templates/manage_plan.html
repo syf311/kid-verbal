@@ -309,18 +309,24 @@
             <label style="font-weight: 600; font-size: 14px;">Title</label>
             <input type="text" id="mp-title" placeholder="e.g. Fractions & Geometry Review" style="margin-bottom: 8px;">
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 10px;">
             <div>
-                <label style="font-weight: 600; font-size: 13px;">Timer Mode</label>
-                <select id="mp-timer-mode" style="width:100%; padding:8px; font-size:14px; border:1px solid #ccc; border-radius:8px;" onchange="document.getElementById('mp-time-limit-wrap').style.display = this.value === 'countdown' ? '' : 'none'">
-                    <option value="none">No Timer</option>
-                    <option value="stopwatch">Stopwatch</option>
+                <label style="font-weight: 600; font-size: 13px;">Mode</label>
+                <select id="mp-mode" style="width:100%; padding:8px; font-size:14px; border:1px solid #ccc; border-radius:8px;" onchange="updateMpModeFields()">
+                    <option value="practice">Practice — check each answer, no timer</option>
+                    <option value="exam">Exam — timed, results after submitting</option>
+                </select>
+            </div>
+            <div id="mp-timer-mode-wrap" style="display:none;">
+                <label style="font-weight: 600; font-size: 13px;">Timer</label>
+                <select id="mp-timer-mode" style="width:100%; padding:8px; font-size:14px; border:1px solid #ccc; border-radius:8px;" onchange="updateMpModeFields()">
                     <option value="countdown">Countdown</option>
+                    <option value="stopwatch">Stopwatch</option>
                 </select>
             </div>
             <div id="mp-time-limit-wrap" style="display:none;">
                 <label style="font-weight: 600; font-size: 13px;">Time Limit (minutes)</label>
-                <input type="number" id="mp-time-limit" min="1" max="120" value="30" style="padding:8px; font-size:14px;">
+                <input type="number" id="mp-time-limit" min="1" max="300" value="30" style="padding:8px; font-size:14px;">
             </div>
         </div>
         <div style="margin-bottom: 8px;">
@@ -1300,11 +1306,20 @@ function updateMpCount() {
     document.getElementById('add-mp-btn').disabled = mpSelected.size === 0;
 }
 
+function updateMpModeFields() {
+    const exam = document.getElementById('mp-mode').value === 'exam';
+    document.getElementById('mp-timer-mode-wrap').style.display = exam ? '' : 'none';
+    document.getElementById('mp-time-limit-wrap').style.display =
+        exam && document.getElementById('mp-timer-mode').value === 'countdown' ? '' : 'none';
+}
+
 async function addMathPractice() {
     const title = document.getElementById('mp-title').value.trim() || `Math Practice ${new Date().toLocaleDateString()}`;
     if (mpSelected.size === 0) return;
-    const timerMode = document.getElementById('mp-timer-mode').value;
+    const mode = document.getElementById('mp-mode').value;
+    const timerMode = mode === 'exam' ? document.getElementById('mp-timer-mode').value : 'none';
     const timeLimitMinutes = parseInt(document.getElementById('mp-time-limit').value) || 0;
+    if (timerMode === 'countdown' && timeLimitMinutes <= 0) { alert('Please enter a time limit'); return; }
     const statusEl = document.getElementById('mp-status');
     statusEl.textContent = 'Adding...';
     const btn = document.getElementById('add-mp-btn');
@@ -1315,6 +1330,7 @@ async function addMathPractice() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             title,
+            mode,
             question_ids: [...mpSelected],
             timer_mode: timerMode,
             time_limit_seconds: timerMode === 'countdown' ? timeLimitMinutes * 60 : 0

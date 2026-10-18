@@ -47,20 +47,27 @@
     <label style="font-weight: 600;">Test Title</label>
     <input type="text" id="test-title" placeholder="e.g., Fractions & Geometry Review" style="margin-bottom: 8px;">
 </div>
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px;">
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 6px;">
     <div>
-        <label style="font-weight: 600; font-size: 13px;">Timer Mode</label>
-        <select id="timer-mode" style="width:100%; padding:8px; font-size:14px; border:1px solid #ccc; border-radius:8px;" onchange="document.getElementById('time-limit-wrap').style.display = this.value === 'countdown' ? '' : 'none'">
-            <option value="none">No Timer</option>
-            <option value="stopwatch">Stopwatch</option>
+        <label style="font-weight: 600; font-size: 13px;">Mode</label>
+        <select id="test-mode" style="width:100%; padding:8px; font-size:14px; border:1px solid #ccc; border-radius:8px;" onchange="updateModeFields()">
+            <option value="practice">Practice — check each answer, no timer</option>
+            <option value="exam">Exam — timed, results after submitting</option>
+        </select>
+    </div>
+    <div id="timer-mode-wrap" style="display:none;">
+        <label style="font-weight: 600; font-size: 13px;">Timer</label>
+        <select id="timer-mode" style="width:100%; padding:8px; font-size:14px; border:1px solid #ccc; border-radius:8px;" onchange="updateModeFields()">
             <option value="countdown">Countdown</option>
+            <option value="stopwatch">Stopwatch</option>
         </select>
     </div>
     <div id="time-limit-wrap" style="display:none;">
         <label style="font-weight: 600; font-size: 13px;">Time Limit (minutes)</label>
-        <input type="number" id="time-limit" min="1" max="120" value="30" style="padding:8px; font-size:14px;">
+        <input type="number" id="time-limit" min="1" max="300" value="30" style="padding:8px; font-size:14px;">
     </div>
 </div>
+<div id="mode-hint" style="font-size: 12px; color: #888; margin-bottom: 16px;"></div>
 
 <!-- Filters -->
 <div style="margin-bottom: 8px;">
@@ -87,6 +94,7 @@
     <select id="contest-filter" class="filter-select" onchange="loadQuestions()"><option value="">All</option></select>
     <label style="font-size: 13px; font-weight: 600;">Year:</label>
     <select id="year-filter" class="filter-select" onchange="loadQuestions()"><option value="">All</option></select>
+    <button class="btn btn-primary" id="full-exam-btn" style="padding:4px 10px; font-size:12px; display:none;" onclick="setUpFullExam()">Full Exam</button>
 </div>
 <div style="margin-bottom: 12px;">
     <label style="font-size: 13px; font-weight: 600;">Mastery:</label>
@@ -146,6 +154,7 @@ async function loadQuestions() {
 
     renderSelectOptions('contest-filter', data.contests || []);
     renderSelectOptions('year-filter', data.years || []);
+    updateFullExamBtn();
 
     renderConceptFilters(data.concepts || []);
     renderMasteryFilters(data.status_counts || {});
@@ -179,6 +188,44 @@ function setDiffFilter(d) {
     loadQuestions();
 }
 function setMasteryFilter(m) { currentMastery = m; loadQuestions(); }
+// Official time for a full contest; other contests: parent enters it
+function officialMinutes(contest) {
+    const c = (contest || '').toUpperCase().replace(/\s/g, '');
+    if (c.startsWith('AMC8')) return 40;
+    if (c.startsWith('AMC10') || c.startsWith('AMC12')) return 75;
+    return null;
+}
+
+function updateModeFields() {
+    const exam = document.getElementById('test-mode').value === 'exam';
+    const countdown = document.getElementById('timer-mode').value === 'countdown';
+    document.getElementById('timer-mode-wrap').style.display = exam ? '' : 'none';
+    document.getElementById('time-limit-wrap').style.display = exam && countdown ? '' : 'none';
+    document.getElementById('mode-hint').textContent = exam
+        ? 'Exam: one timed sitting; score, answers and solutions are shown only after submitting. Can be paused and continued later.'
+        : 'Practice: no timer; each question shows right/wrong, the answer and the solution as soon as it is submitted. Can be continued later.';
+}
+
+function updateFullExamBtn() {
+    const ok = document.getElementById('contest-filter').value && document.getElementById('year-filter').value;
+    document.getElementById('full-exam-btn').style.display = ok ? '' : 'none';
+}
+
+function setUpFullExam() {
+    const contest = document.getElementById('contest-filter').value;
+    const year = document.getElementById('year-filter').value;
+    allQuestions.forEach(q => selectedIds.add(q.id));
+    renderQuestions(allQuestions);
+    updateCount();
+    document.getElementById('test-title').value = `${contest} ${year}`;
+    document.getElementById('test-mode').value = 'exam';
+    document.getElementById('timer-mode').value = 'countdown';
+    const minutes = officialMinutes(contest);
+    if (minutes) document.getElementById('time-limit').value = minutes;
+    updateModeFields();
+    if (!minutes) document.getElementById('time-limit').focus();
+}
+
 function setOriginFilter(o) {
     currentOrigin = o;
     document.querySelectorAll('#origin-filters .filter-btn').forEach(btn =>
@@ -264,8 +311,10 @@ async function createTest() {
     if (!title) { alert('Please enter a test title'); return; }
     if (selectedIds.size === 0) { alert('Please select at least one question'); return; }
 
-    const timerMode = document.getElementById('timer-mode').value;
+    const mode = document.getElementById('test-mode').value;
+    const timerMode = mode === 'exam' ? document.getElementById('timer-mode').value : 'none';
     const timeLimitMinutes = parseInt(document.getElementById('time-limit').value) || 0;
+    if (timerMode === 'countdown' && timeLimitMinutes <= 0) { alert('Please enter a time limit'); return; }
 
     const btn = document.getElementById('create-btn');
     const statusEl = document.getElementById('create-status');
@@ -278,6 +327,7 @@ async function createTest() {
         body: JSON.stringify({
             child_id: childId,
             title,
+            mode,
             question_ids: [...selectedIds],
             timer_mode: timerMode,
             time_limit_seconds: timerMode === 'countdown' ? timeLimitMinutes * 60 : 0
@@ -295,6 +345,7 @@ async function createTest() {
     }
 }
 
+updateModeFields();
 loadQuestions();
 </script>
 {% endblock %}
