@@ -428,7 +428,7 @@ def child_dashboard_summary(child_id):
         "pending_assignments": [dict(a) for a in pending_assignments],
         "completed_assignments": [dict(a) for a in completed_assignments],
         "math_tests": [dict(t) for t in math_tests],
-        "math_bank_tests": [dict(t) for t in math_bank_tests],
+        "math_bank_tests": [dict(t, title=_math_test_title(t)) for t in math_bank_tests],
         "writing_tests": [dict(t) for t in writing_tests],
         "learning_plans": [dict(p) for p in learning_plans],
     })
@@ -3444,6 +3444,8 @@ def get_learning_plan(plan_id):
                    FROM math_bank_test mbt WHERE mbt.id = ?""",
                 (item["item_id"],)
             ).fetchone()
+            if row:
+                row = dict(row, title=_math_test_title(row))
         else:
             row = None
         if row:
@@ -5121,8 +5123,8 @@ def take_math_bank_test(child_id, test_id):
     if not child or not test:
         return "Not found", 404
     learning_plan_id = request.args.get("plan_id") or test["learning_plan_id"]
-    return render_template("math_bank_test.html", child=dict(child), test=dict(test), learning_plan_id=learning_plan_id,
-                           kid_preview=_math_kid_preview())
+    return render_template("math_bank_test.html", child=dict(child), test=dict(test, title=_math_test_title(test)),
+                           learning_plan_id=learning_plan_id, kid_preview=_math_kid_preview())
 
 
 @app.route("/child/<int:child_id>/math-bank-test/<int:test_id>/review")
@@ -5159,7 +5161,7 @@ def review_math_bank_test(child_id, test_id):
         qs.append(d)
     conn.close()
     answers = json.loads(sub["answers"]) if sub else {}
-    return render_template("math_bank_test_review.html", child=dict(child), test=dict(test),
+    return render_template("math_bank_test_review.html", child=dict(child), test=dict(test, title=_math_test_title(test)),
                            submission=dict(sub) if sub else None, questions=qs, answers=answers,
                            learning_plan_id=learning_plan_id, kid_preview=_math_kid_preview(),
                            show_source=session.get("role") == "parent" and not _math_kid_preview())
@@ -5221,6 +5223,13 @@ MATH_SOURCE_FIELDS = ("contest", "contest_year", "problem_number", "source", "or
 def _math_kid_preview():
     """A parent looking at a page the way the kid sees it (?view=kid)."""
     return session.get("role") == "parent" and request.args.get("view") == "kid"
+
+
+def _math_test_title(test):
+    """Exam titles name the contest and year ("AMC8 2024"), so a kid sees a neutral one instead."""
+    if test["mode"] == "exam" and (session.get("role") == "child" or _math_kid_preview()):
+        return f"Math Exam #{test['id']}"
+    return test["title"]
 
 
 def _math_kid_view(test):
@@ -5339,7 +5348,7 @@ def list_math_bank_tests(child_id):
             "SELECT * FROM math_bank_test_submission WHERE test_id = ? ORDER BY submitted_at DESC LIMIT 1",
             (t["id"],)
         ).fetchone()
-        d = dict(t)
+        d = dict(t, title=_math_test_title(t))
         d["question_count"] = count
         d["latest_submission"] = dict(sub) if sub else None
         result.append(d)
@@ -5360,7 +5369,7 @@ def get_math_bank_test(test_id):
         "SELECT * FROM math_bank_test_answer WHERE test_id = ?", (test_id,)).fetchall()}
     completed = test["status"] == "completed"
     kid_view = _math_kid_view(test)
-    result = dict(test)
+    result = dict(test, title=_math_test_title(test))
     qs, answers = [], {}
     for q in questions:
         d = _math_question_for_viewer(conn, q, kid_view)
