@@ -22,6 +22,7 @@ from test_engine import get_test_words, generate_choices, generate_word_choices,
 from ocr import extract_text
 from pdf_parser import parse_answer_pdf, parse_grid_answer_pdf, extract_row_answers, pdf_page_to_png
 from science_parser import parse_science_bowl_pdf
+from math_images import make_kid_image
 import qb_engine as qb
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
@@ -4346,6 +4347,8 @@ def list_math_questions(child_id):
     status_counts = {"never": 0, "wrong": 0, "due": 0, "good": 0, "mastered": 0}
     for q in questions:
         d = dict(q)
+        d.pop("kid_image_path", None)
+        d.pop("kid_image_checked", None)
         if d["choices"]:
             try:
                 d["choices"] = json.loads(d["choices"])
@@ -4561,9 +4564,12 @@ def update_math_question(question_id):
         return jsonify({"error": err}), 400
 
     image_path = q["image_path"]
+    kid_image_path, kid_image_checked = q["kid_image_path"], q["kid_image_checked"]
     if new_q_image or remove_q:
         _delete_upload(image_path)
+        _delete_upload(kid_image_path)
         image_path = _save_math_image(q_image, question_id, "q") if new_q_image else None
+        kid_image_path, kid_image_checked = None, 0
     solution_image_path = q["solution_image_path"]
     if new_s_image or remove_s:
         _delete_upload(solution_image_path)
@@ -4573,7 +4579,7 @@ def update_math_question(question_id):
         """UPDATE math_question SET question_text = ?, choices = ?, correct_answer = ?,
            solution_steps = ?, concepts = ?, grade_level = ?, difficulty = ?, source = ?,
            origin = ?, contest = ?, contest_year = ?, problem_number = ?,
-           image_path = ?, solution_image_path = ?, verified = 1
+           image_path = ?, solution_image_path = ?, kid_image_path = ?, kid_image_checked = ?, verified = 1
            WHERE id = ?""",
         (question_text,
          json.dumps(choices),
@@ -4587,7 +4593,7 @@ def update_math_question(question_id):
          tags["contest"] if "contest" in tags else q["contest"],
          tags["contest_year"] if "contest_year" in tags else q["contest_year"],
          tags["problem_number"] if "problem_number" in tags else q["problem_number"],
-         image_path, solution_image_path,
+         image_path, solution_image_path, kid_image_path, kid_image_checked,
          question_id)
     )
     conn.commit()
@@ -4599,13 +4605,14 @@ def update_math_question(question_id):
 @parent_required
 def delete_math_question(question_id):
     conn = get_db()
-    q = conn.execute("SELECT image_path, solution_image_path FROM math_question WHERE id = ?", (question_id,)).fetchone()
+    q = conn.execute("SELECT image_path, solution_image_path, kid_image_path FROM math_question WHERE id = ?", (question_id,)).fetchone()
     conn.execute("DELETE FROM math_question WHERE id = ?", (question_id,))
     conn.commit()
     conn.close()
     if q:
         _delete_upload(q["image_path"])
         _delete_upload(q["solution_image_path"])
+        _delete_upload(q["kid_image_path"])
     return jsonify({"success": True})
 
 
@@ -5097,11 +5104,11 @@ def review_math_bank_test(child_id, test_id):
            WHERE btq.test_id = ? ORDER BY q.contest, q.contest_year, q.problem_number, q.id""",
         (test_id,)
     ).fetchall()
-    conn.close()
     learning_plan_id = request.args.get("plan_id") or test["learning_plan_id"]
+    kid_view = _math_kid_view(test)
     qs = []
     for q in questions:
-        d = dict(q)
+        d = _math_question_for_viewer(conn, q, kid_view)
         if d["choices"]:
             d["choices"] = json.loads(d["choices"])
         if d["concepts"]:
@@ -5110,10 +5117,11 @@ def review_math_bank_test(child_id, test_id):
             except (json.JSONDecodeError, TypeError):
                 d["concepts"] = []
         qs.append(d)
+    conn.close()
     answers = json.loads(sub["answers"]) if sub else {}
     return render_template("math_bank_test_review.html", child=dict(child), test=dict(test),
                            submission=dict(sub) if sub else None, questions=qs, answers=answers,
-                           learning_plan_id=learning_plan_id)
+                           learning_plan_id=learning_plan_id, show_source=session.get("role") == "parent")
 
 
 MATH_TEST_MODES = ("exam", "practice")
@@ -5164,6 +5172,40 @@ def _math_contest_scoring(questions):
     if contest.startswith("AMC8"):
         return (1, 0, 0)
     return None
+
+
+MATH_SOURCE_FIELDS = ("contest", "contest_year", "problem_number", "source", "origin")
+
+
+def _math_kid_view(test):
+    """In practice mode a kid must not see where a question comes from (year + problem number)."""
+    return test["mode"] == "practice" and session.get("role") == "child"
+
+
+def _math_kid_image(conn, q):
+    """The question picture without its "YYYY AMC ... Problem N" title, made the first time it is needed."""
+    if not q["image_path"]:
+        return None
+    if q["kid_image_checked"]:
+        return q["kid_image_path"] or q["image_path"]
+    try:
+        kid_path = make_kid_image(UPLOAD_FOLDER, q["image_path"], q["id"])
+    except OSError:  # missing or unreadable picture: show it as it is
+        kid_path = None
+    conn.execute("UPDATE math_question SET kid_image_path = ?, kid_image_checked = 1 WHERE id = ?", (kid_path, q["id"]))
+    conn.commit()
+    return kid_path or q["image_path"]
+
+
+def _math_question_for_viewer(conn, q, kid_view):
+    d = dict(q)
+    if kid_view:
+        d["image_path"] = _math_kid_image(conn, q)
+        for k in MATH_SOURCE_FIELDS:
+            d.pop(k, None)
+    d.pop("kid_image_path", None)
+    d.pop("kid_image_checked", None)
+    return d
 
 
 def _math_feedback(q, row):
@@ -5270,12 +5312,12 @@ def get_math_bank_test(test_id):
     questions = _math_test_questions(conn, test_id)
     saved = {r["question_id"]: r for r in conn.execute(
         "SELECT * FROM math_bank_test_answer WHERE test_id = ?", (test_id,)).fetchall()}
-    conn.close()
     completed = test["status"] == "completed"
+    kid_view = _math_kid_view(test)
     result = dict(test)
     qs, answers = [], {}
     for q in questions:
-        d = dict(q)
+        d = _math_question_for_viewer(conn, q, kid_view)
         if d["choices"]:
             d["choices"] = json.loads(d["choices"])
         row = saved.get(q["id"])
@@ -5289,6 +5331,7 @@ def get_math_bank_test(test_id):
             for k in MATH_SECRET_FIELDS:
                 d.pop(k, None)
         qs.append(d)
+    conn.close()
     result["questions"] = qs
     result["answers"] = answers
     return jsonify(result)

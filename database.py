@@ -609,6 +609,14 @@ def init_db():
     conn.execute("UPDATE math_question SET origin = 'ai_generated' WHERE origin IS NULL")
     conn.commit()
 
+    # Migration: copy of the question picture without its "YYYY AMC ... Problem N" title, shown to kids in practice
+    for col in ("kid_image_path TEXT", "kid_image_checked INTEGER DEFAULT 0"):
+        try:
+            conn.execute(f"ALTER TABLE math_question ADD COLUMN {col}")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
+
     # Migration: math bank test modes (exam|practice), saved timer, per-question answers, contest scoring
     for table, col in (("math_bank_test", "mode TEXT"),
                        ("math_bank_test", "elapsed_seconds INTEGER DEFAULT 0"),

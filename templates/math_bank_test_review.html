@@ -35,6 +35,10 @@
         display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px;
         font-weight: 600; background: #e9d8fd; color: #553c9a;
     }
+    .source-tag {
+        display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px;
+        font-weight: 600; background: #bee3f8; color: #2a4365;
+    }
     .diff-badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
     .diff-1 { background: #c6f6d5; color: #276749; }
     .diff-2 { background: #bee3f8; color: #2b6cb0; }
@@ -72,6 +76,9 @@
             {{ '✔' if is_correct else '✘' }} Question {{ loop.index }}{% if is_blank %} <span style="color: #a0aec0; font-weight: 600;">(left blank)</span>{% endif %}
         </div>
         <div>
+            {% if show_source and q.contest %}
+            <span class="source-tag">{{ q.contest }}{% if q.contest_year %} {{ q.contest_year }}{% endif %}{% if q.problem_number %} #{{ q.problem_number }}{% endif %}</span>
+            {% endif %}
             {% for c in (q.concepts or []) %}
             <span class="concept-tag">{{ c }}</span>
             {% endfor %}

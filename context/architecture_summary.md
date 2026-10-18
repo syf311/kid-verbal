@@ -25,6 +25,7 @@ kid-verbal/
 ├── ocr.py                  # Tesseract OCR wrapper
 ├── test_engine.py          # Test logic, scoring, badges, word selection
 ├── qb_engine.py            # CogAT/i-Ready-style bank: validation, SVG sanitize, mastery, test assembly
+├── math_images.py          # Math question pictures: detect contest title line, make kid copy without it
 ├── pdf_parser.py           # Math answer key PDF parser (grid OCR)
 ├── science_parser.py       # Science Bowl PDF parser
 ├── requirements.txt        # Python dependencies
